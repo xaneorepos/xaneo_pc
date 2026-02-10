@@ -1,13 +1,17 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../l10n/app_localizations.dart';
 import '../providers/theme_provider.dart';
+import '../providers/scale_provider.dart';
 import '../styles/app_styles.dart';
-import '../widgets/3d_card.dart';
-import '../widgets/particle_background.dart';
+import '../widgets/glass_card.dart';
+import '../widgets/geometry_3d.dart';
+import '../widgets/advanced_background.dart';
+import '../widgets/custom_title_bar.dart';
 
-/// Экран входа в систему
+/// Экран входа в систему с продвинутыми 3D эффектами
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -23,25 +27,42 @@ class _LoginScreenState extends State<LoginScreen>
   
   bool _isLoading = false;
   bool _obscurePassword = true;
+  bool _isLoginFocused = false;
+  bool _isPasswordFocused = false;
 
   late AnimationController _fadeController;
   late AnimationController _slideController;
+  late AnimationController _pulseController;
+  late AnimationController _rotateController;
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
+
+  final FocusNode _loginFocus = FocusNode();
+  final FocusNode _passwordFocus = FocusNode();
 
   @override
   void initState() {
     super.initState();
     
     _fadeController = AnimationController(
-      duration: const Duration(milliseconds: 600),
+      duration: const Duration(milliseconds: 800),
       vsync: this,
     );
     
     _slideController = AnimationController(
-      duration: const Duration(milliseconds: 800),
+      duration: const Duration(milliseconds: 1000),
       vsync: this,
     );
+
+    _pulseController = AnimationController(
+      duration: const Duration(milliseconds: 2000),
+      vsync: this,
+    )..repeat(reverse: true);
+
+    _rotateController = AnimationController(
+      duration: const Duration(seconds: 25),
+      vsync: this,
+    )..repeat();
 
     _fadeAnimation = Tween<double>(
       begin: 0.0,
@@ -52,7 +73,7 @@ class _LoginScreenState extends State<LoginScreen>
     ));
 
     _slideAnimation = Tween<Offset>(
-      begin: const Offset(0, 0.3),
+      begin: const Offset(0, 0.15),
       end: Offset.zero,
     ).animate(CurvedAnimation(
       parent: _slideController,
@@ -61,14 +82,25 @@ class _LoginScreenState extends State<LoginScreen>
 
     _fadeController.forward();
     _slideController.forward();
+
+    _loginFocus.addListener(() {
+      setState(() => _isLoginFocused = _loginFocus.hasFocus);
+    });
+    _passwordFocus.addListener(() {
+      setState(() => _isPasswordFocused = _passwordFocus.hasFocus);
+    });
   }
 
   @override
   void dispose() {
     _fadeController.dispose();
     _slideController.dispose();
+    _pulseController.dispose();
+    _rotateController.dispose();
     _loginController.dispose();
     _passwordController.dispose();
+    _loginFocus.dispose();
+    _passwordFocus.dispose();
     super.dispose();
   }
 
@@ -109,30 +141,51 @@ class _LoginScreenState extends State<LoginScreen>
       backgroundColor: isDark ? Colors.black : Colors.white,
       body: Stack(
         children: [
-          // Фон с частицами
+          // Продвинутый фон (не масштабируется)
           Positioned.fill(
-            child: ParticleBackground(
-              particleColor: isDark ? Colors.white : Colors.black,
-              particleCount: 20,
+            child: AdvancedBackground(
+              isDark: isDark,
+              enableGrid: true,
+              enableParticles: true,
+              enableGeometricShapes: true,
             ),
           ),
           
-          // Основной контент
-          SafeArea(
-            child: Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
-                child: AnimatedBuilder(
-                  animation: Listenable.merge([_fadeAnimation, _slideAnimation]),
-                  builder: (context, child) {
-                    return FadeTransition(
-                      opacity: _fadeAnimation,
-                      child: SlideTransition(
-                        position: _slideAnimation,
-                        child: _buildLoginForm(l10n, isDark),
-                      ),
-                    );
-                  },
+          // Плавающие 3D фигуры (не масштабируются)
+          _buildFloatingShapes(isDark),
+          
+          // Title bar (не масштабируется)
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: SizedBox(
+              height: 40,
+              child: CustomTitleBar(),
+            ),
+          ),
+          
+          // Основной контент (масштабируется)
+          Positioned.fill(
+            child: Padding(
+              padding: const EdgeInsets.only(top: 40),
+              child: _ScaledContent(
+                child: Center(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(24),
+                    child: AnimatedBuilder(
+                      animation: Listenable.merge([_fadeAnimation, _slideAnimation]),
+                      builder: (context, child) {
+                        return FadeTransition(
+                          opacity: _fadeAnimation,
+                          child: SlideTransition(
+                            position: _slideAnimation,
+                            child: _buildLoginForm(l10n, isDark),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -142,32 +195,81 @@ class _LoginScreenState extends State<LoginScreen>
     );
   }
 
-  Widget _buildLoginForm(AppLocalizations? l10n, bool isDark) {
-    return Card3D(
-      width: 400,
-      height: 500,
-      perspective: 0.001,
-      child: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: isDark
-                ? [
-                    Colors.grey.shade900.withOpacity(0.95),
-                    Colors.grey.shade800.withOpacity(0.95),
-                  ]
-                : [
-                    Colors.grey.shade100.withOpacity(0.95),
-                    Colors.grey.shade200.withOpacity(0.95),
-                  ],
-          ),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: isDark ? Colors.grey.shade700 : Colors.grey.shade300,
-            width: 1,
+  Widget _buildFloatingShapes(bool isDark) {
+    return Stack(
+      children: [
+        // Левая сторона - сфера
+        Positioned(
+          top: 100,
+          left: 20,
+          child: FloatingGeometry(
+            floatRange: 15,
+            floatDuration: const Duration(seconds: 6),
+            child: Sphere3D(
+              size: 70,
+              color: isDark ? Colors.white : Colors.black,
+              rotationDuration: const Duration(seconds: 12),
+            ),
           ),
         ),
+        
+        // Правая сторона - куб
+        Positioned(
+          top: 150,
+          right: 30,
+          child: FloatingGeometry(
+            floatRange: 20,
+            floatDuration: const Duration(seconds: 5),
+            child: Cube3D(
+              size: 55,
+              color: isDark ? Colors.white : Colors.black,
+              rotationDuration: const Duration(seconds: 15),
+            ),
+          ),
+        ),
+        
+        // Нижняя левая - тор
+        Positioned(
+          bottom: 120,
+          left: 50,
+          child: FloatingGeometry(
+            floatRange: 12,
+            floatDuration: const Duration(seconds: 7),
+            child: Torus3D(
+              size: 60,
+              color: isDark ? Colors.white : Colors.black,
+              rotationDuration: const Duration(seconds: 10),
+            ),
+          ),
+        ),
+        
+        // Нижняя правая - куб
+        Positioned(
+          bottom: 80,
+          right: 60,
+          child: FloatingGeometry(
+            floatRange: 18,
+            floatDuration: const Duration(seconds: 5),
+            child: Cube3D(
+              size: 45,
+              color: isDark ? Colors.white : Colors.black,
+              rotationDuration: const Duration(seconds: 18),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLoginForm(AppLocalizations? l10n, bool isDark) {
+    return GlassCard(
+      width: 380,
+      height: 480,
+      borderRadius: 28,
+      enableGlow: true,
+      glowColor: isDark ? Colors.white : Colors.black,
+      glowIntensity: 0.35,
+      child: Container(
         padding: const EdgeInsets.all(32),
         child: Form(
           key: _formKey,
@@ -175,137 +277,368 @@ class _LoginScreenState extends State<LoginScreen>
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Заголовок
-              Text(
-                l10n!.loginFormTitle,
-                style: AppStyles.titleLarge(context),
-                textAlign: TextAlign.center,
-              ),
+              // Логотип
+              _buildHeader(isDark),
               
-              const SizedBox(height: 40),
+              const SizedBox(height: 36),
               
               // Поле логина
-              TextFormField(
-                controller: _loginController,
-                style: TextStyle(
-                  color: isDark ? Colors.white : Colors.black,
-                ),
-                decoration: InputDecoration(
-                  labelText: l10n!.loginFieldHint,
-                  prefixIcon: Icon(
-                    Icons.person,
-                    color: isDark ? Colors.white : Colors.black,
-                  ),
-                  filled: true,
-                  fillColor: isDark ? Colors.grey.shade800 : Colors.grey.shade300,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                  labelStyle: TextStyle(
-                    color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
-                  ),
-                ),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return l10n!.fillAllFields;
-                  }
-                  return null;
-                },
-              ),
+              _buildLoginField(l10n, isDark),
               
-              const SizedBox(height: 20),
+              const SizedBox(height: 18),
               
               // Поле пароля
-              TextFormField(
-                controller: _passwordController,
-                obscureText: _obscurePassword,
-                style: TextStyle(
-                  color: isDark ? Colors.white : Colors.black,
-                ),
-                decoration: InputDecoration(
-                  labelText: l10n!.passwordFieldHint,
-                  prefixIcon: Icon(
-                    Icons.lock,
-                    color: isDark ? Colors.white : Colors.black,
-                  ),
-                  suffixIcon: IconButton(
-                    icon: Icon(
-                      _obscurePassword ? Icons.visibility : Icons.visibility_off,
-                      color: isDark ? Colors.white : Colors.black,
-                    ),
-                    onPressed: () {
-                      setState(() {
-                        _obscurePassword = !_obscurePassword;
-                      });
-                    },
-                  ),
-                  filled: true,
-                  fillColor: isDark ? Colors.grey.shade800 : Colors.grey.shade300,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                  labelStyle: TextStyle(
-                    color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
-                  ),
-                ),
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return l10n!.fillAllFields;
-                  }
-                  return null;
-                },
-              ),
+              _buildPasswordField(l10n, isDark),
               
-              const SizedBox(height: 32),
+              const SizedBox(height: 28),
               
               // Кнопка входа
-              _isLoading
-                  ? const Center(
-                      child: CircularProgressIndicator(),
-                    )
-                  : ElevatedButton(
-                      onPressed: _handleLogin,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: isDark ? Colors.white : Colors.black,
-                        foregroundColor: isDark ? Colors.black : Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        elevation: 8,
-                        shadowColor: isDark
-                            ? Colors.white.withOpacity(0.3)
-                            : Colors.black.withOpacity(0.3),
-                      ),
-                      child: Text(
-                        l10n!.loginButton,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
+              _buildLoginButton(l10n, isDark),
               
-              const SizedBox(height: 20),
+              const SizedBox(height: 18),
               
               // Ссылка на регистрацию
-              TextButton(
-                onPressed: () {
-                  // TODO: Переход к экрану регистрации
-                },
-                child: Text(
-                  l10n!.noAccount,
-                  style: TextStyle(
-                    color: isDark ? Colors.white : Colors.black,
-                  ),
-                ),
-              ),
+              _buildRegisterLink(l10n, isDark),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildHeader(bool isDark) {
+    return AnimatedBuilder(
+      animation: _pulseController,
+      builder: (context, child) {
+        return Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            // Малый логотип
+            Transform(
+              alignment: Alignment.center,
+              transform: Matrix4.identity()
+                ..setEntry(3, 2, 0.002)
+                ..rotateY(_rotateController.value * 2 * math.pi * 0.2),
+              child: Container(
+                width: 45,
+                height: 45,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: isDark
+                        ? [Colors.white, Colors.grey.shade400]
+                        : [Colors.black, Colors.grey.shade700],
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: isDark
+                          ? Colors.white.withOpacity((0.2 + _pulseController.value * 0.1).clamp(0.0, 1.0))
+                          : Colors.black.withOpacity((0.2 + _pulseController.value * 0.1).clamp(0.0, 1.0)),
+                      blurRadius: 15,
+                      spreadRadius: 2,
+                    ),
+                  ],
+                ),
+                child: Center(
+                  child: Text(
+                    'X',
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? Colors.black : Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 14),
+            // Заголовок
+            Text(
+              'xaneo_pc',
+              style: TextStyle(
+                fontSize: 26,
+                fontWeight: FontWeight.w600,
+                color: isDark ? Colors.white : Colors.black,
+                letterSpacing: 1,
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildLoginField(AppLocalizations? l10n, bool isDark) {
+    return AnimatedBuilder(
+      animation: _pulseController,
+      builder: (context, child) {
+        return Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: _isLoginFocused
+                ? [
+                    BoxShadow(
+                      color: isDark
+                          ? Colors.white.withOpacity((0.1 + _pulseController.value * 0.05).clamp(0.0, 1.0))
+                          : Colors.black.withOpacity((0.1 + _pulseController.value * 0.05).clamp(0.0, 1.0)),
+                      blurRadius: 15,
+                      spreadRadius: 1,
+                    ),
+                  ]
+                : [],
+          ),
+          child: TextFormField(
+            controller: _loginController,
+            focusNode: _loginFocus,
+            style: TextStyle(
+              color: isDark ? Colors.white : Colors.black,
+              fontSize: 15,
+            ),
+            decoration: InputDecoration(
+              labelText: l10n!.loginFieldHint,
+              prefixIcon: Icon(
+                Icons.person_outline_rounded,
+                color: _isLoginFocused
+                    ? (isDark ? Colors.white : Colors.black)
+                    : (isDark ? Colors.grey.shade500 : Colors.grey.shade500),
+              ),
+              filled: true,
+              fillColor: isDark
+                  ? Colors.white.withOpacity(0.08)
+                  : Colors.black.withOpacity(0.03),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: isDark ? Colors.white : Colors.black,
+                  width: 1.5,
+                ),
+              ),
+              labelStyle: TextStyle(
+                color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+              ),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 18,
+                vertical: 16,
+              ),
+            ),
+            validator: (value) {
+              if (value == null || value.isEmpty) {
+                return l10n!.fillAllFields;
+              }
+              return null;
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildPasswordField(AppLocalizations? l10n, bool isDark) {
+    return AnimatedBuilder(
+      animation: _pulseController,
+      builder: (context, child) {
+        return Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: _isPasswordFocused
+                ? [
+                    BoxShadow(
+                      color: isDark
+                          ? Colors.white.withOpacity((0.1 + _pulseController.value * 0.05).clamp(0.0, 1.0))
+                          : Colors.black.withOpacity((0.1 + _pulseController.value * 0.05).clamp(0.0, 1.0)),
+                      blurRadius: 15,
+                      spreadRadius: 1,
+                    ),
+                  ]
+                : [],
+          ),
+          child: TextFormField(
+            controller: _passwordController,
+            focusNode: _passwordFocus,
+            obscureText: _obscurePassword,
+            style: TextStyle(
+              color: isDark ? Colors.white : Colors.black,
+              fontSize: 15,
+            ),
+            decoration: InputDecoration(
+              labelText: l10n!.passwordFieldHint,
+              prefixIcon: Icon(
+                Icons.lock_outline_rounded,
+                color: _isPasswordFocused
+                    ? (isDark ? Colors.white : Colors.black)
+                    : (isDark ? Colors.grey.shade500 : Colors.grey.shade500),
+              ),
+              suffixIcon: IconButton(
+                icon: Icon(
+                  _obscurePassword
+                      ? Icons.visibility_outlined
+                      : Icons.visibility_off_outlined,
+                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                ),
+                onPressed: () {
+                  setState(() {
+                    _obscurePassword = !_obscurePassword;
+                  });
+                },
+              ),
+              filled: true,
+              fillColor: isDark
+                  ? Colors.white.withOpacity(0.08)
+                  : Colors.black.withOpacity(0.03),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide(
+                  color: isDark ? Colors.white : Colors.black,
+                  width: 1.5,
+                ),
+              ),
+              labelStyle: TextStyle(
+                color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+              ),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 18,
+                vertical: 16,
+              ),
+            ),
+            validator: (value) {
+              if (value == null || value.isEmpty) {
+                return l10n!.fillAllFields;
+              }
+              return null;
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildLoginButton(AppLocalizations? l10n, bool isDark) {
+    if (_isLoading) {
+      return Center(
+        child: SizedBox(
+          width: 24,
+          height: 24,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            valueColor: AlwaysStoppedAnimation<Color>(
+              isDark ? Colors.white : Colors.black,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return AnimatedBuilder(
+      animation: _pulseController,
+      builder: (context, child) {
+        return MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: GestureDetector(
+            onTap: _handleLogin,
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              decoration: BoxDecoration(
+                color: isDark ? Colors.white : Colors.black,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: isDark
+                        ? Colors.white.withOpacity((0.2 + _pulseController.value * 0.15).clamp(0.0, 1.0))
+                        : Colors.black.withOpacity((0.2 + _pulseController.value * 0.15).clamp(0.0, 1.0)),
+                    blurRadius: 20 + _pulseController.value * 10,
+                    spreadRadius: 2,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Center(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      l10n!.loginButton,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: isDark ? Colors.black : Colors.white,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Icon(
+                      Icons.login_rounded,
+                      size: 18,
+                      color: isDark ? Colors.black : Colors.white,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildRegisterLink(AppLocalizations? l10n, bool isDark) {
+    return Center(
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          onTap: () {
+            // TODO: Переход к экрану регистрации
+          },
+          child: AnimatedBuilder(
+            animation: _pulseController,
+            builder: (context, child) {
+              return Text(
+                l10n!.noAccount,
+                style: TextStyle(
+                  color: isDark
+                      ? Colors.grey.shade400
+                      : Colors.grey.shade600,
+                  fontSize: 13,
+                  decoration: TextDecoration.underline,
+                  decorationColor: isDark
+                      ? Colors.white.withOpacity((0.3 + _pulseController.value * 0.2).clamp(0.0, 1.0))
+                      : Colors.black.withOpacity((0.3 + _pulseController.value * 0.2).clamp(0.0, 1.0)),
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Виджет для применения масштаба к контенту
+class _ScaledContent extends StatelessWidget {
+  final Widget child;
+
+  const _ScaledContent({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    final scaleProvider = context.watch<ScaleProvider?>();
+    final scale = scaleProvider?.scale ?? 1.0;
+
+    return AnimatedScale(
+      scale: scale,
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOutCubic,
+      alignment: Alignment.center,
+      child: child,
     );
   }
 }

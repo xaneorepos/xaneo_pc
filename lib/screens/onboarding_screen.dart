@@ -5,11 +5,14 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../l10n/app_localizations.dart';
 import '../providers/theme_provider.dart';
+import '../providers/scale_provider.dart';
 import '../styles/app_styles.dart';
-import '../widgets/3d_card.dart';
-import '../widgets/particle_background.dart';
+import '../widgets/glass_card.dart';
+import '../widgets/geometry_3d.dart';
+import '../widgets/advanced_background.dart';
+import '../widgets/custom_title_bar.dart';
 
-/// Экран онбординга с тремя этапами
+/// Экран онбординга с продвинутыми 3D эффектами
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
 
@@ -22,13 +25,13 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   int _currentStep = 0;
   
   // Анимационные контроллеры
-  late AnimationController _slideController;
   late AnimationController _fadeController;
   late AnimationController _scaleController;
   late AnimationController _logoController;
+  late AnimationController _pulseController;
+  late AnimationController _rotateController;
   
   // Анимации
-  late Animation<Offset> _slideAnimation;
   late Animation<double> _fadeAnimation;
   late Animation<double> _scaleAnimation;
   late Animation<double> _logoAnimation;
@@ -38,49 +41,46 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     super.initState();
     
     // Инициализация контроллеров анимации
-    _slideController = AnimationController(
-      duration: AppStyles.animationDurationMedium,
-      vsync: this,
-    );
-    
     _fadeController = AnimationController(
-      duration: AppStyles.animationDurationFast,
+      duration: const Duration(milliseconds: 400),
       vsync: this,
     );
     
     _scaleController = AnimationController(
-      duration: AppStyles.animationDurationFast,
+      duration: const Duration(milliseconds: 500),
       vsync: this,
     );
     
     _logoController = AnimationController(
-      duration: const Duration(seconds: 2),
+      duration: const Duration(milliseconds: 1500),
       vsync: this,
     );
 
-    // Настройка анимаций
-    _slideAnimation = Tween<Offset>(
-      begin: const Offset(1.0, 0.0),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _slideController,
-      curve: AppStyles.animationCurveEaseOut,
-    ));
+    _pulseController = AnimationController(
+      duration: const Duration(milliseconds: 2000),
+      vsync: this,
+    )..repeat(reverse: true);
 
+    _rotateController = AnimationController(
+      duration: const Duration(seconds: 20),
+      vsync: this,
+    )..repeat();
+
+    // Настройка анимаций
     _fadeAnimation = Tween<double>(
       begin: 0.0,
       end: 1.0,
     ).animate(CurvedAnimation(
       parent: _fadeController,
-      curve: AppStyles.animationCurveEaseOut,
+      curve: Curves.easeOut,
     ));
 
     _scaleAnimation = Tween<double>(
-      begin: 0.8,
+      begin: 0.95,
       end: 1.0,
     ).animate(CurvedAnimation(
       parent: _scaleController,
-      curve: AppStyles.animationCurveEaseOut,
+      curve: Curves.easeOutBack,
     ));
 
     _logoAnimation = Tween<double>(
@@ -88,7 +88,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
       end: 1.0,
     ).animate(CurvedAnimation(
       parent: _logoController,
-      curve: Curves.easeOut,
+      curve: Curves.elasticOut,
     ));
 
     // Запуск начальных анимаций
@@ -99,10 +99,11 @@ class _OnboardingScreenState extends State<OnboardingScreen>
 
   @override
   void dispose() {
-    _slideController.dispose();
     _fadeController.dispose();
     _scaleController.dispose();
     _logoController.dispose();
+    _pulseController.dispose();
+    _rotateController.dispose();
     super.dispose();
   }
 
@@ -113,11 +114,9 @@ class _OnboardingScreenState extends State<OnboardingScreen>
       });
       
       // Анимация перехода
-      _slideController.reset();
       _fadeController.reset();
       _scaleController.reset();
       
-      _slideController.forward();
       _fadeController.forward();
       _scaleController.forward();
     } else {
@@ -145,67 +144,76 @@ class _OnboardingScreenState extends State<OnboardingScreen>
       backgroundColor: isDark ? Colors.black : Colors.white,
       body: Stack(
         children: [
-          // Фон с частицами
+          // Продвинутый фон с 3D эффектами (не масштабируется)
           Positioned.fill(
-            child: ParticleBackground(
-              particleColor: isDark ? Colors.white : Colors.black,
-              particleCount: 30,
+            child: AdvancedBackground(
+              isDark: isDark,
+              enableGrid: true,
+              enableParticles: true,
+              enableGeometricShapes: true,
             ),
           ),
           
-          // Основной контент
-          SafeArea(
-            child: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  // Логотип с анимацией
-                  AnimatedBuilder(
-                    animation: _logoAnimation,
-                    builder: (context, child) {
-                      return Transform.scale(
-                        scale: 0.5 + _logoAnimation.value * 0.5,
-                        child: Opacity(
-                          opacity: _logoAnimation.value,
-                          child: _buildLogo(),
+          // Плавающие 3D фигуры (не масштабируются)
+          _buildFloatingShapes(isDark),
+          
+          // Title bar (не масштабируется)
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: SizedBox(
+              height: 40,
+              child: CustomTitleBar(),
+            ),
+          ),
+          
+          // Основной контент (масштабируется)
+          Positioned.fill(
+            child: Padding(
+              padding: const EdgeInsets.only(top: 40),
+              child: _ScaledContent(
+                child: Center(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        // Логотип с 3D эффектом
+                        _buildAnimatedLogo(isDark),
+                        
+                        const SizedBox(height: 40),
+                        
+                        // Карточка с контентом
+                        AnimatedBuilder(
+                          animation: Listenable.merge([
+                            _fadeAnimation,
+                            _scaleAnimation,
+                          ]),
+                          builder: (context, child) {
+                            return FadeTransition(
+                              opacity: _fadeAnimation,
+                              child: Transform.scale(
+                                scale: _scaleAnimation.value,
+                                child: _buildOnboardingCard(l10n, isDark),
+                              ),
+                            );
+                          },
                         ),
-                      );
-                    },
+                        
+                        const SizedBox(height: 32),
+                        
+                        // Индикаторы шагов
+                        _buildStepIndicators(isDark),
+                        
+                        const SizedBox(height: 24),
+                        
+                        // Кнопка навигации
+                        _buildNavigationButton(l10n, isDark),
+                      ],
+                    ),
                   ),
-                  
-                  const SizedBox(height: 60),
-                  
-                  // 3D карточка с контентом
-                  AnimatedBuilder(
-                    animation: Listenable.merge([
-                      _slideAnimation,
-                      _fadeAnimation,
-                      _scaleAnimation,
-                    ]),
-                    builder: (context, child) {
-                      return SlideTransition(
-                        position: _slideAnimation,
-                        child: FadeTransition(
-                          opacity: _fadeAnimation,
-                          child: Transform.scale(
-                            scale: _scaleAnimation.value,
-                            child: _buildOnboardingCard(l10n, isDark),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                  
-                  const SizedBox(height: 40),
-                  
-                  // Индикаторы шагов
-                  _buildStepIndicators(isDark),
-                  
-                  const SizedBox(height: 40),
-                  
-                  // Кнопка навигации
-                  _buildNavigationButton(l10n, isDark),
-                ],
+                ),
               ),
             ),
           ),
@@ -214,38 +222,142 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     );
   }
 
-  Widget _buildLogo() {
-    return Container(
-      width: 120,
-      height: 120,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Colors.grey.shade800,
-            Colors.grey.shade600,
-          ],
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.3),
-            blurRadius: 20,
-            spreadRadius: 5,
-          ),
-        ],
-      ),
-      child: const Center(
-        child: Text(
-          'X',
-          style: TextStyle(
-            fontSize: 60,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
+  Widget _buildFloatingShapes(bool isDark) {
+    return Stack(
+      children: [
+        // Левый верхний угол - куб
+        Positioned(
+          top: 80,
+          left: 30,
+          child: FloatingGeometry(
+            floatRange: 15,
+            floatDuration: const Duration(seconds: 5),
+            child: Cube3D(
+              size: 60,
+              color: isDark ? Colors.white : Colors.black,
+              rotationDuration: const Duration(seconds: 15),
+            ),
           ),
         ),
-      ),
+        
+        // Правый верхний угол - сфера
+        Positioned(
+          top: 120,
+          right: 50,
+          child: FloatingGeometry(
+            floatRange: 20,
+            floatDuration: const Duration(seconds: 6),
+            child: Sphere3D(
+              size: 80,
+              color: isDark ? Colors.white : Colors.black,
+              rotationDuration: const Duration(seconds: 10),
+            ),
+          ),
+        ),
+        
+        // Левый нижний угол - тор
+        Positioned(
+          bottom: 100,
+          left: 60,
+          child: FloatingGeometry(
+            floatRange: 12,
+            floatDuration: const Duration(seconds: 7),
+            child: Torus3D(
+              size: 70,
+              color: isDark ? Colors.white : Colors.black,
+              rotationDuration: const Duration(seconds: 12),
+            ),
+          ),
+        ),
+        
+        // Правый нижний угол - куб
+        Positioned(
+          bottom: 150,
+          right: 40,
+          child: FloatingGeometry(
+            floatRange: 18,
+            floatDuration: const Duration(seconds: 5),
+            child: Cube3D(
+              size: 50,
+              color: isDark ? Colors.white : Colors.black,
+              rotationDuration: const Duration(seconds: 18),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAnimatedLogo(bool isDark) {
+    return AnimatedBuilder(
+      animation: _logoAnimation,
+      builder: (context, child) {
+        return Transform.scale(
+          scale: 0.5 + _logoAnimation.value * 0.5,
+          child: Transform.rotate(
+            angle: (1 - _logoAnimation.value) * 0.2,
+            child: Opacity(
+              opacity: _logoAnimation.value.clamp(0.0, 1.0),
+              child: _buildLogo(isDark),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildLogo(bool isDark) {
+    return AnimatedBuilder(
+      animation: _pulseController,
+      builder: (context, child) {
+        return Container(
+          width: 100,
+          height: 100,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: isDark
+                  ? [
+                      Colors.white.withOpacity(0.9),
+                      Colors.grey.shade400,
+                    ]
+                  : [
+                      Colors.black.withOpacity(0.9),
+                      Colors.grey.shade700,
+                    ],
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: isDark
+                    ? Colors.white.withOpacity((0.3 + _pulseController.value * 0.2).clamp(0.0, 1.0))
+                    : Colors.black.withOpacity((0.3 + _pulseController.value * 0.2).clamp(0.0, 1.0)),
+                blurRadius: 25 + _pulseController.value * 10,
+                spreadRadius: 2 + _pulseController.value * 3,
+              ),
+            ],
+          ),
+          child: Center(
+            child: Text(
+              'X',
+              style: TextStyle(
+                fontSize: 50,
+                fontWeight: FontWeight.bold,
+                color: isDark ? Colors.black : Colors.white,
+                shadows: [
+                  Shadow(
+                    color: isDark
+                        ? Colors.black.withOpacity(0.3)
+                        : Colors.white.withOpacity(0.3),
+                    blurRadius: 10,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -254,72 +366,64 @@ class _OnboardingScreenState extends State<OnboardingScreen>
       {
         'title': l10n!.welcomeTitle,
         'description': l10n!.welcomeDescription,
-        'icon': Icons.rocket_launch,
+        'icon': Icons.rocket_launch_rounded,
         'button': l10n!.getStartedButton,
       },
       {
         'title': l10n!.privacyTitle,
         'description': l10n!.privacyDescription,
-        'icon': Icons.lock,
+        'icon': Icons.shield_rounded,
         'button': l10n!.continueButton,
       },
       {
         'title': l10n!.dataStorageTitle,
         'description': l10n!.dataStorageDescription,
-        'icon': Icons.storage,
+        'icon': Icons.storage_rounded,
         'button': l10n!.finishButton,
       },
     ];
 
     final step = steps[_currentStep];
 
-    return Card3D(
-      width: 400,
-      height: 500,
-      perspective: 0.001,
+    return GlassCard(
+      width: 380,
+      height: 380,
+      borderRadius: 28,
+      enableGlow: true,
+      glowColor: isDark ? Colors.white : Colors.black,
+      glowIntensity: 0.4,
       child: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: isDark
-                ? [
-                    Colors.grey.shade900.withOpacity(0.9),
-                    Colors.grey.shade800.withOpacity(0.9),
-                  ]
-                : [
-                    Colors.grey.shade100.withOpacity(0.9),
-                    Colors.grey.shade200.withOpacity(0.9),
-                  ],
-          ),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: isDark ? Colors.grey.shade700 : Colors.grey.shade300,
-            width: 1,
-          ),
-        ),
         padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // Иконка с 3D эффектом
+            // 3D иконка
             _build3DIcon(step['icon'] as IconData, isDark),
             
-            const SizedBox(height: 32),
+            const SizedBox(height: 28),
             
             // Заголовок
             Text(
               step['title'] as String,
-              style: AppStyles.titleLarge(context),
+              style: TextStyle(
+                fontSize: 26,
+                fontWeight: FontWeight.w600,
+                color: isDark ? Colors.white : Colors.black,
+                letterSpacing: -0.5,
+              ),
               textAlign: TextAlign.center,
             ),
             
-            const SizedBox(height: 16),
+            const SizedBox(height: 14),
             
             // Описание
             Text(
               step['description'] as String,
-              style: AppStyles.bodyMedium(context),
+              style: TextStyle(
+                fontSize: 15,
+                color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                height: 1.5,
+              ),
               textAlign: TextAlign.center,
             ),
           ],
@@ -330,40 +434,46 @@ class _OnboardingScreenState extends State<OnboardingScreen>
 
   Widget _build3DIcon(IconData icon, bool isDark) {
     return AnimatedBuilder(
-      animation: _logoController,
+      animation: _pulseController,
       builder: (context, child) {
-        final rotation = _logoController.value * 2 * math.pi;
-        
         return Transform(
           alignment: Alignment.center,
           transform: Matrix4.identity()
-            ..setEntry(3, 2, 0.001)
-            ..rotateY(rotation),
+            ..setEntry(3, 2, 0.002)
+            ..rotateX(math.sin(_pulseController.value * math.pi) * 0.1)
+            ..rotateY(_rotateController.value * 2 * math.pi * 0.3),
           child: Container(
-            width: 100,
-            height: 100,
+            width: 80,
+            height: 80,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: isDark
-                    ? [Colors.grey.shade700, Colors.grey.shade500]
-                    : [Colors.grey.shade400, Colors.grey.shade600],
+                    ? [
+                        Colors.grey.shade800,
+                        Colors.grey.shade600,
+                      ]
+                    : [
+                        Colors.grey.shade300,
+                        Colors.grey.shade500,
+                      ],
               ),
               boxShadow: [
                 BoxShadow(
                   color: isDark
-                      ? Colors.white.withOpacity(0.2)
-                      : Colors.black.withOpacity(0.2),
+                      ? Colors.white.withOpacity((0.15 + _pulseController.value * 0.1).clamp(0.0, 1.0))
+                      : Colors.black.withOpacity((0.15 + _pulseController.value * 0.1).clamp(0.0, 1.0)),
                   blurRadius: 20,
-                  spreadRadius: 5,
+                  spreadRadius: 3,
+                  offset: const Offset(0, 5),
                 ),
               ],
             ),
             child: Icon(
               icon,
-              size: 50,
+              size: 36,
               color: isDark ? Colors.white : Colors.black,
             ),
           ),
@@ -377,17 +487,43 @@ class _OnboardingScreenState extends State<OnboardingScreen>
       mainAxisAlignment: MainAxisAlignment.center,
       children: List.generate(3, (index) {
         final isActive = index == _currentStep;
+        final isPast = index < _currentStep;
+        
         return AnimatedContainer(
-          duration: const Duration(milliseconds: 300),
-          margin: const EdgeInsets.symmetric(horizontal: 8),
-          width: isActive ? 32 : 8,
-          height: 8,
+          duration: const Duration(milliseconds: 400),
+          curve: Curves.easeOutCubic,
+          margin: const EdgeInsets.symmetric(horizontal: 6),
+          width: isActive ? 36 : 10,
+          height: 10,
           decoration: BoxDecoration(
-            color: isActive
+            color: isActive || isPast
                 ? (isDark ? Colors.white : Colors.black)
                 : (isDark ? Colors.grey.shade700 : Colors.grey.shade400),
-            borderRadius: BorderRadius.circular(4),
+            borderRadius: BorderRadius.circular(5),
+            boxShadow: isActive
+                ? [
+                    BoxShadow(
+                      color: isDark
+                          ? Colors.white.withOpacity(0.3)
+                          : Colors.black.withOpacity(0.3),
+                      blurRadius: 10,
+                      spreadRadius: 1,
+                    ),
+                  ]
+                : null,
           ),
+          child: isActive
+              ? Center(
+                  child: Text(
+                    '${index + 1}',
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? Colors.black : Colors.white,
+                    ),
+                  ),
+                )
+              : null,
         );
       }),
     );
@@ -400,27 +536,74 @@ class _OnboardingScreenState extends State<OnboardingScreen>
             ? l10n!.continueButton
             : l10n!.finishButton;
 
-    return ElevatedButton(
-      onPressed: _nextStep,
-      style: ElevatedButton.styleFrom(
-        backgroundColor: isDark ? Colors.white : Colors.black,
-        foregroundColor: isDark ? Colors.black : Colors.white,
-        padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 16),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
-        elevation: 8,
-        shadowColor: isDark
-            ? Colors.white.withOpacity(0.3)
-            : Colors.black.withOpacity(0.3),
-      ),
-      child: Text(
-        buttonText,
-        style: const TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
+    return AnimatedBuilder(
+      animation: _pulseController,
+      builder: (context, child) {
+        return MouseRegion(
+          cursor: SystemMouseCursors.click,
+          child: GestureDetector(
+            onTap: _nextStep,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 16),
+              decoration: BoxDecoration(
+                color: isDark ? Colors.white : Colors.black,
+                borderRadius: BorderRadius.circular(14),
+                boxShadow: [
+                  BoxShadow(
+                    color: isDark
+                        ? Colors.white.withOpacity((0.2 + _pulseController.value * 0.15).clamp(0.0, 1.0))
+                        : Colors.black.withOpacity((0.2 + _pulseController.value * 0.15).clamp(0.0, 1.0)),
+                    blurRadius: 20 + _pulseController.value * 10,
+                    spreadRadius: 2,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    buttonText,
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: isDark ? Colors.black : Colors.white,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Icon(
+                    Icons.arrow_forward_rounded,
+                    size: 18,
+                    color: isDark ? Colors.black : Colors.white,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Виджет для применения масштаба к контенту
+class _ScaledContent extends StatelessWidget {
+  final Widget child;
+
+  const _ScaledContent({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    final scaleProvider = context.watch<ScaleProvider?>();
+    final scale = scaleProvider?.scale ?? 1.0;
+
+    return AnimatedScale(
+      scale: scale,
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOutCubic,
+      alignment: Alignment.center,
+      child: child,
     );
   }
 }

@@ -15,6 +15,7 @@ class ThemeProvider extends ChangeNotifier {
     primaryColor: Colors.black,
     scaffoldBackgroundColor: Colors.black,
     cardColor: Colors.grey.shade900,
+    fontFamily: 'Inter',
     colorScheme: const ColorScheme.dark(
       primary: Colors.white,
       secondary: Colors.grey,
@@ -100,6 +101,7 @@ class ThemeProvider extends ChangeNotifier {
     primaryColor: Colors.white,
     scaffoldBackgroundColor: Colors.white,
     cardColor: Colors.grey.shade100,
+    fontFamily: 'Inter',
     colorScheme: const ColorScheme.light(
       primary: Colors.black,
       secondary: Colors.grey,

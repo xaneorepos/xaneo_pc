@@ -1,0 +1,100 @@
+{
+  "@@locale": "en",
+  "appTitle": "Xaneo PC",
+  "@appTitle": {
+    "description": "App title"
+  },
+  "welcomeTitle": "Welcome to Xaneo",
+  "@welcomeTitle": {
+    "description": "Welcome title"
+  },
+  "welcomeDescription": "Xaneo is now on your computer! Maximum performance and convenience.",
+  "@welcomeDescription": {
+    "description": "Welcome description"
+  },
+  "getStartedButton": "Get Started",
+  "@getStartedButton": {
+    "description": "Get started button"
+  },
+  "privacyTitle": "All your data is secure",
+  "@privacyTitle": {
+    "description": "Privacy screen title"
+  },
+  "privacyDescription": "All messages in Xaneo are protected by end-to-end encryption. Xaneo never knows their content.",
+  "@privacyDescription": {
+    "description": "Privacy description"
+  },
+  "continueButton": "Continue",
+  "@continueButton": {
+    "description": "Continue button"
+  },
+  "dataStorageTitle": "All Xaneo data centers are located in Russia",
+  "@dataStorageTitle": {
+    "description": "Data storage screen title"
+  },
+  "dataStorageDescription": "Your data never leaves the country and is stored in secure data centers.",
+  "@dataStorageDescription": {
+    "description": "Data storage description"
+  },
+  "finishButton": "Finish",
+  "@finishButton": {
+    "description": "Finish button"
+  },
+  "setupCompleted": "Setup completed!",
+  "@setupCompleted": {
+    "description": "Setup completed message"
+  },
+  "loginFormTitle": "Login",
+  "@loginFormTitle": {
+    "description": "Login form title"
+  },
+  "loginFieldHint": "Login",
+  "@loginFieldHint": {
+    "description": "Login field hint"
+  },
+  "passwordFieldHint": "Password",
+  "@passwordFieldHint": {
+    "description": "Password field hint"
+  },
+  "loginButton": "Login",
+  "@loginButton": {
+    "description": "Login button"
+  },
+  "noAccount": "No account?",
+  "@noAccount": {
+    "description": "No account link"
+  },
+  "registerButton": "Register",
+  "@registerButton": {
+    "description": "Register button"
+  },
+  "fillAllFields": "Please fill all fields",
+  "@fillAllFields": {
+    "description": "Fill all fields message"
+  },
+  "loggingIn": "Logging in...",
+  "@loggingIn": {
+    "description": "Logging in message"
+  },
+  "welcomeUser": "Welcome, {username}!",
+  "@welcomeUser": {
+    "description": "Welcome user message",
+    "placeholders": {
+      "username": {
+        "type": "String"
+      }
+    }
+  },
+  "invalidCredentials": "Invalid credentials. Please check your username and password.",
+  "@invalidCredentials": {
+    "description": "Invalid credentials message"
+  },
+  "serverError": "Server error. Please try again later.",
+  "@serverError": {
+    "description": "Server error message"
+  },
+  "connectionError": "Connection error. Please check your internet connection.",
+  "@connectionError": {
+    "description": "Connection error message"
+  }
+}

@@ -1,0 +1,100 @@
+{
+  "@@locale": "ru",
+  "appTitle": "Xaneo PC",
+  "@appTitle": {
+    "description": "Название приложения"
+  },
+  "welcomeTitle": "Добро пожаловать в Xaneo",
+  "@welcomeTitle": {
+    "description": "Заголовок приветствия"
+  },
+  "welcomeDescription": "Xaneo - теперь и на вашем компьютере! Максимальная производительность и удобство.",
+  "@welcomeDescription": {
+    "description": "Описание приветствия"
+  },
+  "getStartedButton": "Начать",
+  "@getStartedButton": {
+    "description": "Кнопка начала работы"
+  },
+  "privacyTitle": "Все ваши данные в безопасности",
+  "@privacyTitle": {
+    "description": "Заголовок экрана приватности"
+  },
+  "privacyDescription": "Все сообщения в Xaneo защищены сквозным шифрованием. Ни в один момент Xaneo не знает об их содержимом.",
+  "@privacyDescription": {
+    "description": "Описание приватности"
+  },
+  "continueButton": "Продолжить",
+  "@continueButton": {
+    "description": "Кнопка продолжения"
+  },
+  "dataStorageTitle": "Все дата-центры Xaneo находятся в России",
+  "@dataStorageTitle": {
+    "description": "Заголовок экрана хранения данных"
+  },
+  "dataStorageDescription": "Ваши данные не покидают территорию страны и хранятся в безопасных дата-центрах.",
+  "@dataStorageDescription": {
+    "description": "Описание хранения данных"
+  },
+  "finishButton": "Завершить",
+  "@finishButton": {
+    "description": "Кнопка завершения настройки"
+  },
+  "setupCompleted": "Настройка завершена!",
+  "@setupCompleted": {
+    "description": "Сообщение о завершении настройки"
+  },
+  "loginFormTitle": "Вход в систему",
+  "@loginFormTitle": {
+    "description": "Заголовок формы входа"
+  },
+  "loginFieldHint": "Логин",
+  "@loginFieldHint": {
+    "description": "Подсказка для поля логина"
+  },
+  "passwordFieldHint": "Пароль",
+  "@passwordFieldHint": {
+    "description": "Подсказка для поля пароля"
+  },
+  "loginButton": "Войти",
+  "@loginButton": {
+    "description": "Кнопка входа"
+  },
+  "noAccount": "Нет аккаунта?",
+  "@noAccount": {
+    "description": "Ссылка для создания аккаунта"
+  },
+  "registerButton": "Зарегистрироваться",
+  "@registerButton": {
+    "description": "Кнопка регистрации"
+  },
+  "fillAllFields": "Заполните все поля",
+  "@fillAllFields": {
+    "description": "Сообщение об обязательности заполнения всех полей"
+  },
+  "loggingIn": "Выполняется вход...",
+  "@loggingIn": {
+    "description": "Сообщение о процессе входа"
+  },
+  "welcomeUser": "Добро пожаловать, {username}!",
+  "@welcomeUser": {
+    "description": "Приветствие пользователя после входа",
+    "placeholders": {
+      "username": {
+        "type": "String"
+      }
+    }
+  },
+  "invalidCredentials": "Неверные учётные данные. Проверьте имя пользователя и пароль.",
+  "@invalidCredentials": {
+    "description": "Сообщение о неверных учетных данных"
+  },
+  "serverError": "Ошибка сервера. Попробуйте позже.",
+  "@serverError": {
+    "description": "Сообщение об ошибке сервера"
+  },
+  "connectionError": "Ошибка подключения. Проверьте интернет-соединение.",
+  "@connectionError": {
+    "description": "Сообщение об ошибке подключения"
+  }
+}

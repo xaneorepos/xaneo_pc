@@ -210,6 +210,73 @@ class AppLocalizations {
   String get connectionError =>
       _localizedValues[locale.languageCode]!.connectionError;
 
+  /// No description provided for @settings.
+  ///
+  /// In en, this message translates to:
+  /// **'Settings'**
+  String get settings => _localizedValues[locale.languageCode]!.settings;
+
+  /// No description provided for @notifications.
+  ///
+  /// In en, this message translates to:
+  /// **'Notifications'**
+  String get notifications =>
+      _localizedValues[locale.languageCode]!.notifications;
+
+  /// No description provided for @notificationsDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Enable or disable notifications'**
+  String get notificationsDescription =>
+      _localizedValues[locale.languageCode]!.notificationsDescription;
+
+  /// No description provided for @darkTheme.
+  ///
+  /// In en, this message translates to:
+  /// **'Dark theme'**
+  String get darkTheme => _localizedValues[locale.languageCode]!.darkTheme;
+
+  /// No description provided for @darkThemeDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Enable or disable dark theme'**
+  String get darkThemeDescription =>
+      _localizedValues[locale.languageCode]!.darkThemeDescription;
+
+  /// No description provided for @fontSize.
+  ///
+  /// In en, this message translates to:
+  /// **'Font size: {size}'**
+  String fontSize(int size) {
+    return _localizedValues[locale.languageCode]!.fontSize(size);
+  }
+
+  /// No description provided for @language.
+  ///
+  /// In en, this message translates to:
+  /// **'Language'**
+  String get language => _localizedValues[locale.languageCode]!.language;
+
+  /// No description provided for @languageDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Select interface language'**
+  String get languageDescription =>
+      _localizedValues[locale.languageCode]!.languageDescription;
+
+  /// No description provided for @selectLanguage.
+  ///
+  /// In en, this message translates to:
+  /// **'Select language'**
+  String get selectLanguage =>
+      _localizedValues[locale.languageCode]!.selectLanguage;
+
+  /// No description provided for @appVersion.
+  ///
+  /// In en, this message translates to:
+  /// **'App version'**
+  String get appVersion => _localizedValues[locale.languageCode]!.appVersion;
+
   static final Map<String, AppLocalizations> _localizedValues = {
     'en': AppLocalizationsEn(),
     'ru': AppLocalizationsRu(),

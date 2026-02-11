@@ -96,5 +96,50 @@
   "connectionError": "Ошибка подключения. Проверьте интернет-соединение.",
   "@connectionError": {
     "description": "Сообщение об ошибке подключения"
+  },
+  "settings": "Настройки",
+  "@settings": {
+    "description": "Заголовок настроек"
+  },
+  "notifications": "Уведомления",
+  "@notifications": {
+    "description": "Название настройки уведомлений"
+  },
+  "notificationsDescription": "Включить или отключить уведомления",
+  "@notificationsDescription": {
+    "description": "Описание настройки уведомлений"
+  },
+  "darkTheme": "Тёмная тема",
+  "@darkTheme": {
+    "description": "Название настройки тёмной темы"
+  },
+  "darkThemeDescription": "Включить или отключить тёмную тему",
+  "@darkThemeDescription": {
+    "description": "Описание настройки тёмной темы"
+  },
+  "fontSize": "Размер шрифта: {size}",
+  "@fontSize": {
+    "description": "Настройка размера шрифта",
+    "placeholders": {
+      "size": {
+        "type": "int"
+      }
+    }
+  },
+  "language": "Язык",
+  "@language": {
+    "description": "Название настройки языка"
+  },
+  "languageDescription": "Выберите язык интерфейса",
+  "@languageDescription": {
+    "description": "Описание настройки языка"
+  },
+  "selectLanguage": "Выберите язык",
+  "@selectLanguage": {
+    "description": "Заголовок выбора языка"
+  },
+  "appVersion": "Версия приложения",
+  "@appVersion": {
+    "description": "Название настройки версии приложения"
   }
 }

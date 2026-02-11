@@ -96,5 +96,50 @@
   "connectionError": "Connection error. Please check your internet connection.",
   "@connectionError": {
     "description": "Connection error message"
+  },
+  "settings": "Settings",
+  "@settings": {
+    "description": "Settings title"
+  },
+  "notifications": "Notifications",
+  "@notifications": {
+    "description": "Notifications setting name"
+  },
+  "notificationsDescription": "Enable or disable notifications",
+  "@notificationsDescription": {
+    "description": "Notifications setting description"
+  },
+  "darkTheme": "Dark theme",
+  "@darkTheme": {
+    "description": "Dark theme setting name"
+  },
+  "darkThemeDescription": "Enable or disable dark theme",
+  "@darkThemeDescription": {
+    "description": "Dark theme setting description"
+  },
+  "fontSize": "Font size: {size}",
+  "@fontSize": {
+    "description": "Font size setting",
+    "placeholders": {
+      "size": {
+        "type": "int"
+      }
+    }
+  },
+  "language": "Language",
+  "@language": {
+    "description": "Language setting name"
+  },
+  "languageDescription": "Select interface language",
+  "@languageDescription": {
+    "description": "Language setting description"
+  },
+  "selectLanguage": "Select language",
+  "@selectLanguage": {
+    "description": "Select language title"
+  },
+  "appVersion": "App version",
+  "@appVersion": {
+    "description": "App version setting name"
   }
 }

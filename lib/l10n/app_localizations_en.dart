@@ -79,4 +79,34 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get connectionError =>
       'Connection error. Please check your internet connection.';
+
+  @override
+  String get settings => 'Settings';
+
+  @override
+  String get notifications => 'Notifications';
+
+  @override
+  String get notificationsDescription => 'Enable or disable notifications';
+
+  @override
+  String get darkTheme => 'Dark theme';
+
+  @override
+  String get darkThemeDescription => 'Enable or disable dark theme';
+
+  @override
+  String fontSize(int size) => 'Font size: $size';
+
+  @override
+  String get language => 'Language';
+
+  @override
+  String get languageDescription => 'Select interface language';
+
+  @override
+  String get selectLanguage => 'Select language';
+
+  @override
+  String get appVersion => 'App version';
 }

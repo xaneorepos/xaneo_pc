@@ -79,4 +79,34 @@ class AppLocalizationsRu extends AppLocalizations {
   @override
   String get connectionError =>
       'Ошибка подключения. Проверьте интернет-соединение.';
+
+  @override
+  String get settings => 'Настройки';
+
+  @override
+  String get notifications => 'Уведомления';
+
+  @override
+  String get notificationsDescription => 'Включить или отключить уведомления';
+
+  @override
+  String get darkTheme => 'Тёмная тема';
+
+  @override
+  String get darkThemeDescription => 'Включить или отключить тёмную тему';
+
+  @override
+  String fontSize(int size) => 'Размер шрифта: $size';
+
+  @override
+  String get language => 'Язык';
+
+  @override
+  String get languageDescription => 'Выберите язык интерфейса';
+
+  @override
+  String get selectLanguage => 'Выберите язык';
+
+  @override
+  String get appVersion => 'Версия приложения';
 }

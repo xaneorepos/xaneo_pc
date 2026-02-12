@@ -1,17 +1,20 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/intl.dart' as intl;
 
 import 'app_localizations_en.dart';
 import 'app_localizations_ru.dart';
 
+// ignore_for_file: type=lint
+
 /// Callers can lookup localized strings with an instance of AppLocalizations
 /// returned by `AppLocalizations.of(context)`.
 ///
-/// Applications need to include `AppLocalizations.delegate` in their app's
-/// `localizationsDelegates` list, and the locales they support in the app's
+/// Applications need to include `AppLocalizations.delegate()` in their app's
+/// `localizationDelegates` list, and the locales they support in the app's
 /// `supportedLocales` list. For example:
 ///
 /// ```dart
@@ -24,278 +27,301 @@ import 'app_localizations_ru.dart';
 /// );
 /// ```
 ///
-/// See [internationalization guide](https://flutter.dev/docs/development/accessibility-and-internationalization/internationalization)
-/// for more information.
-class AppLocalizations {
-  AppLocalizations(this.locale);
+/// ## Update pubspec.yaml
+///
+/// Please make sure to update your pubspec.yaml to include the following
+/// packages:
+///
+/// ```yaml
+/// dependencies:
+///   # Internationalization support.
+///   flutter_localizations:
+///     sdk: flutter
+///   intl: any # Use the pinned version from flutter_localizations
+///
+///   # Rest of dependencies
+/// ```
+///
+/// ## iOS Applications
+///
+/// iOS applications define key application metadata, including supported
+/// locales, in an Info.plist file that is built into the application bundle.
+/// To configure the locales supported by your app, you’ll need to edit this
+/// file.
+///
+/// First, open your project’s ios/Runner.xcworkspace Xcode workspace file.
+/// Then, in the Project Navigator, open the Info.plist file under the Runner
+/// project’s Runner folder.
+///
+/// Next, select the Information Property List item, select Add Item from the
+/// Editor menu, then select Localizations from the pop-up menu.
+///
+/// Select and expand the newly-created Localizations item then, for each
+/// locale your application supports, add a new item and select the locale
+/// you wish to add from the pop-up menu in the Value field. This list should
+/// be consistent with the languages listed in the AppLocalizations.supportedLocales
+/// property.
+abstract class AppLocalizations {
+  AppLocalizations(String locale) : localeName = intl.Intl.canonicalizedLocale(locale.toString());
 
-  final Locale locale;
+  final String localeName;
 
   static AppLocalizations? of(BuildContext context) {
     return Localizations.of<AppLocalizations>(context, AppLocalizations);
   }
 
-  static const LocalizationsDelegate<AppLocalizations> delegate =
-      _AppLocalizationsDelegate();
+  static const LocalizationsDelegate<AppLocalizations> delegate = _AppLocalizationsDelegate();
 
-  static const List<LocalizationsDelegate<dynamic>> localizationsDelegates = [
+  /// A list of this localizations delegate along with the default localizations
+  /// delegates.
+  ///
+  /// Returns a list of localizations delegates containing this delegate along with
+  /// GlobalMaterialLocalizations.delegate, GlobalCupertinoLocalizations.delegate,
+  /// and GlobalWidgetsLocalizations.delegate.
+  ///
+  /// Additional delegates can be added by appending to this list in
+  /// MaterialApp. This list does not have to be used at all if a custom list
+  /// of delegates is preferred or required.
+  static const List<LocalizationsDelegate<dynamic>> localizationsDelegates = <LocalizationsDelegate<dynamic>>[
     delegate,
     GlobalMaterialLocalizations.delegate,
-    GlobalWidgetsLocalizations.delegate,
     GlobalCupertinoLocalizations.delegate,
+    GlobalWidgetsLocalizations.delegate,
   ];
 
-  static const List<Locale> supportedLocales = [
+  /// A list of this localizations delegate's supported locales.
+  static const List<Locale> supportedLocales = <Locale>[
     Locale('en'),
-    Locale('ru'),
+    Locale('ru')
   ];
 
-  /// `AppLocalizations` strings for `en` locale.
-  static AppLocalizationsEn get en => AppLocalizationsEn();
-
-  /// `AppLocalizations` strings for `ru` locale.
-  static AppLocalizationsRu get ru => AppLocalizationsRu();
-
-  /// No description provided for @appTitle.
+  /// App title
   ///
   /// In en, this message translates to:
   /// **'Xaneo PC'**
-  String get appTitle => _localizedValues[locale.languageCode]!.appTitle;
+  String get appTitle;
 
-  /// No description provided for @welcomeTitle.
+  /// Welcome title
   ///
   /// In en, this message translates to:
   /// **'Welcome to Xaneo'**
-  String get welcomeTitle => _localizedValues[locale.languageCode]!.welcomeTitle;
+  String get welcomeTitle;
 
-  /// No description provided for @welcomeDescription.
+  /// Welcome description
   ///
   /// In en, this message translates to:
   /// **'Xaneo is now on your computer! Maximum performance and convenience.'**
-  String get welcomeDescription =>
-      _localizedValues[locale.languageCode]!.welcomeDescription;
+  String get welcomeDescription;
 
-  /// No description provided for @getStartedButton.
+  /// Get started button
   ///
   /// In en, this message translates to:
   /// **'Get Started'**
-  String get getStartedButton =>
-      _localizedValues[locale.languageCode]!.getStartedButton;
+  String get getStartedButton;
 
-  /// No description provided for @privacyTitle.
+  /// Privacy screen title
   ///
   /// In en, this message translates to:
   /// **'All your data is secure'**
-  String get privacyTitle => _localizedValues[locale.languageCode]!.privacyTitle;
+  String get privacyTitle;
 
-  /// No description provided for @privacyDescription.
+  /// Privacy description
   ///
   /// In en, this message translates to:
   /// **'All messages in Xaneo are protected by end-to-end encryption. Xaneo never knows their content.'**
-  String get privacyDescription =>
-      _localizedValues[locale.languageCode]!.privacyDescription;
+  String get privacyDescription;
 
-  /// No description provided for @continueButton.
+  /// Continue button
   ///
   /// In en, this message translates to:
   /// **'Continue'**
-  String get continueButton =>
-      _localizedValues[locale.languageCode]!.continueButton;
+  String get continueButton;
 
-  /// No description provided for @dataStorageTitle.
+  /// Data storage screen title
   ///
   /// In en, this message translates to:
   /// **'All Xaneo data centers are located in Russia'**
-  String get dataStorageTitle =>
-      _localizedValues[locale.languageCode]!.dataStorageTitle;
+  String get dataStorageTitle;
 
-  /// No description provided for @dataStorageDescription.
+  /// Data storage description
   ///
   /// In en, this message translates to:
   /// **'Your data never leaves the country and is stored in secure data centers.'**
-  String get dataStorageDescription =>
-      _localizedValues[locale.languageCode]!.dataStorageDescription;
+  String get dataStorageDescription;
 
-  /// No description provided for @finishButton.
+  /// Finish button
   ///
   /// In en, this message translates to:
   /// **'Finish'**
-  String get finishButton => _localizedValues[locale.languageCode]!.finishButton;
+  String get finishButton;
 
-  /// No description provided for @setupCompleted.
+  /// Setup completed message
   ///
   /// In en, this message translates to:
   /// **'Setup completed!'**
-  String get setupCompleted =>
-      _localizedValues[locale.languageCode]!.setupCompleted;
+  String get setupCompleted;
 
-  /// No description provided for @loginFormTitle.
+  /// Login form title
   ///
   /// In en, this message translates to:
   /// **'Login'**
-  String get loginFormTitle =>
-      _localizedValues[locale.languageCode]!.loginFormTitle;
+  String get loginFormTitle;
 
-  /// No description provided for @loginFieldHint.
+  /// Login field hint
   ///
   /// In en, this message translates to:
   /// **'Login'**
-  String get loginFieldHint =>
-      _localizedValues[locale.languageCode]!.loginFieldHint;
+  String get loginFieldHint;
 
-  /// No description provided for @passwordFieldHint.
+  /// Password field hint
   ///
   /// In en, this message translates to:
   /// **'Password'**
-  String get passwordFieldHint =>
-      _localizedValues[locale.languageCode]!.passwordFieldHint;
+  String get passwordFieldHint;
 
-  /// No description provided for @loginButton.
+  /// Login button
   ///
   /// In en, this message translates to:
   /// **'Login'**
-  String get loginButton => _localizedValues[locale.languageCode]!.loginButton;
+  String get loginButton;
 
-  /// No description provided for @noAccount.
+  /// No account link
   ///
   /// In en, this message translates to:
   /// **'No account?'**
-  String get noAccount => _localizedValues[locale.languageCode]!.noAccount;
+  String get noAccount;
 
-  /// No description provided for @registerButton.
+  /// Register button
   ///
   /// In en, this message translates to:
   /// **'Register'**
-  String get registerButton =>
-      _localizedValues[locale.languageCode]!.registerButton;
+  String get registerButton;
 
-  /// No description provided for @fillAllFields.
+  /// Fill all fields message
   ///
   /// In en, this message translates to:
   /// **'Please fill all fields'**
-  String get fillAllFields =>
-      _localizedValues[locale.languageCode]!.fillAllFields;
+  String get fillAllFields;
 
-  /// No description provided for @loggingIn.
+  /// Logging in message
   ///
   /// In en, this message translates to:
   /// **'Logging in...'**
-  String get loggingIn => _localizedValues[locale.languageCode]!.loggingIn;
+  String get loggingIn;
 
-  /// No description provided for @welcomeUser.
+  /// Welcome user message
   ///
   /// In en, this message translates to:
   /// **'Welcome, {username}!'**
-  String welcomeUser(String username) {
-    return _localizedValues[locale.languageCode]!.welcomeUser(username);
-  }
+  String welcomeUser(String username);
 
-  /// No description provided for @invalidCredentials.
+  /// Invalid credentials message
   ///
   /// In en, this message translates to:
   /// **'Invalid credentials. Please check your username and password.'**
-  String get invalidCredentials =>
-      _localizedValues[locale.languageCode]!.invalidCredentials;
+  String get invalidCredentials;
 
-  /// No description provided for @serverError.
+  /// Server error message
   ///
   /// In en, this message translates to:
   /// **'Server error. Please try again later.'**
-  String get serverError => _localizedValues[locale.languageCode]!.serverError;
+  String get serverError;
 
-  /// No description provided for @connectionError.
+  /// Connection error message
   ///
   /// In en, this message translates to:
   /// **'Connection error. Please check your internet connection.'**
-  String get connectionError =>
-      _localizedValues[locale.languageCode]!.connectionError;
+  String get connectionError;
 
-  /// No description provided for @settings.
+  /// Settings title
   ///
   /// In en, this message translates to:
   /// **'Settings'**
-  String get settings => _localizedValues[locale.languageCode]!.settings;
+  String get settings;
 
-  /// No description provided for @notifications.
+  /// Notifications setting name
   ///
   /// In en, this message translates to:
   /// **'Notifications'**
-  String get notifications =>
-      _localizedValues[locale.languageCode]!.notifications;
+  String get notifications;
 
-  /// No description provided for @notificationsDescription.
+  /// Notifications setting description
   ///
   /// In en, this message translates to:
   /// **'Enable or disable notifications'**
-  String get notificationsDescription =>
-      _localizedValues[locale.languageCode]!.notificationsDescription;
+  String get notificationsDescription;
 
-  /// No description provided for @darkTheme.
+  /// Dark theme setting name
   ///
   /// In en, this message translates to:
   /// **'Dark theme'**
-  String get darkTheme => _localizedValues[locale.languageCode]!.darkTheme;
+  String get darkTheme;
 
-  /// No description provided for @darkThemeDescription.
+  /// Dark theme setting description
   ///
   /// In en, this message translates to:
   /// **'Enable or disable dark theme'**
-  String get darkThemeDescription =>
-      _localizedValues[locale.languageCode]!.darkThemeDescription;
+  String get darkThemeDescription;
 
-  /// No description provided for @fontSize.
+  /// Font size setting
   ///
   /// In en, this message translates to:
   /// **'Font size: {size}'**
-  String fontSize(int size) {
-    return _localizedValues[locale.languageCode]!.fontSize(size);
-  }
+  String fontSize(int size);
 
-  /// No description provided for @language.
+  /// Language setting name
   ///
   /// In en, this message translates to:
   /// **'Language'**
-  String get language => _localizedValues[locale.languageCode]!.language;
+  String get language;
 
-  /// No description provided for @languageDescription.
+  /// Language setting description
   ///
   /// In en, this message translates to:
   /// **'Select interface language'**
-  String get languageDescription =>
-      _localizedValues[locale.languageCode]!.languageDescription;
+  String get languageDescription;
 
-  /// No description provided for @selectLanguage.
+  /// Select language title
   ///
   /// In en, this message translates to:
   /// **'Select language'**
-  String get selectLanguage =>
-      _localizedValues[locale.languageCode]!.selectLanguage;
+  String get selectLanguage;
 
-  /// No description provided for @appVersion.
+  /// App version setting name
   ///
   /// In en, this message translates to:
   /// **'App version'**
-  String get appVersion => _localizedValues[locale.languageCode]!.appVersion;
-
-  static final Map<String, AppLocalizations> _localizedValues = {
-    'en': AppLocalizationsEn(),
-    'ru': AppLocalizationsRu(),
-  };
+  String get appVersion;
 }
 
 class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {
   const _AppLocalizationsDelegate();
 
   @override
-  Future<AppLocalizations> load(Locale locale) async {
-    return AppLocalizations(locale);
+  Future<AppLocalizations> load(Locale locale) {
+    return SynchronousFuture<AppLocalizations>(lookupAppLocalizations(locale));
   }
 
   @override
-  bool isSupported(Locale locale) {
-    return AppLocalizations._localizedValues.containsKey(locale.languageCode);
-  }
+  bool isSupported(Locale locale) => <String>['en', 'ru'].contains(locale.languageCode);
 
   @override
   bool shouldReload(_AppLocalizationsDelegate old) => false;
+}
+
+AppLocalizations lookupAppLocalizations(Locale locale) {
+
+
+  // Lookup logic when only language code is specified.
+  switch (locale.languageCode) {
+    case 'en': return AppLocalizationsEn();
+    case 'ru': return AppLocalizationsRu();
+  }
+
+  throw FlutterError(
+    'AppLocalizations.delegate failed to load unsupported locale "$locale". This is likely '
+    'an issue with the localizations generation tool. Please file an issue '
+    'on GitHub with a reproducible sample app and the gen-l10n configuration '
+    'that was used.'
+  );
 }

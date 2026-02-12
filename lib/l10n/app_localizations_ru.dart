@@ -1,9 +1,12 @@
-import 'package:flutter/material.dart';
+// ignore: unused_import
+import 'package:intl/intl.dart' as intl;
 import 'app_localizations.dart';
+
+// ignore_for_file: type=lint
 
 /// The translations for Russian (`ru`).
 class AppLocalizationsRu extends AppLocalizations {
-  AppLocalizationsRu([Locale locale = const Locale('ru')]) : super(locale);
+  AppLocalizationsRu([String locale = 'ru']) : super(locale);
 
   @override
   String get appTitle => 'Xaneo PC';
@@ -12,8 +15,7 @@ class AppLocalizationsRu extends AppLocalizations {
   String get welcomeTitle => 'Добро пожаловать в Xaneo';
 
   @override
-  String get welcomeDescription =>
-      'Xaneo - теперь и на вашем компьютере! Максимальная производительность и удобство.';
+  String get welcomeDescription => 'Xaneo - теперь и на вашем компьютере! Максимальная производительность и удобство.';
 
   @override
   String get getStartedButton => 'Начать';
@@ -22,19 +24,16 @@ class AppLocalizationsRu extends AppLocalizations {
   String get privacyTitle => 'Все ваши данные в безопасности';
 
   @override
-  String get privacyDescription =>
-      'Все сообщения в Xaneo защищены сквозным шифрованием. Ни в один момент Xaneo не знает об их содержимом.';
+  String get privacyDescription => 'Все сообщения в Xaneo защищены сквозным шифрованием. Ни в один момент Xaneo не знает об их содержимом.';
 
   @override
   String get continueButton => 'Продолжить';
 
   @override
-  String get dataStorageTitle =>
-      'Все дата-центры Xaneo находятся в России';
+  String get dataStorageTitle => 'Все дата-центры Xaneo находятся в России';
 
   @override
-  String get dataStorageDescription =>
-      'Ваши данные не покидают территорию страны и хранятся в безопасных дата-центрах.';
+  String get dataStorageDescription => 'Ваши данные не покидают территорию страны и хранятся в безопасных дата-центрах.';
 
   @override
   String get finishButton => 'Завершить';
@@ -67,18 +66,18 @@ class AppLocalizationsRu extends AppLocalizations {
   String get loggingIn => 'Выполняется вход...';
 
   @override
-  String welcomeUser(String username) => 'Добро пожаловать, $username!';
+  String welcomeUser(String username) {
+    return 'Добро пожаловать, $username!';
+  }
 
   @override
-  String get invalidCredentials =>
-      'Неверные учётные данные. Проверьте имя пользователя и пароль.';
+  String get invalidCredentials => 'Неверные учётные данные. Проверьте имя пользователя и пароль.';
 
   @override
   String get serverError => 'Ошибка сервера. Попробуйте позже.';
 
   @override
-  String get connectionError =>
-      'Ошибка подключения. Проверьте интернет-соединение.';
+  String get connectionError => 'Ошибка подключения. Проверьте интернет-соединение.';
 
   @override
   String get settings => 'Настройки';
@@ -96,7 +95,9 @@ class AppLocalizationsRu extends AppLocalizations {
   String get darkThemeDescription => 'Включить или отключить тёмную тему';
 
   @override
-  String fontSize(int size) => 'Размер шрифта: $size';
+  String fontSize(int size) {
+    return 'Размер шрифта: $size';
+  }
 
   @override
   String get language => 'Язык';

@@ -12,6 +12,7 @@ import '../widgets/glass_card.dart';
 import '../widgets/geometry_3d.dart';
 import '../widgets/advanced_background.dart';
 import '../widgets/custom_title_bar.dart';
+import '../widgets/about_app_modal.dart';
 
 /// Экран входа в систему с продвинутыми 3D эффектами
 class LoginScreen extends StatefulWidget {
@@ -37,6 +38,7 @@ class _LoginScreenState extends State<LoginScreen>
   double _fontSize = 16.0;
   int _selectedLanguageIndex = 1; // Индекс русского языка в списке
   bool _showSettings = false; // Показывать модальное окно настроек
+  bool _showAboutApp = false; // Показывать модальное окно "О приложении"
   
   // Список доступных языков
   final List<Map<String, String>> _availableLanguages = [
@@ -49,6 +51,7 @@ class _LoginScreenState extends State<LoginScreen>
   late AnimationController _pulseController;
   late AnimationController _rotateController;
   late AnimationController _settingsAnimationController;
+  late AnimationController _aboutAppAnimationController;
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
 
@@ -80,7 +83,12 @@ class _LoginScreenState extends State<LoginScreen>
     )..repeat();
 
     _settingsAnimationController = AnimationController(
-      duration: const Duration(milliseconds: 400),
+      duration: const Duration(milliseconds: 200),
+      vsync: this,
+    );
+
+    _aboutAppAnimationController = AnimationController(
+      duration: const Duration(milliseconds: 200),
       vsync: this,
     );
 
@@ -118,6 +126,7 @@ class _LoginScreenState extends State<LoginScreen>
     _pulseController.dispose();
     _rotateController.dispose();
     _settingsAnimationController.dispose();
+    _aboutAppAnimationController.dispose();
     _loginController.dispose();
     _passwordController.dispose();
     _loginFocus.dispose();
@@ -253,6 +262,9 @@ class _LoginScreenState extends State<LoginScreen>
           
           // Модальное окно настроек (ниже title bar)
           if (_showSettings) _buildSettingsModal(context, isDark),
+          
+          // Модальное окно "О приложении" (ниже title bar)
+          if (_showAboutApp) _buildAboutAppModal(context, isDark),
           
           // Title bar (выше всех по z-index)
           const Positioned(
@@ -738,13 +750,16 @@ class _LoginScreenState extends State<LoginScreen>
                   child: FadeTransition(
                     opacity: CurvedAnimation(
                       parent: _settingsAnimationController,
-                      curve: Curves.easeOutCubic,
+                      curve: const Interval(0.0, 0.5, curve: Curves.easeOut),
                     ),
                     child: ScaleTransition(
-                      scale: CurvedAnimation(
+                      scale: Tween<double>(
+                        begin: 0.95,
+                        end: 1.0,
+                      ).animate(CurvedAnimation(
                         parent: _settingsAnimationController,
-                        curve: Curves.easeOutBack,
-                      ),
+                        curve: Curves.easeOut,
+                      )),
                       child: Center(
                         child: Container(
                           width: screenSize.width * 0.85,
@@ -1403,126 +1418,144 @@ class _LoginScreenState extends State<LoginScreen>
 
   /// Создаёт красивую карточку версии
   Widget _buildVersionCard(bool isDark, AppLocalizations l10n) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: isDark
-              ? [
-                  Colors.white.withOpacity(0.05),
-                  Colors.white.withOpacity(0.02),
-                ]
-              : [
-                  Colors.black.withOpacity(0.02),
-                  Colors.black.withOpacity(0.01),
-                ],
-        ),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isDark
-              ? Colors.white.withOpacity(0.08)
-              : Colors.black.withOpacity(0.05),
-          width: 1,
-        ),
-      ),
-      child: Row(
-        children: [
-          // Логотип
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: isDark
-                    ? [Colors.white, Colors.grey.shade400]
-                    : [Colors.black, Colors.grey.shade700],
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: isDark
-                      ? Colors.white.withOpacity(0.2)
-                      : Colors.black.withOpacity(0.2),
-                  blurRadius: 12,
-                  spreadRadius: 2,
-                ),
-              ],
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: _showAboutAppModal,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 200),
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: isDark
+                  ? [
+                      Colors.white.withOpacity(0.05),
+                      Colors.white.withOpacity(0.02),
+                    ]
+                  : [
+                      Colors.black.withOpacity(0.02),
+                      Colors.black.withOpacity(0.01),
+                    ],
             ),
-            child: Center(
-              child: Text(
-                'X',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                  color: isDark ? Colors.black : Colors.white,
-                ),
-              ),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isDark
+                  ? Colors.white.withOpacity(0.08)
+                  : Colors.black.withOpacity(0.05),
+              width: 1,
             ),
           ),
-          const SizedBox(width: 16),
-          // Информация
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'xaneo_pc',
-                  style: TextStyle(
-                    color: isDark ? Colors.white : Colors.black,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
+          child: Row(
+            children: [
+              // Логотип
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: isDark
+                        ? [Colors.white, Colors.grey.shade400]
+                        : [Colors.black, Colors.grey.shade700],
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: isDark
+                          ? Colors.white.withOpacity(0.2)
+                          : Colors.black.withOpacity(0.2),
+                      blurRadius: 12,
+                      spreadRadius: 2,
+                    ),
+                  ],
+                ),
+                child: Center(
+                  child: Text(
+                    'X',
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? Colors.black : Colors.white,
+                    ),
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  'v1.0.0',
-                  style: TextStyle(
+              ),
+              const SizedBox(width: 16),
+              // Информация
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'xaneo_pc',
+                      style: TextStyle(
+                        color: isDark ? Colors.white : Colors.black,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'v1.0.0',
+                      style: TextStyle(
+                        color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // Статус и стрелка
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.green.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: Colors.green.withOpacity(0.3),
+                        width: 1,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 6,
+                          height: 6,
+                          decoration: const BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Colors.green,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        const Text(
+                          'stable',
+                          style: TextStyle(
+                            color: Colors.green,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Icon(
+                    Icons.arrow_forward_ios_rounded,
                     color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
-                    fontSize: 13,
+                    size: 14,
                   ),
-                ),
-              ],
-            ),
-          ),
-          // Статус
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: Colors.green.withOpacity(0.15),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: Colors.green.withOpacity(0.3),
-                width: 1,
+                ],
               ),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 6,
-                  height: 6,
-                  decoration: const BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.green,
-                  ),
-                ),
-                const SizedBox(width: 6),
-                const Text(
-                  'stable',
-                  style: TextStyle(
-                    color: Colors.green,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -1845,6 +1878,73 @@ class _LoginScreenState extends State<LoginScreen>
           ),
         ),
       ),
+    );
+  }
+
+  /// Показывает модальное окно "О приложении"
+  void _showAboutAppModal() {
+    setState(() => _showAboutApp = true);
+    _aboutAppAnimationController.forward();
+  }
+  
+  /// Закрывает модальное окно "О приложении"
+  void _closeAboutApp() async {
+    await _aboutAppAnimationController.reverse();
+    setState(() => _showAboutApp = false);
+  }
+  
+  /// Строит модальное окно "О приложении" как часть Stack
+  Widget _buildAboutAppModal(BuildContext context, bool isDark) {
+    return AnimatedBuilder(
+      animation: _aboutAppAnimationController,
+      builder: (context, child) {
+        final animValue = _aboutAppAnimationController.value;
+        return Stack(
+          children: [
+            // Затемнение только для области под title bar
+            Positioned(
+              top: 40,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: GestureDetector(
+                onTap: _closeAboutApp,
+                child: Container(
+                  color: isDark 
+                      ? Colors.black.withOpacity(0.5 * animValue)
+                      : Colors.black.withOpacity(0.3 * animValue),
+                ),
+              ),
+            ),
+            
+            // Контент модального окна
+            Positioned(
+              top: 50,
+              left: 0,
+              right: 0,
+              bottom: 20,
+              child: FadeTransition(
+                opacity: CurvedAnimation(
+                  parent: _aboutAppAnimationController,
+                  curve: const Interval(0.0, 0.5, curve: Curves.easeOut),
+                ),
+                child: ScaleTransition(
+                  scale: Tween<double>(
+                    begin: 0.95,
+                    end: 1.0,
+                  ).animate(CurvedAnimation(
+                    parent: _aboutAppAnimationController,
+                    curve: Curves.easeOut,
+                  )),
+                  child: AboutAppModal(
+                    onClose: _closeAboutApp,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }

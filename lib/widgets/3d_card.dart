@@ -27,7 +27,7 @@ class Card3D extends StatefulWidget {
 class _Card3DState extends State<Card3D> with SingleTickerProviderStateMixin {
   double _rotateX = 0;
   double _rotateY = 0;
-  double _scale = 1.0;
+  final double _scale = 1.0;
   late AnimationController _animationController;
   late Animation<double> _scaleAnimation;
 

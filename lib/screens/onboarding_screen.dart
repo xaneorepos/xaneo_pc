@@ -1,16 +1,13 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../l10n/app_localizations.dart';
 import '../providers/theme_provider.dart';
 import '../providers/scale_provider.dart';
-import '../styles/app_styles.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/geometry_3d.dart';
 import '../widgets/advanced_background.dart';
-import '../widgets/custom_title_bar.dart';
 
 /// Экран онбординга с продвинутыми 3D эффектами
 class OnboardingScreen extends StatefulWidget {
@@ -136,7 +133,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
 
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
+    final l10n = AppLocalizations.of(context)!;
     final themeProvider = Provider.of<ThemeProvider>(context);
     final isDark = themeProvider.isDarkMode;
 
@@ -156,17 +153,6 @@ class _OnboardingScreenState extends State<OnboardingScreen>
           
           // Плавающие 3D фигуры (не масштабируются)
           _buildFloatingShapes(isDark),
-          
-          // Title bar (не масштабируется)
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: SizedBox(
-              height: 40,
-              child: CustomTitleBar(),
-            ),
-          ),
           
           // Основной контент (масштабируется)
           Positioned.fill(
@@ -361,25 +347,25 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     );
   }
 
-  Widget _buildOnboardingCard(AppLocalizations? l10n, bool isDark) {
+  Widget _buildOnboardingCard(AppLocalizations l10n, bool isDark) {
     final steps = [
       {
-        'title': l10n!.welcomeTitle,
-        'description': l10n!.welcomeDescription,
+        'title': l10n.welcomeTitle,
+        'description': l10n.welcomeDescription,
         'icon': Icons.rocket_launch_rounded,
-        'button': l10n!.getStartedButton,
+        'button': l10n.getStartedButton,
       },
       {
-        'title': l10n!.privacyTitle,
-        'description': l10n!.privacyDescription,
+        'title': l10n.privacyTitle,
+        'description': l10n.privacyDescription,
         'icon': Icons.shield_rounded,
-        'button': l10n!.continueButton,
+        'button': l10n.continueButton,
       },
       {
-        'title': l10n!.dataStorageTitle,
-        'description': l10n!.dataStorageDescription,
+        'title': l10n.dataStorageTitle,
+        'description': l10n.dataStorageDescription,
         'icon': Icons.storage_rounded,
-        'button': l10n!.finishButton,
+        'button': l10n.finishButton,
       },
     ];
 
@@ -529,12 +515,12 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     );
   }
 
-  Widget _buildNavigationButton(AppLocalizations? l10n, bool isDark) {
+  Widget _buildNavigationButton(AppLocalizations l10n, bool isDark) {
     final buttonText = _currentStep == 0
-        ? l10n!.getStartedButton
+        ? l10n.getStartedButton
         : _currentStep == 1
-            ? l10n!.continueButton
-            : l10n!.finishButton;
+            ? l10n.continueButton
+            : l10n.finishButton;
 
     return AnimatedBuilder(
       animation: _pulseController,

@@ -65,7 +65,7 @@ class AppStyles {
   static TextStyle titleLarge(BuildContext context) {
     return TextStyle(
       fontSize: fontSizeLarge,
-      fontVariations: [const FontVariation('wght', 600)],
+      fontVariations: const [FontVariation('wght', 600)],
       color: textPrimaryColor(context),
       height: 1.1,
       fontFamily: fontFamily,
@@ -96,7 +96,7 @@ class AppStyles {
   static TextStyle buttonText(BuildContext context) {
     return TextStyle(
       fontSize: fontSizeNormal,
-      fontVariations: [const FontVariation('wght', 600)],
+      fontVariations: const [FontVariation('wght', 600)],
       color: buttonTextColor(context),
       fontFamily: fontFamily,
     );
@@ -107,7 +107,7 @@ class AppStyles {
     return TextStyle(
       color: textPrimaryColor(context),
       fontSize: fontSizeTitle,
-      fontVariations: [const FontVariation('wght', 600)],
+      fontVariations: const [FontVariation('wght', 600)],
       fontFamily: fontFamily,
     );
   }

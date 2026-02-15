@@ -736,7 +736,7 @@ class _ConfettiOverlayState extends State<_ConfettiOverlay>
                             ),
                           ],
                         ),
-                        child: Text(
+                        child: const Text(
                           '🎉 Вы нашли пасхалку! 🎉',
                           style: TextStyle(
                             fontSize: 24,
@@ -749,7 +749,7 @@ class _ConfettiOverlayState extends State<_ConfettiOverlay>
                         ),
                       ),
                       const SizedBox(height: 16),
-                      Text(
+                      const Text(
                         'Спасибо за использование xaneo_pc!',
                         style: TextStyle(
                           fontSize: 16,

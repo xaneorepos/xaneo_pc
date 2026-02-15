@@ -117,7 +117,7 @@ class CubeLinesPainter extends CustomPainter {
 
     // Диагонали
     canvas.drawLine(
-      Offset(0, 0),
+      const Offset(0, 0),
       Offset(size.width, size.height),
       paint,
     );

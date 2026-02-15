@@ -292,6 +292,324 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'App version'**
   String get appVersion;
+
+  /// Registration screen title
+  ///
+  /// In en, this message translates to:
+  /// **'Registration'**
+  String get registerTitle;
+
+  /// Registration step 0 title
+  ///
+  /// In en, this message translates to:
+  /// **'What\'s your name?'**
+  String get registerStep0Title;
+
+  /// Registration step 0 subtitle
+  ///
+  /// In en, this message translates to:
+  /// **'Enter your real name'**
+  String get registerStep0Subtitle;
+
+  /// Registration step 1 title
+  ///
+  /// In en, this message translates to:
+  /// **'When were you born?'**
+  String get registerStep1Title;
+
+  /// Registration step 1 subtitle
+  ///
+  /// In en, this message translates to:
+  /// **'You must be at least 14 years old'**
+  String get registerStep1Subtitle;
+
+  /// Registration step 2 title
+  ///
+  /// In en, this message translates to:
+  /// **'Choose a nickname'**
+  String get registerStep2Title;
+
+  /// Registration step 2 subtitle
+  ///
+  /// In en, this message translates to:
+  /// **'Nickname must be unique'**
+  String get registerStep2Subtitle;
+
+  /// Registration step 3 title
+  ///
+  /// In en, this message translates to:
+  /// **'Your email'**
+  String get registerStep3Title;
+
+  /// Registration step 3 subtitle
+  ///
+  /// In en, this message translates to:
+  /// **'We\'ll send a verification code'**
+  String get registerStep3Subtitle;
+
+  /// Registration step 4 title
+  ///
+  /// In en, this message translates to:
+  /// **'Create a password'**
+  String get registerStep4Title;
+
+  /// Registration step 4 subtitle
+  ///
+  /// In en, this message translates to:
+  /// **'Create a strong password'**
+  String get registerStep4Subtitle;
+
+  /// Registration step 5 title
+  ///
+  /// In en, this message translates to:
+  /// **'Add a photo'**
+  String get registerStep5Title;
+
+  /// Registration step 5 subtitle
+  ///
+  /// In en, this message translates to:
+  /// **'This is optional, but nice'**
+  String get registerStep5Subtitle;
+
+  /// Registration step 6 title
+  ///
+  /// In en, this message translates to:
+  /// **'Last step'**
+  String get registerStep6Title;
+
+  /// Registration step 6 subtitle
+  ///
+  /// In en, this message translates to:
+  /// **'Accept the terms of use'**
+  String get registerStep6Subtitle;
+
+  /// Name field label
+  ///
+  /// In en, this message translates to:
+  /// **'Your name'**
+  String get yourName;
+
+  /// Birth date field label
+  ///
+  /// In en, this message translates to:
+  /// **'Birth date'**
+  String get birthDate;
+
+  /// Nickname field label
+  ///
+  /// In en, this message translates to:
+  /// **'Nickname'**
+  String get nickname;
+
+  /// Checking nickname message
+  ///
+  /// In en, this message translates to:
+  /// **'Checking availability...'**
+  String get checkingNickname;
+
+  /// Nickname available message
+  ///
+  /// In en, this message translates to:
+  /// **'Nickname available'**
+  String get nicknameAvailable;
+
+  /// Nickname taken message
+  ///
+  /// In en, this message translates to:
+  /// **'Nickname taken'**
+  String get nicknameTaken;
+
+  /// Email field label
+  ///
+  /// In en, this message translates to:
+  /// **'Email'**
+  String get email;
+
+  /// Password field label
+  ///
+  /// In en, this message translates to:
+  /// **'Password'**
+  String get password;
+
+  /// Confirm password field label
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm password'**
+  String get confirmPassword;
+
+  /// Add photo hint
+  ///
+  /// In en, this message translates to:
+  /// **'Tap to add a photo'**
+  String get addPhoto;
+
+  /// Remove photo button
+  ///
+  /// In en, this message translates to:
+  /// **'Remove photo'**
+  String get removePhoto;
+
+  /// Accept terms checkbox
+  ///
+  /// In en, this message translates to:
+  /// **'I accept the terms of use'**
+  String get acceptTerms;
+
+  /// Accept data processing checkbox
+  ///
+  /// In en, this message translates to:
+  /// **'I agree to the processing of personal data'**
+  String get acceptDataProcessing;
+
+  /// Back button
+  ///
+  /// In en, this message translates to:
+  /// **'Back'**
+  String get back;
+
+  /// Next button
+  ///
+  /// In en, this message translates to:
+  /// **'Next'**
+  String get next;
+
+  /// Finish button
+  ///
+  /// In en, this message translates to:
+  /// **'Finish'**
+  String get finish;
+
+  /// Back to login button
+  ///
+  /// In en, this message translates to:
+  /// **'Back to login'**
+  String get backToLogin;
+
+  /// Registration success message
+  ///
+  /// In en, this message translates to:
+  /// **'Registration successful!'**
+  String get registrationSuccess;
+
+  /// Registration error message
+  ///
+  /// In en, this message translates to:
+  /// **'Registration error'**
+  String get registrationError;
+
+  /// Enter verification code message
+  ///
+  /// In en, this message translates to:
+  /// **'Enter verification code'**
+  String get enterVerificationCode;
+
+  /// Invalid verification code message
+  ///
+  /// In en, this message translates to:
+  /// **'Invalid verification code'**
+  String get invalidVerificationCode;
+
+  /// Code sent message
+  ///
+  /// In en, this message translates to:
+  /// **'Verification code sent to email'**
+  String get codeSent;
+
+  /// Send code error message
+  ///
+  /// In en, this message translates to:
+  /// **'Error sending code'**
+  String get sendCodeError;
+
+  /// Confirm email modal title
+  ///
+  /// In en, this message translates to:
+  /// **'Confirm e-mail'**
+  String get confirmEmail;
+
+  /// Code sent to email message
+  ///
+  /// In en, this message translates to:
+  /// **'We sent a verification code to\n{email}'**
+  String codeSentToEmail(String email);
+
+  /// Verify button
+  ///
+  /// In en, this message translates to:
+  /// **'Verify'**
+  String get verify;
+
+  /// Resend code button
+  ///
+  /// In en, this message translates to:
+  /// **'Resend code'**
+  String get resendCode;
+
+  /// Resend countdown
+  ///
+  /// In en, this message translates to:
+  /// **'Resend in {count} sec'**
+  String resendIn(int count);
+
+  /// Accept terms required message
+  ///
+  /// In en, this message translates to:
+  /// **'You must accept the terms and data processing consent'**
+  String get acceptTermsRequired;
+
+  /// About app menu item
+  ///
+  /// In en, this message translates to:
+  /// **'About'**
+  String get about;
+
+  /// App version label
+  ///
+  /// In en, this message translates to:
+  /// **'Version'**
+  String get version;
+
+  /// About app description
+  ///
+  /// In en, this message translates to:
+  /// **'A modern application for managing and controlling systems.'**
+  String get aboutDescription;
+
+  /// Close button
+  ///
+  /// In en, this message translates to:
+  /// **'Close'**
+  String get close;
+
+  /// Technical information section header
+  ///
+  /// In en, this message translates to:
+  /// **'Technical Information'**
+  String get technicalInfo;
+
+  /// Platform label
+  ///
+  /// In en, this message translates to:
+  /// **'Platform'**
+  String get platform;
+
+  /// Processor architecture label
+  ///
+  /// In en, this message translates to:
+  /// **'Processor Architecture'**
+  String get architecture;
+
+  /// Flutter framework label
+  ///
+  /// In en, this message translates to:
+  /// **'Flutter'**
+  String get flutter;
+
+  /// View on GitHub link text
+  ///
+  /// In en, this message translates to:
+  /// **'View on GitHub'**
+  String get viewOnGitHub;
 }
 
 class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {

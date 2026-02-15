@@ -110,4 +110,167 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get appVersion => 'App version';
+
+  @override
+  String get registerTitle => 'Registration';
+
+  @override
+  String get registerStep0Title => 'What\'s your name?';
+
+  @override
+  String get registerStep0Subtitle => 'Enter your real name';
+
+  @override
+  String get registerStep1Title => 'When were you born?';
+
+  @override
+  String get registerStep1Subtitle => 'You must be at least 14 years old';
+
+  @override
+  String get registerStep2Title => 'Choose a nickname';
+
+  @override
+  String get registerStep2Subtitle => 'Nickname must be unique';
+
+  @override
+  String get registerStep3Title => 'Your email';
+
+  @override
+  String get registerStep3Subtitle => 'We\'ll send a verification code';
+
+  @override
+  String get registerStep4Title => 'Create a password';
+
+  @override
+  String get registerStep4Subtitle => 'Create a strong password';
+
+  @override
+  String get registerStep5Title => 'Add a photo';
+
+  @override
+  String get registerStep5Subtitle => 'This is optional, but nice';
+
+  @override
+  String get registerStep6Title => 'Last step';
+
+  @override
+  String get registerStep6Subtitle => 'Accept the terms of use';
+
+  @override
+  String get yourName => 'Your name';
+
+  @override
+  String get birthDate => 'Birth date';
+
+  @override
+  String get nickname => 'Nickname';
+
+  @override
+  String get checkingNickname => 'Checking availability...';
+
+  @override
+  String get nicknameAvailable => 'Nickname available';
+
+  @override
+  String get nicknameTaken => 'Nickname taken';
+
+  @override
+  String get email => 'Email';
+
+  @override
+  String get password => 'Password';
+
+  @override
+  String get confirmPassword => 'Confirm password';
+
+  @override
+  String get addPhoto => 'Tap to add a photo';
+
+  @override
+  String get removePhoto => 'Remove photo';
+
+  @override
+  String get acceptTerms => 'I accept the terms of use';
+
+  @override
+  String get acceptDataProcessing => 'I agree to the processing of personal data';
+
+  @override
+  String get back => 'Back';
+
+  @override
+  String get next => 'Next';
+
+  @override
+  String get finish => 'Finish';
+
+  @override
+  String get backToLogin => 'Back to login';
+
+  @override
+  String get registrationSuccess => 'Registration successful!';
+
+  @override
+  String get registrationError => 'Registration error';
+
+  @override
+  String get enterVerificationCode => 'Enter verification code';
+
+  @override
+  String get invalidVerificationCode => 'Invalid verification code';
+
+  @override
+  String get codeSent => 'Verification code sent to email';
+
+  @override
+  String get sendCodeError => 'Error sending code';
+
+  @override
+  String get confirmEmail => 'Confirm e-mail';
+
+  @override
+  String codeSentToEmail(String email) {
+    return 'We sent a verification code to\n$email';
+  }
+
+  @override
+  String get verify => 'Verify';
+
+  @override
+  String get resendCode => 'Resend code';
+
+  @override
+  String resendIn(int count) {
+    return 'Resend in $count sec';
+  }
+
+  @override
+  String get acceptTermsRequired => 'You must accept the terms and data processing consent';
+
+  @override
+  String get about => 'About';
+
+  @override
+  String get version => 'Version';
+
+  @override
+  String get aboutDescription => 'A modern application for managing and controlling systems.';
+
+  @override
+  String get close => 'Close';
+
+  @override
+  String get technicalInfo => 'Technical Information';
+
+  @override
+  String get platform => 'Platform';
+
+  @override
+  String get architecture => 'Processor Architecture';
+
+  @override
+  String get flutter => 'Flutter';
+
+  @override
+  String get viewOnGitHub => 'View on GitHub';
 }

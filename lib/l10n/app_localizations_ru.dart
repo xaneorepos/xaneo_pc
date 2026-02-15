@@ -110,4 +110,167 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get appVersion => 'Версия приложения';
+
+  @override
+  String get registerTitle => 'Регистрация';
+
+  @override
+  String get registerStep0Title => 'Как вас зовут?';
+
+  @override
+  String get registerStep0Subtitle => 'Введите ваше настоящее имя';
+
+  @override
+  String get registerStep1Title => 'Когда вы родились?';
+
+  @override
+  String get registerStep1Subtitle => 'Вам должно быть не менее 14 лет';
+
+  @override
+  String get registerStep2Title => 'Придумайте никнейм';
+
+  @override
+  String get registerStep2Subtitle => 'Никнейм должен быть уникальным';
+
+  @override
+  String get registerStep3Title => 'Ваш email';
+
+  @override
+  String get registerStep3Subtitle => 'Мы отправим код подтверждения';
+
+  @override
+  String get registerStep4Title => 'Создайте пароль';
+
+  @override
+  String get registerStep4Subtitle => 'Придумайте надёжный пароль';
+
+  @override
+  String get registerStep5Title => 'Добавьте фото';
+
+  @override
+  String get registerStep5Subtitle => 'Это необязательно, но приятно';
+
+  @override
+  String get registerStep6Title => 'Последний шаг';
+
+  @override
+  String get registerStep6Subtitle => 'Примите условия использования';
+
+  @override
+  String get yourName => 'Ваше имя';
+
+  @override
+  String get birthDate => 'Дата рождения';
+
+  @override
+  String get nickname => 'Никнейм';
+
+  @override
+  String get checkingNickname => 'Проверка доступности...';
+
+  @override
+  String get nicknameAvailable => 'Никнейм доступен';
+
+  @override
+  String get nicknameTaken => 'Никнейм занят';
+
+  @override
+  String get email => 'Email';
+
+  @override
+  String get password => 'Пароль';
+
+  @override
+  String get confirmPassword => 'Подтвердите пароль';
+
+  @override
+  String get addPhoto => 'Нажмите, чтобы добавить фото';
+
+  @override
+  String get removePhoto => 'Удалить фото';
+
+  @override
+  String get acceptTerms => 'Я принимаю условия использования';
+
+  @override
+  String get acceptDataProcessing => 'Я согласен на обработку персональных данных';
+
+  @override
+  String get back => 'Назад';
+
+  @override
+  String get next => 'Далее';
+
+  @override
+  String get finish => 'Завершить';
+
+  @override
+  String get backToLogin => 'Назад ко входу';
+
+  @override
+  String get registrationSuccess => 'Регистрация успешна!';
+
+  @override
+  String get registrationError => 'Ошибка регистрации';
+
+  @override
+  String get enterVerificationCode => 'Введите код подтверждения';
+
+  @override
+  String get invalidVerificationCode => 'Неверный код подтверждения';
+
+  @override
+  String get codeSent => 'Код подтверждения отправлен на email';
+
+  @override
+  String get sendCodeError => 'Ошибка отправки кода';
+
+  @override
+  String get confirmEmail => 'Подтвердите e-mail';
+
+  @override
+  String codeSentToEmail(String email) {
+    return 'Мы отправили код подтверждения на\n$email';
+  }
+
+  @override
+  String get verify => 'Проверить';
+
+  @override
+  String get resendCode => 'Отправить код повторно';
+
+  @override
+  String resendIn(int count) {
+    return 'Отправить повторно через $count сек';
+  }
+
+  @override
+  String get acceptTermsRequired => 'Необходимо принять условия и согласие на обработку данных';
+
+  @override
+  String get about => 'О приложении';
+
+  @override
+  String get version => 'Версия';
+
+  @override
+  String get aboutDescription => 'Современное приложение для управления и контроля систем.';
+
+  @override
+  String get close => 'Закрыть';
+
+  @override
+  String get technicalInfo => 'Техническая информация';
+
+  @override
+  String get platform => 'Платформа';
+
+  @override
+  String get architecture => 'Архитектура процессора';
+
+  @override
+  String get flutter => 'Flutter';
+
+  @override
+  String get viewOnGitHub => 'Посмотреть на GitHub';
 }

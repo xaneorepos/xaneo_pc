@@ -57,7 +57,7 @@ class ThemeProvider extends ChangeNotifier {
         fontSize: 16,
       ),
       bodyMedium: TextStyle(
-        color: const Color(0xFFE0E0E0),
+        color: Color(0xFFE0E0E0),
         fontSize: 14,
       ),
       labelLarge: TextStyle(
@@ -143,7 +143,7 @@ class ThemeProvider extends ChangeNotifier {
         fontSize: 16,
       ),
       bodyMedium: TextStyle(
-        color: const Color(0xFF757575),
+        color: Color(0xFF757575),
         fontSize: 14,
       ),
       labelLarge: TextStyle(

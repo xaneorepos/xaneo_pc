@@ -421,6 +421,7 @@ class _LoginScreenState extends State<LoginScreen>
               color: isDark ? Colors.white : Colors.black,
               fontSize: 15,
             ),
+            spellCheckConfiguration: null,
             decoration: InputDecoration(
               labelText: l10n!.loginFieldHint,
               prefixIcon: Icon(
@@ -491,6 +492,7 @@ class _LoginScreenState extends State<LoginScreen>
               color: isDark ? Colors.white : Colors.black,
               fontSize: 15,
             ),
+            spellCheckConfiguration: null,
             decoration: InputDecoration(
               labelText: l10n!.passwordFieldHint,
               prefixIcon: Icon(

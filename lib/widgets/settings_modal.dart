@@ -99,7 +99,7 @@ class _SettingsButtonState extends State<SettingsButton>
       builder: (context) => AnimatedBuilder(
         animation: _aboutAnimationController,
         builder: (context, child) => Material(
-          color: Colors.transparent,
+          type: MaterialType.transparency,
           child: Stack(
             children: [
               // Затемнение
@@ -614,10 +614,12 @@ class _SettingsButtonState extends State<SettingsButton>
     return AnimatedBuilder(
       animation: _settingsAnimationController,
       builder: (context, child) {
-        return Stack(
-          children: [
-            // Затемнение
-            Positioned(
+        return Material(
+          type: MaterialType.transparency,
+          child: Stack(
+            children: [
+              // Затемнение
+              Positioned(
               top: 40,
               left: 0,
               right: 0,
@@ -763,6 +765,7 @@ class _SettingsButtonState extends State<SettingsButton>
                                           fontWeight: FontWeight.w600,
                                           letterSpacing: 0.5,
                                           fontFamily: 'Inter',
+                                          decoration: TextDecoration.none,
                                         ),
                                       ),
                                     ),
@@ -886,7 +889,7 @@ class _SettingsButtonState extends State<SettingsButton>
               ),
             ),
           ],
-        );
+        ));
       },
     );
   }

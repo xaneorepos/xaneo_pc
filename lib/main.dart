@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
@@ -43,7 +44,7 @@ void main() async {
     DeviceOrientation.landscapeLeft,
     DeviceOrientation.landscapeRight,
   ]);
-  
+
   runApp(
     MultiProvider(
       providers: [
@@ -111,7 +112,10 @@ class MyApp extends StatelessWidget {
                 child: Overlay(
                   initialEntries: [
                     OverlayEntry(
-                      builder: (context) => const SettingsButton(),
+                      builder: (context) => const Material(
+                        type: MaterialType.transparency,
+                        child: SettingsButton(),
+                      ),
                     ),
                   ],
                 ),

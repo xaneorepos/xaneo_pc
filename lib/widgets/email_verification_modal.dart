@@ -192,6 +192,7 @@ class _EmailVerificationModalState extends State<EmailVerificationModal> {
                         keyboardType: TextInputType.number,
                         maxLength: 6,
                         textAlign: TextAlign.center,
+                        spellCheckConfiguration: null,
                         style: TextStyle(
                           color: isDark ? Colors.black : Colors.white,
                           fontSize: 24,

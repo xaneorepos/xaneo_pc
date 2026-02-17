@@ -11,17 +11,19 @@ class CustomTitleBar extends StatelessWidget {
     final themeProvider = Provider.of<ThemeProvider>(context);
     final isDark = themeProvider.isDarkMode;
 
-    return Container(
-      height: 40,
-      decoration: BoxDecoration(
-        color: isDark
-            ? Colors.black.withOpacity(0.3)
-            : Colors.white.withOpacity(0.3),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: DragToMoveArea(
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        height: 40,
+        decoration: BoxDecoration(
+          color: isDark
+              ? Colors.black.withOpacity(0.3)
+              : Colors.white.withOpacity(0.3),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: DragToMoveArea(
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16.0),
                 child: Row(
@@ -69,20 +71,28 @@ class CustomTitleBar extends StatelessWidget {
               ),
             ),
           ),
-          WindowCaptionButton.minimize(
-            brightness: isDark ? Brightness.dark : Brightness.light,
-            onPressed: () async => await windowManager.minimize(),
-          ),
-          WindowCaptionButton.maximize(
-            brightness: isDark ? Brightness.dark : Brightness.light,
-            onPressed: () async => await windowManager.maximize(),
-          ),
-          WindowCaptionButton.close(
-            brightness: isDark ? Brightness.dark : Brightness.light,
-            onPressed: () async => await windowManager.close(),
+          Material(
+            type: MaterialType.transparency,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                WindowCaptionButton.minimize(
+                  brightness: isDark ? Brightness.dark : Brightness.light,
+                  onPressed: () async => await windowManager.minimize(),
+                ),
+                WindowCaptionButton.maximize(
+                  brightness: isDark ? Brightness.dark : Brightness.light,
+                  onPressed: () async => await windowManager.maximize(),
+                ),
+                WindowCaptionButton.close(
+                  brightness: isDark ? Brightness.dark : Brightness.light,
+                  onPressed: () async => await windowManager.close(),
+                ),
+              ],
+            ),
           ),
         ],
       ),
-    );
+    ));
   }
 }

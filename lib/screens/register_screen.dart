@@ -881,6 +881,7 @@ class _RegisterScreenState extends State<RegisterScreen>
         fontSize: 16 * scaleProvider.scale,
         color: isDark ? Colors.white : Colors.black87,
       ),
+      spellCheckConfiguration: null,
       decoration: InputDecoration(
         labelText: label,
         prefixIcon: Icon(icon, size: 20 * scaleProvider.scale),

@@ -16,6 +16,17 @@ class ThemeProvider extends ChangeNotifier {
     scaffoldBackgroundColor: Colors.black,
     cardColor: Colors.grey.shade900,
     fontFamily: 'Inter',
+    focusColor: Colors.transparent,
+    highlightColor: Colors.transparent,
+    splashColor: Colors.transparent,
+    hoverColor: Colors.transparent, // Disable hover effect color
+    // This removes the focus color globally
+    pageTransitionsTheme: const PageTransitionsTheme(
+      builders: {
+        TargetPlatform.linux: FadeUpwardsPageTransitionsBuilder(),
+        TargetPlatform.windows: FadeUpwardsPageTransitionsBuilder(),
+      },
+    ), 
     colorScheme: const ColorScheme.dark(
       primary: Colors.white,
       secondary: Colors.grey,
@@ -102,6 +113,17 @@ class ThemeProvider extends ChangeNotifier {
     scaffoldBackgroundColor: Colors.white,
     cardColor: Colors.grey.shade100,
     fontFamily: 'Inter',
+    focusColor: Colors.transparent,
+    highlightColor: Colors.transparent,
+    splashColor: Colors.transparent,
+    hoverColor: Colors.transparent, // Disable hover effect color
+    // This removes the focus color globally
+    pageTransitionsTheme: const PageTransitionsTheme(
+      builders: {
+        TargetPlatform.linux: FadeUpwardsPageTransitionsBuilder(),
+        TargetPlatform.windows: FadeUpwardsPageTransitionsBuilder(),
+      },
+    ),
     colorScheme: const ColorScheme.light(
       primary: Colors.black,
       secondary: Colors.grey,

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:window_manager/window_manager.dart';
@@ -82,6 +83,33 @@ Future<void> runDiagnostics() async {
     await LogManager.log('FontLoader successfully loaded Inter fonts!');
   } catch (e) {
     await LogManager.log('FontLoader FAILED: $e');
+  }
+}
+
+Future<ProcessResult> _runPowerShell({
+  required String script,
+  bool detached = false,
+}) async {
+  final bytes = <int>[];
+  for (final char in script.codeUnits) {
+    bytes.add(char & 0xff);
+    bytes.add((char >> 8) & 0xff);
+  }
+  
+  final base64Script = base64.encode(bytes);
+  
+  if (detached) {
+    final process = await Process.start(
+      'powershell',
+      ['-WindowStyle', 'Hidden', '-NoProfile', '-NonInteractive', '-EncodedCommand', base64Script],
+      mode: ProcessStartMode.detached,
+    );
+    return ProcessResult(process.pid, 0, '', '');
+  } else {
+    return await Process.run(
+      'powershell',
+      ['-NoProfile', '-NonInteractive', '-EncodedCommand', base64Script],
+    );
   }
 }
 
@@ -399,7 +427,7 @@ New-ItemProperty -Path \$RegPath -Name "InstallLocation" -Value "${targetDir.pat
 ''';
 
       await LogManager.log('Running installation configuration script in-memory via PowerShell...');
-      final result = await Process.run('powershell', ['-NoProfile', '-NonInteractive', '-Command', installCmd]);
+      final result = await _runPowerShell(script: installCmd);
       
       await LogManager.log('PowerShell exit code: ${result.exitCode}');
       if (result.stdout.toString().trim().isNotEmpty) {
@@ -800,11 +828,7 @@ WriteLog "Cleanup finished."
 ''';
 
       await LogManager.log('Starting detached PowerShell cleanup command...');
-      await Process.start(
-        'powershell',
-        ['-WindowStyle', 'Hidden', '-NoProfile', '-NonInteractive', '-Command', psCommand],
-        mode: ProcessStartMode.detached,
-      );
+      await _runPowerShell(script: psCommand, detached: true);
       await LogManager.log('Detached PowerShell cleanup process started.');
 
       setState(() {

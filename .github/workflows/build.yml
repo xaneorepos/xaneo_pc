@@ -331,6 +331,7 @@ jobs:
           generate_release_notes: true
           files: |
             artifacts/**/*.zip
+            artifacts/**/*.exe
             artifacts/**/*.tar.gz
             artifacts/**/*.deb
             artifacts/**/*.rpm

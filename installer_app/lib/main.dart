@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:archive/archive_io.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -7,8 +8,90 @@ import 'package:file_picker/file_picker.dart';
 
 const String _kFontFamily = 'Inter';
 
+class LogManager {
+  static final List<String> _logs = [];
+  static String get logFilePath => '${Directory.systemTemp.path}\\xaneo_installer.log';
+
+  static Future<void> log(String message) async {
+    final timestamp = DateTime.now().toIso8601String().substring(11, 19);
+    final line = '[$timestamp] $message';
+    _logs.add(line);
+    print(line);
+    try {
+      final file = File(logFilePath);
+      await file.writeAsString('$line\n', mode: FileMode.append, flush: true);
+    } catch (e) {
+      print('Failed to write log to file: $e');
+    }
+  }
+
+  static List<String> get logs => _logs;
+
+  static Future<void> clearLogFile() async {
+    try {
+      final file = File(logFilePath);
+      if (file.existsSync()) {
+        await file.delete();
+      }
+    } catch (_) {}
+  }
+}
+
+Future<void> runDiagnostics() async {
+  await LogManager.clearLogFile();
+  await LogManager.log('=== Xaneo Setup Diagnostics Start ===');
+  await LogManager.log('OS: ${Platform.operatingSystem} ${Platform.operatingSystemVersion}');
+  await LogManager.log('Executable: ${Platform.resolvedExecutable}');
+  await LogManager.log('Working directory: ${Directory.current.path}');
+  await LogManager.log('Temp Directory: ${Directory.systemTemp.path}');
+
+  // Try checking assets
+  try {
+    final manifestContent = await rootBundle.loadString('AssetManifest.json');
+    await LogManager.log('AssetManifest loaded successfully. Length: ${manifestContent.length}');
+    if (manifestContent.contains('Inter-Regular.ttf')) {
+      await LogManager.log('Inter-Regular.ttf is listed in AssetManifest.');
+    } else {
+      await LogManager.log('WARNING: Inter-Regular.ttf NOT found in AssetManifest!');
+    }
+  } catch (e) {
+    await LogManager.log('Error reading AssetManifest.json: $e');
+  }
+
+  // Try loading fonts manually
+  try {
+    await LogManager.log('Attempting manual font loading via FontLoader...');
+    final fontLoader = FontLoader('Inter');
+    
+    await LogManager.log('Loading Inter-Regular...');
+    final regularBytes = await rootBundle.load('assets/fonts/Inter-Regular.ttf');
+    await LogManager.log('Inter-Regular size: ${regularBytes.lengthInBytes} bytes');
+    fontLoader.addFont(Future.value(regularBytes));
+    
+    await LogManager.log('Loading Inter-Medium...');
+    final mediumBytes = await rootBundle.load('assets/fonts/Inter-Medium.ttf');
+    await LogManager.log('Inter-Medium size: ${mediumBytes.lengthInBytes} bytes');
+    fontLoader.addFont(Future.value(mediumBytes));
+    
+    await LogManager.log('Loading Inter-Bold...');
+    final boldBytes = await rootBundle.load('assets/fonts/Inter-Bold.ttf');
+    await LogManager.log('Inter-Bold size: ${boldBytes.lengthInBytes} bytes');
+    fontLoader.addFont(Future.value(boldBytes));
+    
+    await fontLoader.load();
+    await LogManager.log('FontLoader successfully loaded Inter fonts!');
+  } catch (e) {
+    await LogManager.log('FontLoader FAILED: $e');
+  }
+}
+
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Run diagnostics first
+  await runDiagnostics();
+  
+  await LogManager.log('Window manager ensureInitialized...');
   await windowManager.ensureInitialized();
 
   WindowOptions windowOptions = const WindowOptions(
@@ -25,6 +108,8 @@ void main(List<String> args) async {
   });
 
   bool isUninstall = args.contains('--uninstall');
+  await LogManager.log('Mode: ${isUninstall ? "Uninstall" : "Install"}');
+  await LogManager.log('Arguments: $args');
   runApp(InstallerApp(isUninstall: isUninstall));
 }
 
@@ -57,6 +142,94 @@ class InstallerApp extends StatelessWidget {
   }
 }
 
+void _showLogsDialog(BuildContext context) {
+  showDialog(
+    context: context,
+    builder: (context) {
+      return StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            backgroundColor: const Color(0xFF1E1E1E),
+            title: Row(
+              children: [
+                const Icon(Icons.bug_report_outlined, color: Colors.white),
+                const SizedBox(width: 8),
+                const Text('Diagnostic Logs', style: TextStyle(color: Colors.white, fontFamily: _kFontFamily)),
+                const Spacer(),
+                IconButton(
+                  icon: const Icon(Icons.refresh, color: Colors.grey),
+                  onPressed: () => setState(() {}),
+                ),
+              ],
+            ),
+            content: SizedBox(
+              width: 600,
+              height: 350,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF121212),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: Colors.white10),
+                      ),
+                      child: SingleChildScrollView(
+                        child: SelectableText(
+                          LogManager.logs.join('\n'),
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 11,
+                            color: Colors.lightGreenAccent,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  SelectableText(
+                    'Log File: ${LogManager.logFilePath}',
+                    style: const TextStyle(color: Colors.grey, fontSize: 10, fontFamily: _kFontFamily),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () async {
+                  try {
+                    await Clipboard.setData(ClipboardData(text: LogManager.logs.join('\n')));
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Logs copied to clipboard')),
+                      );
+                    }
+                  } catch (e) {
+                    LogManager.log('Clipboard error: $e');
+                  }
+                },
+                child: const Text('Copy All', style: TextStyle(color: Colors.white, fontFamily: _kFontFamily)),
+              ),
+              TextButton(
+                onPressed: () {
+                  Process.run('notepad.exe', [LogManager.logFilePath]);
+                },
+                child: const Text('Open in Notepad', style: TextStyle(color: Colors.white, fontFamily: _kFontFamily)),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Close', style: TextStyle(color: Colors.grey, fontFamily: _kFontFamily)),
+              ),
+            ],
+          );
+        },
+      );
+    },
+  );
+}
+
 class InstallerScreen extends StatefulWidget {
   const InstallerScreen({Key? key}) : super(key: key);
 
@@ -79,7 +252,7 @@ class _InstallerScreenState extends State<InstallerScreen> {
     'es': {'title': 'Instalación de Xaneo PC', 'welcome': 'Bienvenido a Xaneo PC', 'install': 'Instalar', 'installing': 'Instalando...', 'done': 'Instalación completada', 'launch': 'Iniciar Xaneo PC', 'cancel': 'Cancelar', 'path': 'Ruta de instalación', 'browse': 'Explorar'},
     'fr': {'title': 'Installation de Xaneo PC', 'welcome': 'Bienvenue sur Xaneo PC', 'install': 'Installer', 'installing': 'Installation...', 'done': 'Installation terminée', 'launch': 'Lancer Xaneo PC', 'cancel': 'Annuler', 'path': "Chemin d'installation", 'browse': 'Parcourir'},
     'ja': {'title': 'Xaneo PC セットアップ', 'welcome': 'Xaneo PCへようこそ', 'install': 'インストール', 'installing': 'インストール中...', 'done': 'インストール完了', 'launch': 'Xaneo PC を起動', 'cancel': 'キャンセル', 'path': 'インストール先', 'browse': '参照'},
-    'ko': {'title': 'Xaneo PC 설정', 'welcome': 'Xaneo PC에 오신 것을 환영합니다', 'install': '설치', 'installing': '설치 중...', 'done': '설치 완료', 'launch': 'Xaneo PC 실행', 'cancel': '취소', 'path': '설치 경로', 'browse': '찾아보기'},
+    'ko': {'title': 'Xaneo PC 설정', 'welcome': 'Xaneo PC에 오신 것을 환영합니다', 'install': '설치', 'installing': '설치 중...', 'done': '설치 완료', 'launch': 'Xaneo PC 실행', 'cancel': '취소', 'path': '설치 경로', 'browse': '찾а보기'},
     'zh': {'title': 'Xaneo PC 安装', 'welcome': '欢迎使用 Xaneo PC', 'install': '安装', 'installing': '正在安装...', 'done': '安装完成', 'launch': '启动 Xaneo PC', 'cancel': '取消', 'path': '安装路径', 'browse': '浏览'},
   };
 
@@ -128,16 +301,32 @@ class _InstallerScreenState extends State<InstallerScreen> {
     });
 
     try {
+      await LogManager.log('=== Installation Started ===');
+      await LogManager.log('Selected Install Path: $_installPath');
       final targetDir = Directory(_installPath);
       if (!targetDir.existsSync()) {
+        await LogManager.log('Creating target directory...');
         targetDir.createSync(recursive: true);
+        await LogManager.log('Target directory created.');
+      } else {
+        await LogManager.log('Target directory already exists.');
       }
 
       final exeDir = File(Platform.resolvedExecutable).parent.path;
+      await LogManager.log('Exe directory: $exeDir');
       final zipPath = '$exeDir\\data\\flutter_assets\\assets\\xaneo_pc.zip';
+      await LogManager.log('Zip file path: $zipPath');
+      
+      if (!File(zipPath).existsSync()) {
+        throw 'Zip file not found at $zipPath';
+      }
       
       final bytes = File(zipPath).readAsBytesSync();
+      await LogManager.log('Zip file read success. Size: ${bytes.length} bytes.');
+      
+      await LogManager.log('Decoding Zip archive...');
       final archive = ZipDecoder().decodeBytes(bytes);
+      await LogManager.log('Zip archive decoded. Total files: ${archive.length}');
       
       int total = archive.length;
       int current = 0;
@@ -158,41 +347,37 @@ class _InstallerScreenState extends State<InstallerScreen> {
         });
         await Future.delayed(const Duration(milliseconds: 1));
       }
+      await LogManager.log('Extraction complete.');
 
       // Copy uninstaller (which is this installer itself!)
       final uninstallerDir = Directory('${targetDir.path}\\Uninstaller');
+      await LogManager.log('Copying uninstaller to ${uninstallerDir.path}...');
       if (!uninstallerDir.existsSync()) uninstallerDir.createSync(recursive: true);
       
       final srcDir = Directory(exeDir);
       await _copyDirectory(srcDir, uninstallerDir);
+      await LogManager.log('Uninstaller files copied.');
       
       final copiedExe = File('${uninstallerDir.path}\\installer_app.exe');
       if (copiedExe.existsSync()) {
         copiedExe.renameSync('${uninstallerDir.path}\\xaneo_uninstaller.exe');
+        await LogManager.log('Renamed installer_app.exe to xaneo_uninstaller.exe');
+      } else {
+        await LogManager.log('WARNING: installer_app.exe not found in copied files!');
       }
 
       // Save install path for the uninstaller to read later
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('install_path', targetDir.path);
+      await LogManager.log('Saved install path to SharedPreferences: ${targetDir.path}');
 
       // Also write install path to a file inside Uninstaller dir (as backup)
       final pathFile = File('${uninstallerDir.path}\\install_path.txt');
       await pathFile.writeAsString(targetDir.path);
+      await LogManager.log('Saved install path to install_path.txt');
 
-      // Add to Registry for Apps & Features
-      final regCmd = '''
-\$RegPath = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Xaneo_PC"
-New-Item -Path \$RegPath -Force | Out-Null
-New-ItemProperty -Path \$RegPath -Name "DisplayName" -Value "Xaneo PC" -PropertyType String -Force | Out-Null
-New-ItemProperty -Path \$RegPath -Name "DisplayIcon" -Value "${targetDir.path}\\xaneo_pc.exe" -PropertyType String -Force | Out-Null
-New-ItemProperty -Path \$RegPath -Name "UninstallString" -Value "\`"${uninstallerDir.path}\\xaneo_uninstaller.exe\`" --uninstall" -PropertyType String -Force | Out-Null
-New-ItemProperty -Path \$RegPath -Name "Publisher" -Value "Xaneo" -PropertyType String -Force | Out-Null
-New-ItemProperty -Path \$RegPath -Name "InstallLocation" -Value "${targetDir.path}" -PropertyType String -Force | Out-Null
-''';
-
-      // Shortcuts
-      final ps1 = File('${targetDir.path}\\install_scripts.ps1');
-      await ps1.writeAsString('''
+      // Create Shortcuts & Registry via in-memory PowerShell (avoid dropping .ps1 file)
+      final installCmd = '''
 \$WshShell = New-Object -comObject WScript.Shell
 \$Shortcut = \$WshShell.CreateShortcut("\$env:USERPROFILE\\Desktop\\Xaneo PC.lnk")
 \$Shortcut.TargetPath = "${targetDir.path}\\xaneo_pc.exe"
@@ -204,15 +389,33 @@ New-ItemProperty -Path \$RegPath -Name "InstallLocation" -Value "${targetDir.pat
 \$StartMenuShortcut.IconLocation = "${targetDir.path}\\xaneo_pc.exe"
 \$StartMenuShortcut.Save()
 
-$regCmd
-''');
-      await Process.run('powershell', ['-ExecutionPolicy', 'Bypass', '-File', ps1.path]);
+\$RegPath = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Xaneo_PC"
+New-Item -Path \$RegPath -Force | Out-Null
+New-ItemProperty -Path \$RegPath -Name "DisplayName" -Value "Xaneo PC" -PropertyType String -Force | Out-Null
+New-ItemProperty -Path \$RegPath -Name "DisplayIcon" -Value "${targetDir.path}\\xaneo_pc.exe" -PropertyType String -Force | Out-Null
+New-ItemProperty -Path \$RegPath -Name "UninstallString" -Value '"${uninstallerDir.path}\\xaneo_uninstaller.exe" --uninstall' -PropertyType String -Force | Out-Null
+New-ItemProperty -Path \$RegPath -Name "Publisher" -Value "Xaneo" -PropertyType String -Force | Out-Null
+New-ItemProperty -Path \$RegPath -Name "InstallLocation" -Value "${targetDir.path}" -PropertyType String -Force | Out-Null
+''';
+
+      await LogManager.log('Running installation configuration script in-memory via PowerShell...');
+      final result = await Process.run('powershell', ['-NoProfile', '-NonInteractive', '-Command', installCmd]);
       
+      await LogManager.log('PowerShell exit code: ${result.exitCode}');
+      if (result.stdout.toString().trim().isNotEmpty) {
+        await LogManager.log('PowerShell stdout: ${result.stdout}');
+      }
+      if (result.stderr.toString().trim().isNotEmpty) {
+        await LogManager.log('PowerShell stderr: ${result.stderr}');
+      }
+
+      await LogManager.log('=== Installation Finished Successfully ===');
       setState(() {
         _done = true;
         _status = t('done');
       });
     } catch (e) {
+      await LogManager.log('ERROR during installation: $e');
       setState(() {
         _status = 'Error: $e';
       });
@@ -276,6 +479,12 @@ $regCmd
                       if (v != null) _setLang(v);
                     },
                   ),
+                const SizedBox(width: 16),
+                TextButton.icon(
+                  icon: const Icon(Icons.bug_report_outlined, color: Colors.grey, size: 16),
+                  label: const Text('Logs', style: TextStyle(color: Colors.grey, fontSize: 12, fontFamily: _kFontFamily)),
+                  onPressed: () => _showLogsDialog(context),
+                ),
                 const SizedBox(width: 16),
                 IconButton(
                   icon: const Icon(Icons.close, color: Colors.grey, size: 16),
@@ -418,11 +627,11 @@ class _UninstallerScreenState extends State<UninstallerScreen> {
 
   final Map<String, Map<String, String>> _locales = {
     'en': {'title': 'Xaneo PC Uninstall', 'prompt': 'Are you sure you want to uninstall Xaneo PC?', 'uninstall': 'Uninstall', 'cancel': 'Cancel', 'removing': 'Removing files...', 'done': 'Xaneo PC has been uninstalled.'},
-    'ru': {'title': 'Удаление Xaneo PC', 'prompt': 'Вы уверены, что хотите удалить Xaneo PC?', 'uninstall': 'Удалить', 'cancel': 'Отмена', 'removing': 'Удаление файлов...', 'done': 'Xaneo PC удалён.'},
+    'ru': {'title': 'Удаление Xaneo PC', 'prompt': 'Вы уверены, что хотите удалить Xaneo PC?', 'uninstall': 'Удалить', 'cancel': 'Отмена', 'removing': 'Удаление файлов...', 'done': 'Xaneo PC удален.'},
     'ar': {'title': 'إلغاء تثبيت Xaneo PC', 'prompt': 'هل أنت متأكد أنك تريد إلغاء تثبيت Xaneo PC؟', 'uninstall': 'إلغاء التثبيت', 'cancel': 'إلغاء', 'removing': 'جاري إزالة الملفات...', 'done': 'تم إلغاء تثبيت Xaneo PC.'},
     'es': {'title': 'Desinstalar Xaneo PC', 'prompt': '¿Estás seguro de que quieres desinstalar Xaneo PC?', 'uninstall': 'Desinstalar', 'cancel': 'Cancelar', 'removing': 'Eliminando archivos...', 'done': 'Xaneo PC ha sido desinstalado.'},
     'fr': {'title': 'Désinstaller Xaneo PC', 'prompt': 'Êtes-vous sûr de vouloir désinstaller Xaneo PC ?', 'uninstall': 'Désinstaller', 'cancel': 'Annuler', 'removing': 'Suppression des fichiers...', 'done': 'Xaneo PC a été désinstallé.'},
-    'ja': {'title': 'Xaneo PC アンインストール', 'prompt': 'Xaneo PC をアンインストールしてもよろしいですか？', 'uninstall': 'アンインストール', 'cancel': 'キャンセル', 'removing': 'ファイルを削除中...', 'done': 'Xaneo PC はアンインストールされました。'},
+    'ja': {'title': 'Xaneo PC アンインストール', 'prompt': 'Xaneo PC をアンインストールしてもよろしいですか？', 'uninstall': 'アンインストール', 'cancel': 'キャンセル', 'removing': 'ファイルを削除중...', 'done': 'Xaneo PC はアンインストールされました。'},
     'ko': {'title': 'Xaneo PC 제거', 'prompt': 'Xaneo PC를 제거하시겠습니까?', 'uninstall': '제거', 'cancel': '취소', 'removing': '파일 삭제 중...', 'done': 'Xaneo PC가 제거되었습니다.'},
     'zh': {'title': 'Xaneo PC 卸载', 'prompt': '您确定要卸载 Xaneo PC 吗？', 'uninstall': '卸载', 'cancel': '取消', 'removing': '正在删除文件...', 'done': 'Xaneo PC 已卸载。'},
   };
@@ -442,34 +651,47 @@ class _UninstallerScreenState extends State<UninstallerScreen> {
 
   String t(String key) => _locales[_lang]?[key] ?? _locales['en']![key]!;
 
-  /// Determine the install directory reliably.
-  /// Priority: install_path.txt next to exe > registry > exe parent heuristic.
   Future<String> _resolveInstallPath() async {
     final exeDir = File(Platform.resolvedExecutable).parent.path;
+    await LogManager.log('Resolving install path...');
+    await LogManager.log('Exe parent directory: $exeDir');
 
     // 1. Try reading install_path.txt written by installer
     final pathFile = File('$exeDir\\install_path.txt');
+    await LogManager.log('Checking path file: ${pathFile.path}');
     if (pathFile.existsSync()) {
       final path = pathFile.readAsStringSync().trim();
+      await LogManager.log('Path file content: "$path"');
       if (path.isNotEmpty && Directory(path).existsSync()) {
+        await LogManager.log('Resolved path from install_path.txt: $path');
         return path;
+      } else {
+        await LogManager.log('Path from file is empty or directory does not exist.');
       }
+    } else {
+      await LogManager.log('install_path.txt does not exist.');
     }
 
     // 2. Try reading from registry
     try {
+      await LogManager.log('Querying registry for InstallLocation...');
       final result = await Process.run('powershell', [
         '-NoProfile', '-Command',
         '(Get-ItemProperty -Path "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Xaneo_PC" -Name "InstallLocation" -ErrorAction SilentlyContinue).InstallLocation',
       ]);
       final regPath = result.stdout.toString().trim();
+      await LogManager.log('Registry path result: "$regPath"');
       if (regPath.isNotEmpty && Directory(regPath).existsSync()) {
+        await LogManager.log('Resolved path from registry: $regPath');
         return regPath;
       }
-    } catch (_) {}
+    } catch (e) {
+      await LogManager.log('Registry query error: $e');
+    }
 
     // 3. Fallback: exe is in Uninstaller subfolder, parent is install dir
     final parentDir = Directory(exeDir).parent.path;
+    await LogManager.log('Fallback to parent directory: $parentDir');
     return parentDir;
   }
 
@@ -480,68 +702,122 @@ class _UninstallerScreenState extends State<UninstallerScreen> {
     });
 
     try {
+      await LogManager.log('=== Uninstall Started ===');
       final targetDir = await _resolveInstallPath();
+      await LogManager.log('Final Resolved Uninstall Path: $targetDir');
+      
       final tempDir = Directory.systemTemp.path;
       final myPid = pid;
+      await LogManager.log('Current PID: $myPid, Temp Dir: $tempDir');
 
-      // Write the cleanup script to %TEMP% (outside the install directory)
-      final scriptPath = '$tempDir\\xaneo_uninstall_$myPid.ps1';
-      final ps1 = File(scriptPath);
-      await ps1.writeAsString('''
+      final psCommand = '''
+\$LogFile = "${Directory.systemTemp.path}\\xaneo_installer.log"
+function WriteLog(\$msg) {
+  try {
+    \$ts = Get-Date -Format "HH:mm:ss"
+    Add-Content -Path \$LogFile -Value "[\$ts] [PowerShell] \$msg" -ErrorAction SilentlyContinue
+  } catch {}
+}
+
+WriteLog "Detached cleanup script started. targetDir = $targetDir, targetPid = $myPid"
+
 # Wait for the uninstaller process to exit
+WriteLog "Waiting for uninstaller process (PID $myPid) to exit..."
 try {
   \$proc = Get-Process -Id $myPid -ErrorAction SilentlyContinue
   if (\$proc -ne \$null) {
-    \$proc.WaitForExit()
+    # Wait up to 10 seconds for clean exit
+    \$exited = \$proc.WaitForExit(10000)
+    if (\$exited) {
+      WriteLog "Uninstaller process has exited."
+    } else {
+      WriteLog "WARNING: WaitForExit timed out! Process is still running."
+    }
+  } else {
+    WriteLog "Uninstaller process (PID $myPid) not found (already exited?)"
   }
-} catch {}
-Start-Sleep -Seconds 1
+} catch {
+  WriteLog "Error waiting for PID $myPid: \$_"
+}
+
+# Wait additional 2 seconds to make sure locks are freed
+Start-Sleep -Seconds 2
 
 # Remove shortcuts
-Remove-Item -Path "\$env:USERPROFILE\\Desktop\\Xaneo PC.lnk" -Force -ErrorAction SilentlyContinue
-Remove-Item -Path "\$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\\Xaneo PC.lnk" -Force -ErrorAction SilentlyContinue
+WriteLog "Removing Desktop shortcut..."
+try {
+  Remove-Item -Path "\$env:USERPROFILE\\Desktop\\Xaneo PC.lnk" -Force -ErrorAction Stop
+  WriteLog "Desktop shortcut removed successfully."
+} catch {
+  WriteLog "Desktop shortcut removal failed: \$_"
+}
+
+WriteLog "Removing Start Menu shortcut..."
+try {
+  Remove-Item -Path "\$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\\Xaneo PC.lnk" -Force -ErrorAction Stop
+  WriteLog "Start Menu shortcut removed successfully."
+} catch {
+  WriteLog "Start Menu shortcut removal failed: \$_"
+}
 
 # Remove registry entry
-Remove-Item -Path "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Xaneo_PC" -Recurse -Force -ErrorAction SilentlyContinue
+WriteLog "Removing registry Uninstall key..."
+try {
+  Remove-Item -Path "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Xaneo_PC" -Recurse -Force -ErrorAction Stop
+  WriteLog "Registry Uninstall key removed successfully."
+} catch {
+  WriteLog "Registry Uninstall key removal failed: \$_"
+}
 
 # Remove install directory with retry
 \$target = "$targetDir"
-for (\$i = 0; \$i -lt 10; \$i++) {
-  if (Test-Path \$target) {
+WriteLog "Attempting to remove target directory: \$target"
+if (Test-Path \$target) {
+  for (\$i = 1; \$i -le 10; \$i++) {
+    WriteLog "Attempt \$i to delete target directory..."
     try {
       Remove-Item -Path \$target -Recurse -Force -ErrorAction Stop
+      WriteLog "Target directory deleted successfully on attempt \$i."
       break
     } catch {
+      WriteLog "Attempt \$i failed: \$_"
+      # List remaining files to see what is blocking
+      try {
+        \$files = Get-ChildItem -Path \$target -Recurse -File -ErrorAction SilentlyContinue
+        if (\$files -ne \$null -and \$files.Count -gt 0) {
+          \$fileNames = \$files | ForEach-Object { \$_.FullName }
+          WriteLog "Remaining locked files: (\$fileNames -join ', ')"
+        }
+      } catch {}
       Start-Sleep -Seconds 2
     }
-  } else {
-    break
   }
+} else {
+  WriteLog "Target directory does not exist or was already deleted."
 }
 
-# Self-delete
-Remove-Item -Path \$PSCommandPath -Force -ErrorAction SilentlyContinue
-''');
+WriteLog "Cleanup finished."
+''';
 
-      // Launch cleanup PowerShell BEFORE closing, ensure it starts
+      await LogManager.log('Starting detached PowerShell cleanup command...');
       await Process.start(
         'powershell',
-        ['-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-NonInteractive', '-File', scriptPath],
+        ['-WindowStyle', 'Hidden', '-NoProfile', '-NonInteractive', '-Command', psCommand],
         mode: ProcessStartMode.detached,
       );
-
-      // Give PowerShell a moment to start and attach to our PID
-      await Future.delayed(const Duration(milliseconds: 500));
+      await LogManager.log('Detached PowerShell cleanup process started.');
 
       setState(() {
         _done = true;
         _status = t('done');
       });
 
-      // Wait 2 seconds so the user sees the "done" message, then exit
+      await LogManager.log('Exiting uninstaller in 2 seconds...');
       await Future.delayed(const Duration(seconds: 2));
-      windowManager.close();
+      await windowManager.close();
+      exit(0);
     } catch (e) {
+      await LogManager.log('ERROR during uninstallation: $e');
       setState(() {
         _uninstalling = false;
         _status = 'Error: $e';
@@ -565,6 +841,12 @@ Remove-Item -Path \$PSCommandPath -Force -ErrorAction SilentlyContinue
                 const SizedBox(width: 8),
                 Text(t('title'), style: const TextStyle(fontFamily: _kFontFamily, color: Colors.white, fontSize: 14)),
                 const Spacer(),
+                TextButton.icon(
+                  icon: const Icon(Icons.bug_report_outlined, color: Colors.grey, size: 16),
+                  label: const Text('Logs', style: TextStyle(color: Colors.grey, fontSize: 12, fontFamily: _kFontFamily)),
+                  onPressed: () => _showLogsDialog(context),
+                ),
+                const SizedBox(width: 16),
                 IconButton(
                   icon: const Icon(Icons.close, color: Colors.grey, size: 16),
                   onPressed: () => windowManager.close(),

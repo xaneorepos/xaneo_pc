@@ -101,14 +101,24 @@ Future<ProcessResult> _runPowerShell({
   if (detached) {
     final process = await Process.start(
       'powershell',
-      ['-WindowStyle', 'Hidden', '-NoProfile', '-NonInteractive', '-EncodedCommand', base64Script],
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-ExecutionPolicy', 'Bypass',
+        '-EncodedCommand', base64Script
+      ],
       mode: ProcessStartMode.detached,
     );
     return ProcessResult(process.pid, 0, '', '');
   } else {
     return await Process.run(
       'powershell',
-      ['-NoProfile', '-NonInteractive', '-EncodedCommand', base64Script],
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-ExecutionPolicy', 'Bypass',
+        '-EncodedCommand', base64Script
+      ],
     );
   }
 }
@@ -751,22 +761,17 @@ WriteLog "Detached cleanup script started. targetDir = $targetDir, targetPid = $
 
 # Wait for the uninstaller process to exit
 WriteLog "Waiting for uninstaller process (PID $myPid) to exit..."
-try {
-  \$proc = Get-Process -Id $myPid -ErrorAction SilentlyContinue
-  if (\$proc -ne \$null) {
-    # Wait up to 10 seconds for clean exit
-    \$exited = \$proc.WaitForExit(10000)
-    if (\$exited) {
-      WriteLog "Uninstaller process has exited."
-    } else {
-      WriteLog "WARNING: WaitForExit timed out! Process is still running."
-    }
-  } else {
-    WriteLog "Uninstaller process (PID $myPid) not found (already exited?)"
+\$limit = 40
+\$counter = 0
+while (Get-Process -Id $myPid -ErrorAction SilentlyContinue) {
+  Start-Sleep -Milliseconds 250
+  \$counter++
+  if (\$counter -gt \$limit) {
+    WriteLog "WARNING: Wait timed out! Process is still running."
+    break
   }
-} catch {
-  WriteLog "Error waiting for PID $myPid: \$_"
 }
+WriteLog "Uninstaller process exited or wait timed out."
 
 # Wait additional 2 seconds to make sure locks are freed
 Start-Sleep -Seconds 2
@@ -814,7 +819,7 @@ if (Test-Path \$target) {
         \$files = Get-ChildItem -Path \$target -Recurse -File -ErrorAction SilentlyContinue
         if (\$files -ne \$null -and \$files.Count -gt 0) {
           \$fileNames = \$files | ForEach-Object { \$_.FullName }
-          WriteLog "Remaining locked files: (\$fileNames -join ', ')"
+          WriteLog "Remaining locked files: \$(\$fileNames -join ', ')"
         }
       } catch {}
       Start-Sleep -Seconds 2

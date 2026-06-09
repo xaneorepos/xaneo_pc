@@ -1,10 +1,11 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:archive/archive_io.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:file_picker/file_picker.dart';
+
+const String _kFontFamily = 'Inter';
 
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -33,27 +34,25 @@ class InstallerApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DefaultTextStyle(
-      style: const TextStyle(fontFamily: 'Inter'),
-      child: MaterialApp(
-        debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          fontFamily: 'Inter',
-          brightness: Brightness.dark,
-          scaffoldBackgroundColor: const Color(0xFF121212),
-          primaryColor: Colors.white,
-          textTheme: ThemeData.dark().textTheme.apply(
-            fontFamily: 'Inter',
-            bodyColor: Colors.white,
-            displayColor: Colors.white,
-          ),
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        fontFamily: _kFontFamily,
+        brightness: Brightness.dark,
+        scaffoldBackgroundColor: const Color(0xFF121212),
+        primaryColor: Colors.white,
+        textTheme: const TextTheme(
+          displayLarge: TextStyle(fontFamily: _kFontFamily, color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold),
+          displayMedium: TextStyle(fontFamily: _kFontFamily, color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold),
+          displaySmall: TextStyle(fontFamily: _kFontFamily, color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+          headlineMedium: TextStyle(fontFamily: _kFontFamily, color: Colors.white, fontSize: 20, fontWeight: FontWeight.w600),
+          titleLarge: TextStyle(fontFamily: _kFontFamily, color: Colors.white, fontSize: 18, fontWeight: FontWeight.w600),
+          bodyLarge: TextStyle(fontFamily: _kFontFamily, color: Colors.white, fontSize: 16),
+          bodyMedium: TextStyle(fontFamily: _kFontFamily, color: Color(0xFFE0E0E0), fontSize: 14),
+          labelLarge: TextStyle(fontFamily: _kFontFamily, color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
         ),
-        builder: (context, child) => DefaultTextStyle(
-          style: const TextStyle(fontFamily: 'Inter', color: Colors.white),
-          child: child!,
-        ),
-        home: isUninstall ? const UninstallerScreen() : const InstallerScreen(),
       ),
+      home: isUninstall ? const UninstallerScreen() : const InstallerScreen(),
     );
   }
 }
@@ -172,6 +171,14 @@ class _InstallerScreenState extends State<InstallerScreen> {
         copiedExe.renameSync('${uninstallerDir.path}\\xaneo_uninstaller.exe');
       }
 
+      // Save install path for the uninstaller to read later
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('install_path', targetDir.path);
+
+      // Also write install path to a file inside Uninstaller dir (as backup)
+      final pathFile = File('${uninstallerDir.path}\\install_path.txt');
+      await pathFile.writeAsString(targetDir.path);
+
       // Add to Registry for Apps & Features
       final regCmd = '''
 \$RegPath = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Xaneo_PC"
@@ -246,7 +253,7 @@ $regCmd
                 const SizedBox(width: 16),
                 const Icon(Icons.computer, color: Colors.white, size: 16),
                 const SizedBox(width: 8),
-                Text(t('title'), style: const TextStyle(color: Colors.white, fontSize: 14)),
+                Text(t('title'), style: const TextStyle(fontFamily: _kFontFamily, color: Colors.white, fontSize: 14)),
                 const Spacer(),
                 if (!_installing)
                   DropdownButton<String>(
@@ -254,16 +261,16 @@ $regCmd
                     dropdownColor: const Color(0xFF2A2A2A),
                     underline: const SizedBox(),
                     icon: const Icon(Icons.language, color: Colors.white, size: 16),
-                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                    style: const TextStyle(fontFamily: _kFontFamily, color: Colors.white, fontSize: 12),
                     items: const [
-                      DropdownMenuItem(value: 'en', child: Text('English')),
-                      DropdownMenuItem(value: 'ru', child: Text('Русский')),
-                      DropdownMenuItem(value: 'ar', child: Text('العربية')),
-                      DropdownMenuItem(value: 'es', child: Text('Español')),
-                      DropdownMenuItem(value: 'fr', child: Text('Français')),
-                      DropdownMenuItem(value: 'ja', child: Text('日本語')),
-                      DropdownMenuItem(value: 'ko', child: Text('한국어')),
-                      DropdownMenuItem(value: 'zh', child: Text('中文')),
+                      DropdownMenuItem(value: 'en', child: Text('English', style: TextStyle(fontFamily: _kFontFamily))),
+                      DropdownMenuItem(value: 'ru', child: Text('Русский', style: TextStyle(fontFamily: _kFontFamily))),
+                      DropdownMenuItem(value: 'ar', child: Text('العربية', style: TextStyle(fontFamily: _kFontFamily))),
+                      DropdownMenuItem(value: 'es', child: Text('Español', style: TextStyle(fontFamily: _kFontFamily))),
+                      DropdownMenuItem(value: 'fr', child: Text('Français', style: TextStyle(fontFamily: _kFontFamily))),
+                      DropdownMenuItem(value: 'ja', child: Text('日本語', style: TextStyle(fontFamily: _kFontFamily))),
+                      DropdownMenuItem(value: 'ko', child: Text('한국어', style: TextStyle(fontFamily: _kFontFamily))),
+                      DropdownMenuItem(value: 'zh', child: Text('中文', style: TextStyle(fontFamily: _kFontFamily))),
                     ],
                     onChanged: (v) {
                       if (v != null) _setLang(v);
@@ -290,7 +297,7 @@ $regCmd
                     const SizedBox(height: 24),
                     Text(
                       _done ? t('done') : t('welcome'),
-                      style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.white),
+                      style: const TextStyle(fontFamily: _kFontFamily, fontSize: 28, fontWeight: FontWeight.bold, color: Colors.white),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 24),
@@ -299,7 +306,7 @@ $regCmd
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(t('path'), style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                          Text(t('path'), style: const TextStyle(fontFamily: _kFontFamily, color: Colors.grey, fontSize: 12)),
                           const SizedBox(height: 8),
                           Row(
                             children: [
@@ -311,7 +318,7 @@ $regCmd
                                     borderRadius: BorderRadius.circular(8),
                                     border: Border.all(color: Colors.white24),
                                   ),
-                                  child: Text(_installPath, style: const TextStyle(color: Colors.white, fontSize: 14), overflow: TextOverflow.ellipsis),
+                                  child: Text(_installPath, style: const TextStyle(fontFamily: _kFontFamily, color: Colors.white, fontSize: 14), overflow: TextOverflow.ellipsis),
                                 ),
                               ),
                               const SizedBox(width: 16),
@@ -323,7 +330,7 @@ $regCmd
                                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                 ),
                                 onPressed: _pickPath,
-                                child: Text(t('browse')),
+                                child: Text(t('browse'), style: const TextStyle(fontFamily: _kFontFamily)),
                               ),
                             ],
                           ),
@@ -341,7 +348,7 @@ $regCmd
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                             ),
                             onPressed: _install,
-                            child: Text(t('install'), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                            child: Text(t('install'), style: const TextStyle(fontFamily: _kFontFamily, fontSize: 16, fontWeight: FontWeight.bold)),
                           ),
                           const SizedBox(width: 16),
                           TextButton(
@@ -350,7 +357,7 @@ $regCmd
                               padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 20),
                             ),
                             onPressed: () => windowManager.close(),
-                            child: Text(t('cancel'), style: const TextStyle(fontSize: 16)),
+                            child: Text(t('cancel'), style: const TextStyle(fontFamily: _kFontFamily, fontSize: 16)),
                           ),
                         ],
                       ),
@@ -369,7 +376,7 @@ $regCmd
                           const SizedBox(height: 16),
                           Text(
                             '${(_progress * 100).toInt()}% - $_status',
-                            style: const TextStyle(color: Colors.grey, fontSize: 14),
+                            style: const TextStyle(fontFamily: _kFontFamily, color: Colors.grey, fontSize: 14),
                           ),
                         ],
                       ),
@@ -383,7 +390,7 @@ $regCmd
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                         ),
                         onPressed: _launchApp,
-                        child: Text(t('launch'), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                        child: Text(t('launch'), style: const TextStyle(fontFamily: _kFontFamily, fontSize: 16, fontWeight: FontWeight.bold)),
                       ),
                   ],
                 ),
@@ -406,17 +413,18 @@ class UninstallerScreen extends StatefulWidget {
 class _UninstallerScreenState extends State<UninstallerScreen> {
   String _lang = 'en';
   bool _uninstalling = false;
+  bool _done = false;
   String _status = '';
 
   final Map<String, Map<String, String>> _locales = {
-    'en': {'title': 'Xaneo PC Uninstall', 'prompt': 'Are you sure you want to uninstall Xaneo PC?', 'uninstall': 'Uninstall', 'cancel': 'Cancel', 'removing': 'Removing files...'},
-    'ru': {'title': 'Удаление Xaneo PC', 'prompt': 'Вы уверены, что хотите удалить Xaneo PC?', 'uninstall': 'Удалить', 'cancel': 'Отмена', 'removing': 'Удаление файлов...'},
-    'ar': {'title': 'إلغاء تثبيت Xaneo PC', 'prompt': 'هل أنت متأكد أنك تريد إلغاء تثبيت Xaneo PC؟', 'uninstall': 'إلغاء التثبيت', 'cancel': 'إلغاء', 'removing': 'جاري إزالة الملفات...'},
-    'es': {'title': 'Desinstalar Xaneo PC', 'prompt': '¿Estás seguro de que quieres desinstalar Xaneo PC?', 'uninstall': 'Desinstalar', 'cancel': 'Cancelar', 'removing': 'Eliminando archivos...'},
-    'fr': {'title': 'Désinstaller Xaneo PC', 'prompt': 'Êtes-vous sûr de vouloir désinstaller Xaneo PC ?', 'uninstall': 'Désinstaller', 'cancel': 'Annuler', 'removing': 'Suppression des fichiers...'},
-    'ja': {'title': 'Xaneo PC アンインストール', 'prompt': 'Xaneo PC をアンインストールしてもよろしいですか？', 'uninstall': 'アンインストール', 'cancel': 'キャンセル', 'removing': 'ファイルを削除中...'},
-    'ko': {'title': 'Xaneo PC 제거', 'prompt': 'Xaneo PC를 제거하시겠습니까?', 'uninstall': '제거', 'cancel': '취소', 'removing': '파일 삭제 중...'},
-    'zh': {'title': 'Xaneo PC 卸载', 'prompt': '您确定要卸载 Xaneo PC 吗？', 'uninstall': '卸载', 'cancel': '取消', 'removing': '正在删除文件...'},
+    'en': {'title': 'Xaneo PC Uninstall', 'prompt': 'Are you sure you want to uninstall Xaneo PC?', 'uninstall': 'Uninstall', 'cancel': 'Cancel', 'removing': 'Removing files...', 'done': 'Xaneo PC has been uninstalled.'},
+    'ru': {'title': 'Удаление Xaneo PC', 'prompt': 'Вы уверены, что хотите удалить Xaneo PC?', 'uninstall': 'Удалить', 'cancel': 'Отмена', 'removing': 'Удаление файлов...', 'done': 'Xaneo PC удалён.'},
+    'ar': {'title': 'إلغاء تثبيت Xaneo PC', 'prompt': 'هل أنت متأكد أنك تريد إلغاء تثبيت Xaneo PC؟', 'uninstall': 'إلغاء التثبيت', 'cancel': 'إلغاء', 'removing': 'جاري إزالة الملفات...', 'done': 'تم إلغاء تثبيت Xaneo PC.'},
+    'es': {'title': 'Desinstalar Xaneo PC', 'prompt': '¿Estás seguro de que quieres desinstalar Xaneo PC?', 'uninstall': 'Desinstalar', 'cancel': 'Cancelar', 'removing': 'Eliminando archivos...', 'done': 'Xaneo PC ha sido desinstalado.'},
+    'fr': {'title': 'Désinstaller Xaneo PC', 'prompt': 'Êtes-vous sûr de vouloir désinstaller Xaneo PC ?', 'uninstall': 'Désinstaller', 'cancel': 'Annuler', 'removing': 'Suppression des fichiers...', 'done': 'Xaneo PC a été désinstallé.'},
+    'ja': {'title': 'Xaneo PC アンインストール', 'prompt': 'Xaneo PC をアンインストールしてもよろしいですか？', 'uninstall': 'アンインストール', 'cancel': 'キャンセル', 'removing': 'ファイルを削除中...', 'done': 'Xaneo PC はアンインストールされました。'},
+    'ko': {'title': 'Xaneo PC 제거', 'prompt': 'Xaneo PC를 제거하시겠습니까?', 'uninstall': '제거', 'cancel': '취소', 'removing': '파일 삭제 중...', 'done': 'Xaneo PC가 제거되었습니다.'},
+    'zh': {'title': 'Xaneo PC 卸载', 'prompt': '您确定要卸载 Xaneo PC 吗？', 'uninstall': '卸载', 'cancel': '取消', 'removing': '正在删除文件...', 'done': 'Xaneo PC 已卸载。'},
   };
 
   @override
@@ -434,6 +442,37 @@ class _UninstallerScreenState extends State<UninstallerScreen> {
 
   String t(String key) => _locales[_lang]?[key] ?? _locales['en']![key]!;
 
+  /// Determine the install directory reliably.
+  /// Priority: install_path.txt next to exe > registry > exe parent heuristic.
+  Future<String> _resolveInstallPath() async {
+    final exeDir = File(Platform.resolvedExecutable).parent.path;
+
+    // 1. Try reading install_path.txt written by installer
+    final pathFile = File('$exeDir\\install_path.txt');
+    if (pathFile.existsSync()) {
+      final path = pathFile.readAsStringSync().trim();
+      if (path.isNotEmpty && Directory(path).existsSync()) {
+        return path;
+      }
+    }
+
+    // 2. Try reading from registry
+    try {
+      final result = await Process.run('powershell', [
+        '-NoProfile', '-Command',
+        '(Get-ItemProperty -Path "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Xaneo_PC" -Name "InstallLocation" -ErrorAction SilentlyContinue).InstallLocation',
+      ]);
+      final regPath = result.stdout.toString().trim();
+      if (regPath.isNotEmpty && Directory(regPath).existsSync()) {
+        return regPath;
+      }
+    } catch (_) {}
+
+    // 3. Fallback: exe is in Uninstaller subfolder, parent is install dir
+    final parentDir = Directory(exeDir).parent.path;
+    return parentDir;
+  }
+
   Future<void> _uninstall() async {
     setState(() {
       _uninstalling = true;
@@ -441,21 +480,19 @@ class _UninstallerScreenState extends State<UninstallerScreen> {
     });
 
     try {
-      final exePath = File(Platform.resolvedExecutable).parent;
-      // exePath = ...\Xaneo_PC\Uninstaller, so parent = ...\Xaneo_PC
-      final targetDir = exePath.parent.path;
+      final targetDir = await _resolveInstallPath();
       final tempDir = Directory.systemTemp.path;
       final myPid = pid;
 
-      // Write the script to %TEMP% so it's outside the install folder
-      final ps1 = File('$tempDir\\do_uninstall.ps1');
+      // Write the cleanup script to %TEMP% (outside the install directory)
+      final scriptPath = '$tempDir\\xaneo_uninstall_$myPid.ps1';
+      final ps1 = File(scriptPath);
       await ps1.writeAsString('''
-# Wait until the installer process fully exits
-\$targetPid = $myPid
+# Wait for the uninstaller process to exit
 try {
-  \$proc = Get-Process -Id \$targetPid -ErrorAction SilentlyContinue
+  \$proc = Get-Process -Id $myPid -ErrorAction SilentlyContinue
   if (\$proc -ne \$null) {
-    \$proc.WaitForExit(10000)
+    \$proc.WaitForExit()
   }
 } catch {}
 Start-Sleep -Seconds 1
@@ -467,33 +504,46 @@ Remove-Item -Path "\$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\\Xane
 # Remove registry entry
 Remove-Item -Path "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Xaneo_PC" -Recurse -Force -ErrorAction SilentlyContinue
 
-# Remove install directory (retry loop for file locks)
-\$retries = 5
-for (\$i = 0; \$i -lt \$retries; \$i++) {
-  try {
-    Remove-Item -Path "$targetDir" -Recurse -Force -ErrorAction Stop
+# Remove install directory with retry
+\$target = "$targetDir"
+for (\$i = 0; \$i -lt 10; \$i++) {
+  if (Test-Path \$target) {
+    try {
+      Remove-Item -Path \$target -Recurse -Force -ErrorAction Stop
+      break
+    } catch {
+      Start-Sleep -Seconds 2
+    }
+  } else {
     break
-  } catch {
-    Start-Sleep -Seconds 2
   }
 }
 
-# Self-delete the script
-Start-Sleep -Seconds 1
-Remove-Item -Path "\$PSCommandPath" -Force -ErrorAction SilentlyContinue
+# Self-delete
+Remove-Item -Path \$PSCommandPath -Force -ErrorAction SilentlyContinue
 ''');
 
-      // Launch PowerShell fully detached from our process tree
+      // Launch cleanup PowerShell BEFORE closing, ensure it starts
       await Process.start(
         'powershell',
-        ['-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-NonInteractive', '-File', ps1.path],
+        ['-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-NonInteractive', '-File', scriptPath],
         mode: ProcessStartMode.detached,
-        workingDirectory: tempDir,
       );
 
+      // Give PowerShell a moment to start and attach to our PID
+      await Future.delayed(const Duration(milliseconds: 500));
+
+      setState(() {
+        _done = true;
+        _status = t('done');
+      });
+
+      // Wait 2 seconds so the user sees the "done" message, then exit
+      await Future.delayed(const Duration(seconds: 2));
       windowManager.close();
     } catch (e) {
       setState(() {
+        _uninstalling = false;
         _status = 'Error: $e';
       });
     }
@@ -513,7 +563,7 @@ Remove-Item -Path "\$PSCommandPath" -Force -ErrorAction SilentlyContinue
                 const SizedBox(width: 16),
                 const Icon(Icons.delete_outline, color: Colors.white, size: 16),
                 const SizedBox(width: 8),
-                Text(t('title'), style: const TextStyle(color: Colors.white, fontSize: 14)),
+                Text(t('title'), style: const TextStyle(fontFamily: _kFontFamily, color: Colors.white, fontSize: 14)),
                 const Spacer(),
                 IconButton(
                   icon: const Icon(Icons.close, color: Colors.grey, size: 16),
@@ -530,15 +580,19 @@ Remove-Item -Path "\$PSCommandPath" -Force -ErrorAction SilentlyContinue
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Icon(Icons.warning_amber_rounded, size: 64, color: Colors.redAccent),
+                    Icon(
+                      _done ? Icons.check_circle_outline : Icons.warning_amber_rounded,
+                      size: 64,
+                      color: _done ? Colors.greenAccent : Colors.redAccent,
+                    ),
                     const SizedBox(height: 24),
                     Text(
-                      _uninstalling ? _status : t('prompt'),
-                      style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
+                      _done ? t('done') : (_uninstalling ? _status : t('prompt')),
+                      style: const TextStyle(fontFamily: _kFontFamily, fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 48),
-                    if (!_uninstalling)
+                    if (!_uninstalling && !_done)
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -550,7 +604,7 @@ Remove-Item -Path "\$PSCommandPath" -Force -ErrorAction SilentlyContinue
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                             ),
                             onPressed: _uninstall,
-                            child: Text(t('uninstall'), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                            child: Text(t('uninstall'), style: const TextStyle(fontFamily: _kFontFamily, fontSize: 16, fontWeight: FontWeight.bold)),
                           ),
                           const SizedBox(width: 16),
                           TextButton(
@@ -559,11 +613,11 @@ Remove-Item -Path "\$PSCommandPath" -Force -ErrorAction SilentlyContinue
                               padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 20),
                             ),
                             onPressed: () => windowManager.close(),
-                            child: Text(t('cancel'), style: const TextStyle(fontSize: 16)),
+                            child: Text(t('cancel'), style: const TextStyle(fontFamily: _kFontFamily, fontSize: 16)),
                           ),
                         ],
                       ),
-                    if (_uninstalling)
+                    if (_uninstalling && !_done)
                       const CircularProgressIndicator(color: Colors.redAccent),
                   ],
                 ),

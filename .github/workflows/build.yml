@@ -35,6 +35,14 @@ jobs:
       - run: flutter pub get
       - run: flutter build windows --release
 
+      - name: Bundle VC++ Redistributable
+        shell: pwsh
+        run: |
+          $ReleaseDir = "build\windows\x64\runner\Release"
+          Copy-Item "C:\Windows\System32\msvcp140.dll" -Destination $ReleaseDir
+          Copy-Item "C:\Windows\System32\vcruntime140.dll" -Destination $ReleaseDir
+          Copy-Item "C:\Windows\System32\vcruntime140_1.dll" -Destination $ReleaseDir
+
       - name: Archive Windows build
         shell: pwsh
         run: |
@@ -42,10 +50,46 @@ jobs:
           Compress-Archive -Path "build\windows\x64\runner\Release\*" `
             -DestinationPath "dist\xaneo_pc-${{ github.ref_name }}-windows-x64.zip"
 
+      - name: Build Windows Installer (InnoSetup)
+        shell: pwsh
+        run: |
+          $Version = "${{ github.ref_name }}".TrimStart("v")
+          if ([string]::IsNullOrWhiteSpace($Version) -or $Version -eq "main") { $Version = "1.0.0" }
+          
+          $issContent = @"
+          [Setup]
+          AppName=Xaneo PC
+          AppVersion=$Version
+          DefaultDirName={autopf}\Xaneo PC
+          DefaultGroupName=Xaneo PC
+          OutputDir=dist
+          OutputBaseFilename=xaneo_pc-${{ github.ref_name }}-windows-setup
+          Compression=lzma2
+          SolidCompression=yes
+          ArchitecturesInstallIn64BitMode=x64
+          DisableWelcomePage=no
+          WizardStyle=modern
+
+          [Files]
+          Source: "build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+          [Icons]
+          Name: "{group}\Xaneo PC"; Filename: "{app}\xaneo_pc.exe"
+          Name: "{autodesktop}\Xaneo PC"; Filename: "{app}\xaneo_pc.exe"; Tasks: desktopicon
+
+          [Tasks]
+          Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+          "@
+          
+          Out-File -FilePath "setup.iss" -InputObject $issContent -Encoding UTF8
+          iscc setup.iss
+
       - uses: actions/upload-artifact@v4
         with:
           name: windows-x64
-          path: dist/xaneo_pc-${{ github.ref_name }}-windows-x64.zip
+          path: |
+            dist/*.zip
+            dist/*.exe
           retention-days: 7
 
 
@@ -280,6 +324,7 @@ jobs:
 
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || 'latest-build' }}
           name: "Xaneo PC ${{ github.ref_name }}"
           draft: false
           prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}

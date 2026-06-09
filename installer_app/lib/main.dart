@@ -72,7 +72,7 @@ class _InstallerScreenState extends State<InstallerScreen> {
     'ru': {'title': 'Установка Xaneo PC', 'welcome': 'Добро пожаловать в Xaneo PC', 'install': 'Установить', 'installing': 'Установка...', 'done': 'Установка завершена', 'launch': 'Запустить Xaneo PC', 'cancel': 'Отмена', 'path': 'Путь установки', 'browse': 'Обзор'},
     'ar': {'title': 'إعداد Xaneo PC', 'welcome': 'مرحبا بك في Xaneo PC', 'install': 'تثبيت', 'installing': 'جارٍ التثبيت...', 'done': 'اكتمل التثبيت', 'launch': 'تشغيل Xaneo PC', 'cancel': 'إلغاء', 'path': 'مسار التثبيت', 'browse': 'تصفح'},
     'es': {'title': 'Instalación de Xaneo PC', 'welcome': 'Bienvenido a Xaneo PC', 'install': 'Instalar', 'installing': 'Instalando...', 'done': 'Instalación completada', 'launch': 'Iniciar Xaneo PC', 'cancel': 'Cancelar', 'path': 'Ruta de instalación', 'browse': 'Explorar'},
-    'fr': {'title': 'Installation de Xaneo PC', 'welcome': 'Bienvenue sur Xaneo PC', 'install': 'Installer', 'installing': 'Installation...', 'done': 'Installation terminée', 'launch': 'Lancer Xaneo PC', 'cancel': 'Annuler', 'path': 'Chemin d\\'installation', 'browse': 'Parcourir'},
+    'fr': {'title': 'Installation de Xaneo PC', 'welcome': 'Bienvenue sur Xaneo PC', 'install': 'Installer', 'installing': 'Installation...', 'done': 'Installation terminée', 'launch': 'Lancer Xaneo PC', 'cancel': 'Annuler', 'path': "Chemin d'installation", 'browse': 'Parcourir'},
     'ja': {'title': 'Xaneo PC セットアップ', 'welcome': 'Xaneo PCへようこそ', 'install': 'インストール', 'installing': 'インストール中...', 'done': 'インストール完了', 'launch': 'Xaneo PC を起動', 'cancel': 'キャンセル', 'path': 'インストール先', 'browse': '参照'},
     'ko': {'title': 'Xaneo PC 설정', 'welcome': 'Xaneo PC에 오신 것을 환영합니다', 'install': '설치', 'installing': '설치 중...', 'done': '설치 완료', 'launch': 'Xaneo PC 실행', 'cancel': '취소', 'path': '설치 경로', 'browse': '찾아보기'},
     'zh': {'title': 'Xaneo PC 安装', 'welcome': '欢迎使用 Xaneo PC', 'install': '安装', 'installing': '正在安装...', 'done': '安装完成', 'launch': '启动 Xaneo PC', 'cancel': '取消', 'path': '安装路径', 'browse': '浏览'},
@@ -108,7 +108,7 @@ class _InstallerScreenState extends State<InstallerScreen> {
   String t(String key) => _locales[_lang]?[key] ?? _locales['en']![key]!;
 
   Future<void> _pickPath() async {
-    String? result = await FilePicker.platform.getDirectoryPath();
+    String? result = await FilePicker.getDirectoryPath();
     if (result != null) {
       setState(() {
         _installPath = '$result\\Xaneo_PC';

@@ -40,11 +40,10 @@ class InstallerApp extends StatelessWidget {
         brightness: Brightness.dark,
         scaffoldBackgroundColor: const Color(0xFF121212),
         primaryColor: Colors.white,
-        textTheme: const TextTheme(
-          bodyLarge: TextStyle(fontFamily: 'Inter'),
-          bodyMedium: TextStyle(fontFamily: 'Inter'),
-          titleLarge: TextStyle(fontFamily: 'Inter'),
-          labelLarge: TextStyle(fontFamily: 'Inter'),
+        textTheme: ThemeData.dark().textTheme.apply(
+          fontFamily: 'Inter',
+          bodyColor: Colors.white,
+          displayColor: Colors.white,
         ),
       ),
       home: isUninstall ? const UninstallerScreen() : const InstallerScreen(),
@@ -171,7 +170,7 @@ class _InstallerScreenState extends State<InstallerScreen> {
 \$RegPath = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Xaneo_PC"
 New-Item -Path \$RegPath -Force | Out-Null
 New-ItemProperty -Path \$RegPath -Name "DisplayName" -Value "Xaneo PC" -PropertyType String -Force | Out-Null
-New-ItemProperty -Path \$RegPath -Name "DisplayIcon" -Value "${targetDir.path}\\xaneo_pc_new.exe" -PropertyType String -Force | Out-Null
+New-ItemProperty -Path \$RegPath -Name "DisplayIcon" -Value "${targetDir.path}\\xaneo_pc.exe" -PropertyType String -Force | Out-Null
 New-ItemProperty -Path \$RegPath -Name "UninstallString" -Value "\`"${uninstallerDir.path}\\xaneo_uninstaller.exe\`" --uninstall" -PropertyType String -Force | Out-Null
 New-ItemProperty -Path \$RegPath -Name "Publisher" -Value "Xaneo" -PropertyType String -Force | Out-Null
 New-ItemProperty -Path \$RegPath -Name "InstallLocation" -Value "${targetDir.path}" -PropertyType String -Force | Out-Null
@@ -182,13 +181,13 @@ New-ItemProperty -Path \$RegPath -Name "InstallLocation" -Value "${targetDir.pat
       await ps1.writeAsString('''
 \$WshShell = New-Object -comObject WScript.Shell
 \$Shortcut = \$WshShell.CreateShortcut("\$env:USERPROFILE\\Desktop\\Xaneo PC.lnk")
-\$Shortcut.TargetPath = "${targetDir.path}\\xaneo_pc_new.exe"
-\$Shortcut.IconLocation = "${targetDir.path}\\xaneo_pc_new.exe"
+\$Shortcut.TargetPath = "${targetDir.path}\\xaneo_pc.exe"
+\$Shortcut.IconLocation = "${targetDir.path}\\xaneo_pc.exe"
 \$Shortcut.Save()
 
 \$StartMenuShortcut = \$WshShell.CreateShortcut("\$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\\Xaneo PC.lnk")
-\$StartMenuShortcut.TargetPath = "${targetDir.path}\\xaneo_pc_new.exe"
-\$StartMenuShortcut.IconLocation = "${targetDir.path}\\xaneo_pc_new.exe"
+\$StartMenuShortcut.TargetPath = "${targetDir.path}\\xaneo_pc.exe"
+\$StartMenuShortcut.IconLocation = "${targetDir.path}\\xaneo_pc.exe"
 \$StartMenuShortcut.Save()
 
 $regCmd
@@ -221,7 +220,7 @@ $regCmd
   }
 
   void _launchApp() {
-    Process.run('$_installPath\\xaneo_pc_new.exe', []);
+    Process.run('$_installPath\\xaneo_pc.exe', []);
     windowManager.close();
   }
 
@@ -437,18 +436,24 @@ class _UninstallerScreenState extends State<UninstallerScreen> {
     try {
       final exePath = File(Platform.resolvedExecutable).parent;
       final targetDir = exePath.parent.path;
+      final tempDir = Directory.systemTemp.path;
       
-      final ps1 = File('${exePath.path}\\do_uninstall.ps1');
+      final ps1 = File('$tempDir\\do_uninstall.ps1');
       await ps1.writeAsString('''
 Start-Sleep -Seconds 2
 Remove-Item -Path "\$env:USERPROFILE\\Desktop\\Xaneo PC.lnk" -Force -ErrorAction SilentlyContinue
 Remove-Item -Path "\$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\\Xaneo PC.lnk" -Force -ErrorAction SilentlyContinue
-Remove-ItemProperty -Path "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Xaneo_PC" -Name "UninstallString" -Force -ErrorAction SilentlyContinue
 Remove-Item -Path "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Xaneo_PC" -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -Path "$targetDir" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path "\$MyInvocation.MyCommand.Path" -Force -ErrorAction SilentlyContinue
 ''');
       
-      await Process.start('powershell', ['-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', ps1.path], mode: ProcessStartMode.detached);
+      await Process.start(
+        'powershell',
+        ['-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', ps1.path],
+        mode: ProcessStartMode.detached,
+        workingDirectory: tempDir,
+      );
       
       windowManager.close();
     } catch (e) {

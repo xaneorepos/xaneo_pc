@@ -746,10 +746,12 @@ class _UninstallerScreenState extends State<UninstallerScreen> {
       
       final tempDir = Directory.systemTemp.path;
       final myPid = pid;
+      final scriptPath = '$tempDir\\xaneo_uninstall.txt';
       await LogManager.log('Current PID: $myPid, Temp Dir: $tempDir');
+      await LogManager.log('Writing cleanup script to $scriptPath...');
 
       final psCommand = '''
-\$LogFile = "${Directory.systemTemp.path}\\xaneo_installer.log"
+\$LogFile = "$tempDir\\xaneo_installer.log"
 function WriteLog(\$msg) {
   try {
     \$ts = Get-Date -Format "HH:mm:ss"
@@ -814,7 +816,6 @@ if (Test-Path \$target) {
       break
     } catch {
       WriteLog "Attempt \$i failed: \$_"
-      # List remaining files to see what is blocking
       try {
         \$files = Get-ChildItem -Path \$target -Recurse -File -ErrorAction SilentlyContinue
         if (\$files -ne \$null -and \$files.Count -gt 0) {
@@ -829,11 +830,28 @@ if (Test-Path \$target) {
   WriteLog "Target directory does not exist or was already deleted."
 }
 
-WriteLog "Cleanup finished."
+WriteLog "Cleanup finished. Deleting script file..."
+try {
+  Remove-Item -Path "$tempDir\\xaneo_uninstall.txt" -Force -ErrorAction SilentlyContinue
+} catch {}
 ''';
 
-      await LogManager.log('Starting detached PowerShell cleanup command...');
-      await _runPowerShell(script: psCommand, detached: true);
+      final scriptFile = File(scriptPath);
+      await scriptFile.writeAsString(psCommand);
+      await LogManager.log('Cleanup script written successfully.');
+
+      await LogManager.log('Starting detached PowerShell cleanup command via txt file...');
+      await Process.start(
+        'powershell',
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-ExecutionPolicy', 'Bypass',
+          '-Command',
+          "Get-Content '$scriptPath' | Out-String | Invoke-Expression"
+        ],
+        mode: ProcessStartMode.detached,
+      );
       await LogManager.log('Detached PowerShell cleanup process started.');
 
       setState(() {

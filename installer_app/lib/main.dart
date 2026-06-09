@@ -396,13 +396,7 @@ class _InstallerScreenState extends State<InstallerScreen> {
       await _copyDirectory(srcDir, uninstallerDir);
       await LogManager.log('Uninstaller files copied.');
       
-      final copiedExe = File('${uninstallerDir.path}\\installer_app.exe');
-      if (copiedExe.existsSync()) {
-        copiedExe.renameSync('${uninstallerDir.path}\\xaneo_uninstaller.exe');
-        await LogManager.log('Renamed installer_app.exe to xaneo_uninstaller.exe');
-      } else {
-        await LogManager.log('WARNING: installer_app.exe not found in copied files!');
-      }
+
 
       // Save install path for the uninstaller to read later
       final prefs = await SharedPreferences.getInstance();

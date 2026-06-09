@@ -33,20 +33,27 @@ class InstallerApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        fontFamily: 'Inter',
-        brightness: Brightness.dark,
-        scaffoldBackgroundColor: const Color(0xFF121212),
-        primaryColor: Colors.white,
-        textTheme: ThemeData.dark().textTheme.apply(
+    return DefaultTextStyle(
+      style: const TextStyle(fontFamily: 'Inter'),
+      child: MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(
           fontFamily: 'Inter',
-          bodyColor: Colors.white,
-          displayColor: Colors.white,
+          brightness: Brightness.dark,
+          scaffoldBackgroundColor: const Color(0xFF121212),
+          primaryColor: Colors.white,
+          textTheme: ThemeData.dark().textTheme.apply(
+            fontFamily: 'Inter',
+            bodyColor: Colors.white,
+            displayColor: Colors.white,
+          ),
         ),
+        builder: (context, child) => DefaultTextStyle(
+          style: const TextStyle(fontFamily: 'Inter', color: Colors.white),
+          child: child!,
+        ),
+        home: isUninstall ? const UninstallerScreen() : const InstallerScreen(),
       ),
-      home: isUninstall ? const UninstallerScreen() : const InstallerScreen(),
     );
   }
 }
@@ -435,26 +442,55 @@ class _UninstallerScreenState extends State<UninstallerScreen> {
 
     try {
       final exePath = File(Platform.resolvedExecutable).parent;
+      // exePath = ...\Xaneo_PC\Uninstaller, so parent = ...\Xaneo_PC
       final targetDir = exePath.parent.path;
       final tempDir = Directory.systemTemp.path;
-      
+      final myPid = pid;
+
+      // Write the script to %TEMP% so it's outside the install folder
       final ps1 = File('$tempDir\\do_uninstall.ps1');
       await ps1.writeAsString('''
-Start-Sleep -Seconds 2
+# Wait until the installer process fully exits
+\$targetPid = $myPid
+try {
+  \$proc = Get-Process -Id \$targetPid -ErrorAction SilentlyContinue
+  if (\$proc -ne \$null) {
+    \$proc.WaitForExit(10000)
+  }
+} catch {}
+Start-Sleep -Seconds 1
+
+# Remove shortcuts
 Remove-Item -Path "\$env:USERPROFILE\\Desktop\\Xaneo PC.lnk" -Force -ErrorAction SilentlyContinue
 Remove-Item -Path "\$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\\Xaneo PC.lnk" -Force -ErrorAction SilentlyContinue
+
+# Remove registry entry
 Remove-Item -Path "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Xaneo_PC" -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -Path "$targetDir" -Recurse -Force -ErrorAction SilentlyContinue
-Remove-Item -Path "\$MyInvocation.MyCommand.Path" -Force -ErrorAction SilentlyContinue
+
+# Remove install directory (retry loop for file locks)
+\$retries = 5
+for (\$i = 0; \$i -lt \$retries; \$i++) {
+  try {
+    Remove-Item -Path "$targetDir" -Recurse -Force -ErrorAction Stop
+    break
+  } catch {
+    Start-Sleep -Seconds 2
+  }
+}
+
+# Self-delete the script
+Start-Sleep -Seconds 1
+Remove-Item -Path "\$PSCommandPath" -Force -ErrorAction SilentlyContinue
 ''');
-      
+
+      // Launch PowerShell fully detached from our process tree
       await Process.start(
         'powershell',
-        ['-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-File', ps1.path],
+        ['-WindowStyle', 'Hidden', '-ExecutionPolicy', 'Bypass', '-NonInteractive', '-File', ps1.path],
         mode: ProcessStartMode.detached,
         workingDirectory: tempDir,
       );
-      
+
       windowManager.close();
     } catch (e) {
       setState(() {

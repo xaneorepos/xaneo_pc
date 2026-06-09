@@ -35,7 +35,7 @@ jobs:
       - run: flutter pub get
       - run: flutter build windows --release
 
-      - name: Bundle VC++ Redistributable
+      - name: Bundle VC++ Redistributable (Main App)
         shell: pwsh
         run: |
           $ReleaseDir = "build\windows\x64\runner\Release"
@@ -50,7 +50,24 @@ jobs:
           Compress-Archive -Path "build\windows\x64\runner\Release\*" `
             -DestinationPath "dist\xaneo_pc-${{ github.ref_name }}-windows-x64.zip"
 
-      - name: Build Windows Installer (InnoSetup)
+      - name: Prepare and Build Custom Installer
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "installer_app\assets" | Out-Null
+          Copy-Item "dist\xaneo_pc-${{ github.ref_name }}-windows-x64.zip" -Destination "installer_app\assets\xaneo_pc.zip"
+          Set-Location -Path "installer_app"
+          flutter pub get
+          flutter build windows --release
+
+      - name: Bundle VC++ Redistributable (Installer)
+        shell: pwsh
+        run: |
+          $ReleaseDir = "installer_app\build\windows\x64\runner\Release"
+          Copy-Item "C:\Windows\System32\msvcp140.dll" -Destination $ReleaseDir
+          Copy-Item "C:\Windows\System32\vcruntime140.dll" -Destination $ReleaseDir
+          Copy-Item "C:\Windows\System32\vcruntime140_1.dll" -Destination $ReleaseDir
+
+      - name: Build Windows Installer Wrapper (InnoSetup)
         shell: pwsh
         run: |
           $Version = "${{ github.ref_name }}".TrimStart("v")
@@ -58,27 +75,27 @@ jobs:
           
           $issContent = @"
           [Setup]
-          AppName=Xaneo PC
+          AppName=Xaneo PC Setup
           AppVersion=$Version
-          DefaultDirName={autopf}\Xaneo PC
-          DefaultGroupName=Xaneo PC
+          DefaultDirName={tmp}\xaneo_installer
+          DisableDirPage=yes
+          DisableProgramGroupPage=yes
+          DisableReadyPage=yes
+          DisableWelcomePage=yes
+          DisableFinishedPage=yes
+          Uninstallable=no
+          CreateAppDir=no
           OutputDir=dist
           OutputBaseFilename=xaneo_pc-${{ github.ref_name }}-windows-setup
           Compression=lzma2
           SolidCompression=yes
           ArchitecturesInstallIn64BitMode=x64
-          DisableWelcomePage=no
-          WizardStyle=modern
 
           [Files]
-          Source: "build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+          Source: "installer_app\build\windows\x64\runner\Release\*"; DestDir: "{tmp}\xaneo_installer"; Flags: ignoreversion recursesubdirs createallsubdirs
 
-          [Icons]
-          Name: "{group}\Xaneo PC"; Filename: "{app}\xaneo_pc.exe"
-          Name: "{autodesktop}\Xaneo PC"; Filename: "{app}\xaneo_pc.exe"; Tasks: desktopicon
-
-          [Tasks]
-          Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+          [Run]
+          Filename: "{tmp}\xaneo_installer\installer_app.exe"; Flags: waituntilterminated
           "@
           
           Out-File -FilePath "setup.iss" -InputObject $issContent -Encoding UTF8

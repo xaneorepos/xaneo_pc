@@ -67,64 +67,29 @@ jobs:
           Copy-Item "C:\Windows\System32\vcruntime140.dll" -Destination $ReleaseDir
           Copy-Item "C:\Windows\System32\vcruntime140_1.dll" -Destination $ReleaseDir
 
-      - name: Build 100% Silent C# Wrapper
+      - name: Build 100% Silent NSIS Wrapper
         shell: pwsh
         run: |
-          Compress-Archive -Path "installer_app\build\windows\x64\runner\Release\*" -DestinationPath "app.zip"
+          $Version = "${{ github.ref_name }}".TrimStart("v")
+          if ([string]::IsNullOrWhiteSpace($Version) -or $Version -eq "main") { $Version = "1.0.0" }
 
-          $wrapperCode = @"
-          using System;
-          using System.Diagnostics;
-          using System.IO;
-          using System.IO.Compression;
-          using System.Threading;
-
-          [assembly: System.Reflection.AssemblyTitle("Xaneo PC Setup")]
-
-          namespace InstallerWrapper
-          {
-              class Program
-              {
-                  static void Main(string[] args)
-                  {
-                      string tempDir = Path.Combine(Path.GetTempPath(), "XaneoInstaller_" + Guid.NewGuid().ToString().Substring(0, 8));
-                      Directory.CreateDirectory(tempDir);
-                      
-                      string zipPath = Path.Combine(tempDir, "app.zip");
-                      using (var stream = typeof(Program).Assembly.GetManifestResourceStream("app.zip"))
-                      {
-                          using (var zipStream = new FileStream(zipPath, FileMode.Create))
-                          {
-                              stream.CopyTo(zipStream);
-                          }
-                      }
-                      
-                      ZipFile.ExtractToDirectory(zipPath, tempDir);
-                      
-                      var psi = new ProcessStartInfo
-                      {
-                          FileName = Path.Combine(tempDir, "installer_app.exe"),
-                          Arguments = string.Join(" ", args),
-                          UseShellExecute = false,
-                          WorkingDirectory = tempDir
-                      };
-                      
-                      var p = Process.Start(psi);
-                      p.WaitForExit();
-                      
-                      new Thread(() => {
-                          Thread.Sleep(2000);
-                          try { Directory.Delete(tempDir, true); } catch {}
-                      }).Start();
-                  }
+          # Clean and format version for VIProductVersion (requires 4-part X.Y.Z.W format)
+          $CleanVersion = ($Version -replace '[^\d\.]', '')
+          if ([string]::IsNullOrWhiteSpace($CleanVersion)) {
+              $NsisVersion = "1.0.0.0"
+          } else {
+              $Parts = $CleanVersion.Split('.')
+              while ($Parts.Count -lt 4) {
+                  $Parts += "0"
               }
+              $NsisVersion = ($Parts[0..3] -join '.')
           }
-          "@
 
-          Out-File -FilePath "Wrapper.cs" -InputObject $wrapperCode -Encoding UTF8
-
-          $csc = (Get-ChildItem -Path "C:\Windows\Microsoft.NET\Framework64" -Filter "csc.exe" -Recurse | Sort-Object -Property LastWriteTime -Descending)[0].FullName
-          & $csc /target:winexe /reference:System.IO.Compression.FileSystem.dll /out:"dist\xaneo_pc-${{ github.ref_name }}-windows-setup.exe" /res:"app.zip" Wrapper.cs
+          if (Get-Command makensis -ErrorAction SilentlyContinue) {
+              makensis /DVERSION="$NsisVersion" /DDISPLAY_VERSION="$Version" installer.nsi
+          } else {
+              & "C:\Program Files (x86)\NSIS\makensis.exe" /DVERSION="$NsisVersion" /DDISPLAY_VERSION="$Version" installer.nsi
+          }
 
       - uses: actions/upload-artifact@v4
         with:

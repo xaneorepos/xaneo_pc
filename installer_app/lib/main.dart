@@ -431,7 +431,7 @@ class _InstallerScreenState extends State<InstallerScreen> {
 New-Item -Path \$RegPath -Force | Out-Null
 New-ItemProperty -Path \$RegPath -Name "DisplayName" -Value "Xaneo PC" -PropertyType String -Force | Out-Null
 New-ItemProperty -Path \$RegPath -Name "DisplayIcon" -Value "${targetDir.path}\\xaneo_pc.exe" -PropertyType String -Force | Out-Null
-New-ItemProperty -Path \$RegPath -Name "UninstallString" -Value '"${uninstallerDir.path}\\xaneo_uninstaller.exe" --uninstall' -PropertyType String -Force | Out-Null
+New-ItemProperty -Path \$RegPath -Name "UninstallString" -Value '"${uninstallerDir.path}\\xaneo_uninstaller.exe"' -PropertyType String -Force | Out-Null
 New-ItemProperty -Path \$RegPath -Name "Publisher" -Value "Xaneo" -PropertyType String -Force | Out-Null
 New-ItemProperty -Path \$RegPath -Name "InstallLocation" -Value "${targetDir.path}" -PropertyType String -Force | Out-Null
 ''';
@@ -689,49 +689,7 @@ class _UninstallerScreenState extends State<UninstallerScreen> {
 
   String t(String key) => _locales[_lang]?[key] ?? _locales['en']![key]!;
 
-  Future<String> _resolveInstallPath() async {
-    final exeDir = File(Platform.resolvedExecutable).parent.path;
-    await LogManager.log('Resolving install path...');
-    await LogManager.log('Exe parent directory: $exeDir');
 
-    // 1. Try reading install_path.txt written by installer
-    final pathFile = File('$exeDir\\install_path.txt');
-    await LogManager.log('Checking path file: ${pathFile.path}');
-    if (pathFile.existsSync()) {
-      final path = pathFile.readAsStringSync().trim();
-      await LogManager.log('Path file content: "$path"');
-      if (path.isNotEmpty && Directory(path).existsSync()) {
-        await LogManager.log('Resolved path from install_path.txt: $path');
-        return path;
-      } else {
-        await LogManager.log('Path from file is empty or directory does not exist.');
-      }
-    } else {
-      await LogManager.log('install_path.txt does not exist.');
-    }
-
-    // 2. Try reading from registry
-    try {
-      await LogManager.log('Querying registry for InstallLocation...');
-      final result = await Process.run('powershell', [
-        '-NoProfile', '-Command',
-        '(Get-ItemProperty -Path "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Xaneo_PC" -Name "InstallLocation" -ErrorAction SilentlyContinue).InstallLocation',
-      ]);
-      final regPath = result.stdout.toString().trim();
-      await LogManager.log('Registry path result: "$regPath"');
-      if (regPath.isNotEmpty && Directory(regPath).existsSync()) {
-        await LogManager.log('Resolved path from registry: $regPath');
-        return regPath;
-      }
-    } catch (e) {
-      await LogManager.log('Registry query error: $e');
-    }
-
-    // 3. Fallback: exe is in Uninstaller subfolder, parent is install dir
-    final parentDir = Directory(exeDir).parent.path;
-    await LogManager.log('Fallback to parent directory: $parentDir');
-    return parentDir;
-  }
 
   Future<void> _uninstall() async {
     setState(() {
@@ -740,135 +698,33 @@ class _UninstallerScreenState extends State<UninstallerScreen> {
     });
 
     try {
-      await LogManager.log('=== Uninstall Started ===');
-      final targetDir = await _resolveInstallPath();
-      await LogManager.log('Final Resolved Uninstall Path: $targetDir');
+      await LogManager.log('=== Uninstall Started (Simulated Progress) ===');
       
-      final tempDir = Directory.systemTemp.path;
-      final myPid = pid;
-      final scriptPath = '$tempDir\\xaneo_uninstall.txt';
-      await LogManager.log('Current PID: $myPid, Temp Dir: $tempDir');
-      await LogManager.log('Writing cleanup script to $scriptPath...');
+      // Simulate uninstallation progress for a premium feel
+      for (int i = 1; i <= 10; i++) {
+        await Future.delayed(const Duration(milliseconds: 150));
+        setState(() {
+          _status = 'Removing components... (${i * 10}%)';
+        });
+      }
 
-      final psCommand = '''
-\$LogFile = "$tempDir\\xaneo_installer.log"
-function WriteLog(\$msg) {
-  try {
-    \$ts = Get-Date -Format "HH:mm:ss"
-    Add-Content -Path \$LogFile -Value "[\$ts] [PowerShell] \$msg" -ErrorAction SilentlyContinue
-  } catch {}
-}
-
-WriteLog "Detached cleanup script started. targetDir = $targetDir, targetPid = $myPid"
-
-# Wait for the uninstaller process to exit
-WriteLog "Waiting for uninstaller process (PID $myPid) to exit..."
-\$limit = 40
-\$counter = 0
-while (Get-Process -Id $myPid -ErrorAction SilentlyContinue) {
-  Start-Sleep -Milliseconds 250
-  \$counter++
-  if (\$counter -gt \$limit) {
-    WriteLog "WARNING: Wait timed out! Process is still running."
-    break
-  }
-}
-WriteLog "Uninstaller process exited or wait timed out."
-
-# Wait additional 2 seconds to make sure locks are freed
-Start-Sleep -Seconds 2
-
-# Remove shortcuts
-WriteLog "Removing Desktop shortcut..."
-try {
-  Remove-Item -Path "\$env:USERPROFILE\\Desktop\\Xaneo PC.lnk" -Force -ErrorAction Stop
-  WriteLog "Desktop shortcut removed successfully."
-} catch {
-  WriteLog "Desktop shortcut removal failed: \$_"
-}
-
-WriteLog "Removing Start Menu shortcut..."
-try {
-  Remove-Item -Path "\$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\\Xaneo PC.lnk" -Force -ErrorAction Stop
-  WriteLog "Start Menu shortcut removed successfully."
-} catch {
-  WriteLog "Start Menu shortcut removal failed: \$_"
-}
-
-# Remove registry entry
-WriteLog "Removing registry Uninstall key..."
-try {
-  Remove-Item -Path "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Xaneo_PC" -Recurse -Force -ErrorAction Stop
-  WriteLog "Registry Uninstall key removed successfully."
-} catch {
-  WriteLog "Registry Uninstall key removal failed: \$_"
-}
-
-# Remove install directory with retry
-\$target = "$targetDir"
-WriteLog "Attempting to remove target directory: \$target"
-if (Test-Path \$target) {
-  for (\$i = 1; \$i -le 10; \$i++) {
-    WriteLog "Attempt \$i to delete target directory..."
-    try {
-      Remove-Item -Path \$target -Recurse -Force -ErrorAction Stop
-      WriteLog "Target directory deleted successfully on attempt \$i."
-      break
-    } catch {
-      WriteLog "Attempt \$i failed: \$_"
-      try {
-        \$files = Get-ChildItem -Path \$target -Recurse -File -ErrorAction SilentlyContinue
-        if (\$files -ne \$null -and \$files.Count -gt 0) {
-          \$fileNames = \$files | ForEach-Object { \$_.FullName }
-          WriteLog "Remaining locked files: \$(\$fileNames -join ', ')"
-        }
-      } catch {}
-      Start-Sleep -Seconds 2
-    }
-  }
-} else {
-  WriteLog "Target directory does not exist or was already deleted."
-}
-
-WriteLog "Cleanup finished. Deleting script file..."
-try {
-  Remove-Item -Path "$tempDir\\xaneo_uninstall.txt" -Force -ErrorAction SilentlyContinue
-} catch {}
-''';
-
-      final scriptFile = File(scriptPath);
-      await scriptFile.writeAsString(psCommand);
-      await LogManager.log('Cleanup script written successfully.');
-
-      await LogManager.log('Starting detached PowerShell cleanup command via txt file...');
-      await Process.start(
-        'powershell',
-        [
-          '-NoProfile',
-          '-NonInteractive',
-          '-ExecutionPolicy', 'Bypass',
-          '-Command',
-          "Get-Content '$scriptPath' | Out-String | Invoke-Expression"
-        ],
-        mode: ProcessStartMode.detached,
-      );
-      await LogManager.log('Detached PowerShell cleanup process started.');
+      await LogManager.log('Uninstallation simulation complete. Notifying NSIS wrapper.');
 
       setState(() {
         _done = true;
         _status = t('done');
       });
 
-      await LogManager.log('Exiting uninstaller in 2 seconds...');
       await Future.delayed(const Duration(seconds: 2));
       await windowManager.close();
-      exit(0);
+      exit(0); // Exit code 0 tells the NSIS uninstaller wrapper to proceed with native deletion
     } catch (e) {
       await LogManager.log('ERROR during uninstallation: $e');
       setState(() {
         _uninstalling = false;
         _status = 'Error: $e';
       });
+      exit(2);
     }
   }
 
@@ -896,7 +752,10 @@ try {
                 const SizedBox(width: 16),
                 IconButton(
                   icon: const Icon(Icons.close, color: Colors.grey, size: 16),
-                  onPressed: () => windowManager.close(),
+                  onPressed: () {
+                    windowManager.close();
+                    exit(1); // Exit code 1 tells NSIS wrapper to abort deletion
+                  },
                 ),
               ],
             ),
@@ -941,7 +800,10 @@ try {
                               foregroundColor: Colors.grey,
                               padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 20),
                             ),
-                            onPressed: () => windowManager.close(),
+                            onPressed: () {
+                              windowManager.close();
+                              exit(1); // Exit code 1 tells NSIS wrapper to abort deletion
+                            },
                             child: Text(t('cancel'), style: const TextStyle(fontFamily: _kFontFamily, fontSize: 16)),
                           ),
                         ],

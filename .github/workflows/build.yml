@@ -91,10 +91,13 @@ jobs:
           }
 
           if (Get-Command makensis -ErrorAction SilentlyContinue) {
+              makensis uninstaller.nsi
               makensis /DVERSION="$NsisVersion" /DDISPLAY_VERSION="$Version" installer.nsi
           } elseif (Test-Path "C:\Program Files (x86)\NSIS\makensis.exe") {
+              & "C:\Program Files (x86)\NSIS\makensis.exe" uninstaller.nsi
               & "C:\Program Files (x86)\NSIS\makensis.exe" /DVERSION="$NsisVersion" /DDISPLAY_VERSION="$Version" installer.nsi
           } elseif (Test-Path "C:\Program Files\NSIS\makensis.exe") {
+              & "C:\Program Files\NSIS\makensis.exe" uninstaller.nsi
               & "C:\Program Files\NSIS\makensis.exe" /DVERSION="$NsisVersion" /DDISPLAY_VERSION="$Version" installer.nsi
           } else {
               Write-Error "makensis.exe not found! Make sure NSIS is installed correctly."

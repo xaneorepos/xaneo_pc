@@ -122,15 +122,8 @@ jobs:
 
           cp -r "$BUNDLE"/. "$PKG/opt/xaneo-pc/"
 
-          cat > "$PKG/usr/share/applications/xaneo_pc.desktop" <<'DESKTOP'
-[Desktop Entry]
-Type=Application
-Name=Xaneo PC
-Comment=Desktop application with onboarding
-Exec=/opt/xaneo-pc/xaneo_pc_new
-Icon=xaneo_pc
-Categories=Utility;
-DESKTOP
+          printf '[Desktop Entry]\nType=Application\nName=Xaneo PC\nComment=Desktop application with onboarding\nExec=/opt/xaneo-pc/xaneo_pc_new\nIcon=xaneo_pc\nCategories=Utility;\n' \
+            > "$PKG/usr/share/applications/xaneo_pc.desktop"
 
           if [ -f "AppDir/xaneo_pc.png" ]; then
             cp AppDir/xaneo_pc.png "$PKG/usr/share/icons/hicolor/256x256/apps/"
@@ -179,15 +172,8 @@ POSTINST
 
           cp -r "$BUNDLE"/. "$BUILDROOT/opt/xaneo-pc/"
 
-          cat > "$BUILDROOT/usr/share/applications/xaneo_pc.desktop" <<'DESKTOP'
-[Desktop Entry]
-Type=Application
-Name=Xaneo PC
-Comment=Desktop application with onboarding
-Exec=/opt/xaneo-pc/xaneo_pc_new
-Icon=xaneo_pc
-Categories=Utility;
-DESKTOP
+          printf '[Desktop Entry]\nType=Application\nName=Xaneo PC\nComment=Desktop application with onboarding\nExec=/opt/xaneo-pc/xaneo_pc_new\nIcon=xaneo_pc\nCategories=Utility;\n' \
+            > "$BUILDROOT/usr/share/applications/xaneo_pc.desktop"
 
           ln -sf /opt/xaneo-pc/xaneo_pc_new "$BUILDROOT/usr/bin/xaneo-pc"
 

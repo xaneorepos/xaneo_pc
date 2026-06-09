@@ -67,6 +67,11 @@ jobs:
           Copy-Item "C:\Windows\System32\vcruntime140.dll" -Destination $ReleaseDir
           Copy-Item "C:\Windows\System32\vcruntime140_1.dll" -Destination $ReleaseDir
 
+      - name: Install NSIS
+        shell: pwsh
+        run: |
+          choco install nsis -y --no-progress
+
       - name: Build 100% Silent NSIS Wrapper
         shell: pwsh
         run: |
@@ -87,8 +92,13 @@ jobs:
 
           if (Get-Command makensis -ErrorAction SilentlyContinue) {
               makensis /DVERSION="$NsisVersion" /DDISPLAY_VERSION="$Version" installer.nsi
-          } else {
+          } elseif (Test-Path "C:\Program Files (x86)\NSIS\makensis.exe") {
               & "C:\Program Files (x86)\NSIS\makensis.exe" /DVERSION="$NsisVersion" /DDISPLAY_VERSION="$Version" installer.nsi
+          } elseif (Test-Path "C:\Program Files\NSIS\makensis.exe") {
+              & "C:\Program Files\NSIS\makensis.exe" /DVERSION="$NsisVersion" /DDISPLAY_VERSION="$Version" installer.nsi
+          } else {
+              Write-Error "makensis.exe not found! Make sure NSIS is installed correctly."
+              exit 1
           }
 
       - uses: actions/upload-artifact@v4

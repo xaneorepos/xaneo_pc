@@ -87,6 +87,7 @@ jobs:
         run: |
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#v}"
+          if ! [[ "$VERSION" =~ ^[0-9] ]]; then VERSION="0.0.0-${VERSION}"; fi
           BUNDLE="build/linux/x64/release/bundle"
           PKG="dist/deb-build"
 
@@ -146,6 +147,7 @@ jobs:
         run: |
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#v}"
+          if ! [[ "$VERSION" =~ ^[0-9] ]]; then VERSION="0.0.0-${VERSION}"; fi
           BUNDLE="build/linux/x64/release/bundle"
           RPM_ROOT="$HOME/rpmbuild"
 

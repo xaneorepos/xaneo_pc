@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
@@ -19,6 +20,7 @@ import 'widgets/settings_modal.dart';
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 void main() async {
+  HttpOverrides.global = MyHttpOverrides();
   WidgetsFlutterBinding.ensureInitialized();
   
   // Initialize window manager
@@ -130,5 +132,16 @@ class MyApp extends StatelessWidget {
         );
       },
     );
+  }
+}
+
+/// Custom HttpOverrides to bypass bad certificate issues (e.g. self-signed certificates or IP mismatches)
+/// and set a global User-Agent header for the application.
+class MyHttpOverrides extends HttpOverrides {
+  @override
+  HttpClient createHttpClient(SecurityContext? context) {
+    return super.createHttpClient(context)
+      ..userAgent = 'XaneoPC/1.0 xaneo-app'
+      ..badCertificateCallback = (X509Certificate cert, String host, int port) => true;
   }
 }

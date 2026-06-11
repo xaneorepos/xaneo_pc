@@ -1,15 +1,18 @@
 import 'dart:convert';
-import 'package:http/http.dart' as http;
+import 'dart:io';
+import 'package:dio/dio.dart';
+import 'package:dio/io.dart';
+import 'package:dio_cookie_manager/dio_cookie_manager.dart';
+import 'package:cookie_jar/cookie_jar.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// API сервис для Xaneo PC
-/// Обеспечивает безопасное подключение к серверу Xaneo
+/// API сервис для Xaneo PC с поддержкой автоматического сохранения сессионных кук (через Dio)
 class ApiService {
   // Базовый URL сервера (настраивается)
-  static String _baseUrl = 'http://192.168.3.58:8000/api/v1';
+  static String _baseUrl = 'https://192.168.3.65/api/v1';
   
   // User-Agent для идентификации приложения
-  static const String _userAgent = 'XaneoPC/1.0';
+  static const String _userAgent = 'XaneoPC/1.0 xaneo-app';
   
   // Ключи для хранения токенов
   static const String _accessTokenKey = 'xaneo_access_token';
@@ -18,7 +21,12 @@ class ApiService {
   // Singleton
   static final ApiService _instance = ApiService._internal();
   factory ApiService() => _instance;
-  ApiService._internal();
+  
+  // Dio instance
+  late final Dio _dio;
+  
+  // CookieJar instance
+  final CookieJar _cookieJar = CookieJar();
   
   // Геттер для базового URL
   static String get baseUrl => _baseUrl;
@@ -26,30 +34,53 @@ class ApiService {
   /// Установить базовый URL (для настройки)
   static void setBaseUrl(String url) {
     _baseUrl = url.replaceAll(RegExp(r'/$'), '');
+    _instance._dio.options.baseUrl = _baseUrl;
   }
   
-  /// Получить заголовки для запросов
-  Map<String, String> _getHeaders({String? contentType}) {
-    final headers = <String, String>{
+  ApiService._internal() {
+    _dio = Dio(BaseOptions(
+      baseUrl: _baseUrl,
+      connectTimeout: const Duration(seconds: 15),
+      receiveTimeout: const Duration(seconds: 15),
+      validateStatus: (status) => status != null && status < 600,
+    ));
+    
+    _dio.interceptors.add(CookieManager(_cookieJar));
+    
+    // Явная настройка для обхода SSL с самоподписанными сертификатами/несовпадением IP
+    _dio.httpClientAdapter = IOHttpClientAdapter(
+      createHttpClient: () {
+        final client = HttpClient();
+        client.badCertificateCallback = (X509Certificate cert, String host, int port) => true;
+        return client;
+      },
+    );
+  }
+  
+  /// Получить Options с базовыми заголовками
+  Options _getOptions({String? contentType, Map<String, dynamic>? extraHeaders}) {
+    final headers = <String, dynamic>{
       'User-Agent': _userAgent,
       'Accept': 'application/json',
+      ...?extraHeaders,
     };
-    
     if (contentType != null) {
       headers['Content-Type'] = contentType;
     }
-    
-    return headers;
+    return Options(headers: headers);
   }
   
-  /// Получить заголовки с авторизацией
-  Future<Map<String, String>> _getAuthHeaders() async {
-    final headers = _getHeaders(contentType: 'application/json');
+  /// Получить Options с авторизацией
+  Future<Options> _getAuthOptions() async {
     final token = await getAccessToken();
+    final extraHeaders = <String, dynamic>{};
     if (token != null) {
-      headers['Authorization'] = 'Bearer $token';
+      extraHeaders['Authorization'] = 'Bearer $token';
     }
-    return headers;
+    return _getOptions(
+      contentType: 'application/json',
+      extraHeaders: extraHeaders,
+    );
   }
   
   // ==================== АВТОРИЗАЦИЯ ====================
@@ -58,16 +89,16 @@ class ApiService {
   /// Возвращает Map с данными пользователя или ошибкой
   Future<ApiResponse> login(String username, String password) async {
     try {
-      final response = await http.post(
-        Uri.parse('$_baseUrl/auth/login/'),
-        headers: _getHeaders(contentType: 'application/json'),
-        body: jsonEncode({
+      final response = await _dio.post(
+        '$_baseUrl/auth/login/',
+        options: _getOptions(contentType: 'application/json'),
+        data: {
           'username': username,
           'password': password,
-        }),
+        },
       );
       
-      return _handleResponse(response, isAuthRequest: true);
+      return _handleDioResponse(response, isAuthRequest: true);
     } catch (e) {
       return ApiResponse(
         success: false,
@@ -77,7 +108,41 @@ class ApiService {
   }
   
   // ==================== РЕГИСТРАЦИЯ С ПОДТВЕРЖДЕНИЕМ EMAIL ====================
-
+  
+  /// Проверить доступность имени пользователя (username)
+  Future<ApiResponse> checkUsername(String username) async {
+    try {
+      final response = await _dio.get(
+        '$_baseUrl/auth/check-username/',
+        queryParameters: {'username': username},
+        options: _getOptions(),
+      );
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(
+        success: false,
+        error: 'Ошибка проверки имени пользователя: $e',
+      );
+    }
+  }
+  
+  /// Проверить доступность email
+  Future<ApiResponse> checkEmail(String email) async {
+    try {
+      final response = await _dio.get(
+        '$_baseUrl/auth/check-email/',
+        queryParameters: {'email': email},
+        options: _getOptions(),
+      );
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(
+        success: false,
+        error: 'Ошибка проверки email: $e',
+      );
+    }
+  }
+  
   /// Отправить код подтверждения на email
   /// Возвращает ApiResponse с success: true если код отправлен
   Future<ApiResponse> sendVerificationCode({
@@ -85,24 +150,41 @@ class ApiService {
     required String username,
   }) async {
     try {
-      final response = await http.post(
-        Uri.parse('$_baseUrl/auth/send-verification-code/'),
-        headers: _getHeaders(contentType: 'application/json'),
-        body: jsonEncode({
-          'email': email,
-          'username': username,
-        }),
+      final urlStr = '$_baseUrl/auth/send-verification-code/';
+      final data = {
+        'email': email,
+        'username': username,
+      };
+      final options = _getOptions(contentType: 'application/json');
+      
+      print('DEBUG API: POST to $urlStr');
+      print('DEBUG API: Request Body: $data');
+      print('DEBUG API: Request Headers: ${options.headers}');
+      final cookiesBefore = await _cookieJar.loadForRequest(Uri.parse(urlStr));
+      print('DEBUG API: Cookies before request: $cookiesBefore');
+      
+      final response = await _dio.post(
+        urlStr,
+        options: options,
+        data: data,
       );
-
-      return _handleResponse(response);
+      
+      print('DEBUG API: Response Code: ${response.statusCode}');
+      print('DEBUG API: Response Headers: ${response.headers}');
+      print('DEBUG API: Response Body: ${response.data}');
+      final cookiesAfter = await _cookieJar.loadForRequest(Uri.parse(urlStr));
+      print('DEBUG API: Cookies after request: $cookiesAfter');
+      
+      return _handleDioResponse(response);
     } catch (e) {
+      print('DEBUG API: Error in sendVerificationCode: $e');
       return ApiResponse(
         success: false,
         error: 'Ошибка отправки кода: $e',
       );
     }
   }
-
+  
   /// Проверить код подтверждения email
   /// Возвращает ApiResponse с success: true если код верный
   Future<ApiResponse> verifyEmailCode({
@@ -110,24 +192,41 @@ class ApiService {
     required String code,
   }) async {
     try {
-      final response = await http.post(
-        Uri.parse('$_baseUrl/auth/verify-email-code/'),
-        headers: _getHeaders(contentType: 'application/json'),
-        body: jsonEncode({
-          'email': email,
-          'code': code,
-        }),
+      final urlStr = '$_baseUrl/auth/verify-email-code/';
+      final data = {
+        'email': email,
+        'code': code,
+      };
+      final options = _getOptions(contentType: 'application/json');
+      
+      print('DEBUG API: POST to $urlStr');
+      print('DEBUG API: Request Body: $data');
+      print('DEBUG API: Request Headers: ${options.headers}');
+      final cookiesBefore = await _cookieJar.loadForRequest(Uri.parse(urlStr));
+      print('DEBUG API: Cookies before request: $cookiesBefore');
+      
+      final response = await _dio.post(
+        urlStr,
+        options: options,
+        data: data,
       );
-
-      return _handleResponse(response);
+      
+      print('DEBUG API: Response Code: ${response.statusCode}');
+      print('DEBUG API: Response Headers: ${response.headers}');
+      print('DEBUG API: Response Body: ${response.data}');
+      final cookiesAfter = await _cookieJar.loadForRequest(Uri.parse(urlStr));
+      print('DEBUG API: Cookies after request: $cookiesAfter');
+      
+      return _handleDioResponse(response);
     } catch (e) {
+      print('DEBUG API: Error in verifyEmailCode: $e');
       return ApiResponse(
         success: false,
         error: 'Ошибка проверки кода: $e',
       );
     }
   }
-
+  
   /// Регистрация нового пользователя (после подтверждения email)
   /// Требует, что email был подтверждён через verifyEmailCode
   Future<ApiResponse> register({
@@ -139,22 +238,38 @@ class ApiService {
     String? firstName,
   }) async {
     try {
-      final response = await http.post(
-        Uri.parse('$_baseUrl/auth/register/'),
-        headers: _getHeaders(contentType: 'application/json'),
-        body: jsonEncode({
-          'username': username,
-          'email': email,
-          'password': password,
-          'password_confirm': passwordConfirm,
-          'birth_date': birthDate,
-          'email_verified': true, // Обязательно true после подтверждения кода
-          if (firstName != null) 'realname': firstName,
-        }),
+      final urlStr = '$_baseUrl/auth/register/';
+      final data = {
+        'username': username,
+        'email': email,
+        'password': password,
+        'password_confirm': passwordConfirm,
+        'birth_date': birthDate,
+        'email_verified': true, // Обязательно true после подтверждения кода
+        if (firstName != null) 'realname': firstName,
+      };
+      final options = _getOptions(contentType: 'application/json');
+      
+      print('DEBUG API: POST to $urlStr');
+      print('DEBUG API: Request Body: $data');
+      print('DEBUG API: Request Headers: ${options.headers}');
+      final cookiesBefore = await _cookieJar.loadForRequest(Uri.parse(urlStr));
+      print('DEBUG API: Cookies before request: $cookiesBefore');
+      
+      final response = await _dio.post(
+        urlStr,
+        options: options,
+        data: data,
       );
-
-      final result = _handleResponse(response, isAuthRequest: true);
-
+      
+      print('DEBUG API: Response Code: ${response.statusCode}');
+      print('DEBUG API: Response Headers: ${response.headers}');
+      print('DEBUG API: Response Body: ${response.data}');
+      final cookiesAfter = await _cookieJar.loadForRequest(Uri.parse(urlStr));
+      print('DEBUG API: Cookies after request: $cookiesAfter');
+      
+      final result = _handleDioResponse(response, isAuthRequest: true);
+      
       // Сохраняем токены при успешной регистрации
       if (result.success && result.data != null) {
         if (result.data!['access'] != null) {
@@ -164,9 +279,10 @@ class ApiService {
           await saveRefreshToken(result.data!['refresh'] as String);
         }
       }
-
+      
       return result;
     } catch (e) {
+      print('DEBUG API: Error in register: $e');
       return ApiResponse(
         success: false,
         error: 'Ошибка регистрации: $e',
@@ -177,16 +293,16 @@ class ApiService {
   /// Получение JWT токена
   Future<ApiResponse> obtainToken(String username, String password) async {
     try {
-      final response = await http.post(
-        Uri.parse('$_baseUrl/auth/token/'),
-        headers: _getHeaders(contentType: 'application/json'),
-        body: jsonEncode({
+      final response = await _dio.post(
+        '$_baseUrl/auth/token/',
+        options: _getOptions(contentType: 'application/json'),
+        data: {
           'username': username,
           'password': password,
-        }),
+        },
       );
       
-      final result = _handleResponse(response);
+      final result = _handleDioResponse(response);
       
       // Сохраняем токены
       if (result.success && result.data != null) {
@@ -218,15 +334,15 @@ class ApiService {
         );
       }
       
-      final response = await http.post(
-        Uri.parse('$_baseUrl/auth/token/refresh/'),
-        headers: _getHeaders(contentType: 'application/json'),
-        body: jsonEncode({
+      final response = await _dio.post(
+        '$_baseUrl/auth/token/refresh/',
+        options: _getOptions(contentType: 'application/json'),
+        data: {
           'refresh': refreshToken,
-        }),
+        },
       );
       
-      final result = _handleResponse(response);
+      final result = _handleDioResponse(response);
       
       if (result.success && result.data != null && result.data!['access'] != null) {
         await saveAccessToken(result.data!['access'] as String);
@@ -252,13 +368,13 @@ class ApiService {
         );
       }
       
-      final response = await http.post(
-        Uri.parse('$_baseUrl/auth/token/verify/'),
-        headers: _getHeaders(contentType: 'application/json'),
-        body: jsonEncode({'token': token}),
+      final response = await _dio.post(
+        '$_baseUrl/auth/token/verify/',
+        options: _getOptions(contentType: 'application/json'),
+        data: {'token': token},
       );
       
-      return _handleResponse(response);
+      return _handleDioResponse(response);
     } catch (e) {
       return ApiResponse(
         success: false,
@@ -279,12 +395,13 @@ class ApiService {
   /// Получить профиль пользователя
   Future<ApiResponse> getProfile() async {
     try {
-      final response = await http.get(
-        Uri.parse('$_baseUrl/user/profile/'),
-        headers: await _getAuthHeaders(),
+      final options = await _getAuthOptions();
+      final response = await _dio.get(
+        '$_baseUrl/user/profile/',
+        options: options,
       );
       
-      return _handleResponse(response);
+      return _handleDioResponse(response);
     } catch (e) {
       return ApiResponse(
         success: false,
@@ -325,20 +442,22 @@ class ApiService {
     return token != null;
   }
   
-  // ==================== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ====================
-  
   /// Обработка ответа сервера
-  ApiResponse _handleResponse(http.Response response, {bool isAuthRequest = false}) {
-    final statusCode = response.statusCode;
+  ApiResponse _handleDioResponse(Response response, {bool isAuthRequest = false}) {
+    final statusCode = response.statusCode ?? 500;
     
-    // Пытаемся распарсить JSON
+    // Пытаемся получить данные
     Map<String, dynamic>? data;
-    try {
-      if (response.body.isNotEmpty) {
-        data = jsonDecode(response.body) as Map<String, dynamic>;
+    if (response.data != null) {
+      if (response.data is Map) {
+        data = Map<String, dynamic>.from(response.data as Map);
+      } else if (response.data is String && (response.data as String).isNotEmpty) {
+        try {
+          data = jsonDecode(response.data as String) as Map<String, dynamic>;
+        } catch (_) {
+          // Игнорируем, если не JSON
+        }
       }
-    } catch (_) {
-      // Если не JSON, возвращаем как есть
     }
     
     // Успешные статусы
@@ -382,7 +501,11 @@ class ApiService {
     // Специфичные ошибки по статусам
     switch (statusCode) {
       case 401:
-        errorMessage = 'Неверные учетные данные';
+        if (isAuthRequest) {
+          errorMessage = 'Неверные учетные данные';
+        } else if (errorMessage == 'Неизвестная ошибка') {
+          errorMessage = 'Требуется авторизация (401)';
+        }
         break;
       case 403:
         errorMessage = 'Доступ запрещён';
@@ -406,9 +529,9 @@ class ApiService {
   /// Проверка доступности сервера
   Future<bool> checkServerAvailability() async {
     try {
-      final response = await http.get(
-        Uri.parse('$_baseUrl/system/info/'),
-        headers: _getHeaders(),
+      final response = await _dio.get(
+        '$_baseUrl/system/info/',
+        options: _getOptions(),
       ).timeout(const Duration(seconds: 5));
       
       return response.statusCode == 200;

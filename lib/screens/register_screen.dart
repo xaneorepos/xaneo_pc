@@ -2,6 +2,19 @@ import 'dart:io';
 import 'dart:ui';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart' show
+    showCupertinoModalPopup,
+    CupertinoDatePicker,
+    CupertinoDatePickerMode,
+    CupertinoTheme,
+    CupertinoThemeData,
+    CupertinoTextThemeData,
+    CupertinoButton;
+import 'package:flutter/gestures.dart' show
+    PointerEvent,
+    PointerScrollEvent,
+    PointerSignalEvent,
+    GestureBinding;
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import '../l10n/app_localizations.dart';
@@ -10,7 +23,6 @@ import '../providers/scale_provider.dart';
 import '../providers/locale_provider.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/advanced_background.dart';
-import '../widgets/email_verification_modal.dart';
 import '../services/api_service.dart';
 
 /// Экран регистрации с 7 шагами (как в xaneo_mobile)
@@ -30,6 +42,7 @@ class _RegisterScreenState extends State<RegisterScreen>
   final _birthDateController = TextEditingController();
   final _nicknameController = TextEditingController();
   final _emailController = TextEditingController();
+  final _verificationCodeController = TextEditingController();
   final _passwordController = TextEditingController();
   final _passwordConfirmController = TextEditingController();
   
@@ -38,6 +51,7 @@ class _RegisterScreenState extends State<RegisterScreen>
   final _birthDateFocus = FocusNode();
   final _nicknameFocus = FocusNode();
   final _emailFocus = FocusNode();
+  final _verificationCodeFocus = FocusNode();
   final _passwordFocus = FocusNode();
   final _passwordConfirmFocus = FocusNode();
   
@@ -45,11 +59,23 @@ class _RegisterScreenState extends State<RegisterScreen>
   bool _isLoading = false;
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
-  final bool _isCheckingNickname = false;
+  bool _isCheckingNickname = false;
   bool _isNicknameAvailable = false;
   bool _isNicknameTaken = false;
+  bool _isCheckingEmail = false;
+  bool _isEmailAvailable = false;
+  bool _isEmailTaken = false;
+  bool _isSendingCode = false;
+  bool _isVerifyingCode = false;
   bool _acceptTerms = false;
   bool _acceptDataProcessing = false;
+  
+  // Ошибки и дебаунсы
+  String? _nicknameError;
+  String? _emailError;
+  String? _verificationError;
+  int _nicknameDebounce = 0;
+  int _emailDebounce = 0;
   
   // Переменные настроек
   bool _notificationsEnabled = true;
@@ -66,8 +92,11 @@ class _RegisterScreenState extends State<RegisterScreen>
   // Аватар
   File? _avatarFile;
   final ImagePicker _imagePicker = ImagePicker();
+  DateTime? _selectedBirthDate;
+  final GlobalKey _pickerKey = GlobalKey();
+  int _scrollTickCounter = 0;
   
-  // Этапы регистрации (0-6, всего 7 шагов)
+  // Этапы регистрации (0-8, всего 9 шагов)
   int _currentStep = 0;
   
   // Анимации
@@ -78,9 +107,22 @@ class _RegisterScreenState extends State<RegisterScreen>
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
   
+  void _onFieldChanged() {
+    setState(() {});
+  }
+
   @override
   void initState() {
     super.initState();
+    _nicknameController.addListener(_onNicknameChanged);
+    _emailController.addListener(_onEmailChanged);
+    _firstNameController.addListener(_onFieldChanged);
+    _birthDateController.addListener(_onFieldChanged);
+    _passwordController.addListener(_onFieldChanged);
+    _passwordConfirmController.addListener(_onFieldChanged);
+    _verificationCodeController.addListener(_onFieldChanged);
+    
+    GestureBinding.instance.pointerRouter.addGlobalRoute(_handleGlobalPointerEvent);
     
     _fadeController = AnimationController(
       duration: const Duration(milliseconds: 800),
@@ -124,10 +166,12 @@ class _RegisterScreenState extends State<RegisterScreen>
   
   @override
   void dispose() {
+    GestureBinding.instance.pointerRouter.removeGlobalRoute(_handleGlobalPointerEvent);
     _firstNameController.dispose();
     _birthDateController.dispose();
     _nicknameController.dispose();
     _emailController.dispose();
+    _verificationCodeController.dispose();
     _passwordController.dispose();
     _passwordConfirmController.dispose();
     
@@ -135,6 +179,7 @@ class _RegisterScreenState extends State<RegisterScreen>
     _birthDateFocus.dispose();
     _nicknameFocus.dispose();
     _emailFocus.dispose();
+    _verificationCodeFocus.dispose();
     _passwordFocus.dispose();
     _passwordConfirmFocus.dispose();
     
@@ -146,35 +191,174 @@ class _RegisterScreenState extends State<RegisterScreen>
     super.dispose();
   }
   
-  /// Показать модалку подтверждения email
-  Future<void> _showEmailVerificationModal() async {
-    final result = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => EmailVerificationModal(
-        email: _emailController.text.trim(),
-        onVerify: (code) async {
-          final apiService = ApiService();
-          final result = await apiService.verifyEmailCode(
-            email: _emailController.text.trim(),
-            code: code,
-          );
-          return result.success;
-        },
-        onResend: () async {
-          final apiService = ApiService();
-          await apiService.sendVerificationCode(
-            email: _emailController.text.trim(),
-            username: _nicknameController.text.trim(),
-          );
-        },
-      ),
+  void _onNicknameChanged() {
+    _nicknameDebounce++;
+    final currentDebounce = _nicknameDebounce;
+    
+    setState(() {
+      _isNicknameAvailable = false;
+      _isNicknameTaken = false;
+      _nicknameError = null;
+      if (_nicknameController.text.trim().length >= 3) {
+        _isCheckingNickname = true;
+      } else {
+        _isCheckingNickname = false;
+      }
+    });
+    
+    if (_nicknameController.text.trim().length < 3) return;
+    
+    Future.delayed(const Duration(milliseconds: 500), () async {
+      if (currentDebounce == _nicknameDebounce && mounted) {
+        await _validateNickname();
+      }
+    });
+  }
+  
+  Future<void> _validateNickname() async {
+    final username = _nicknameController.text.trim();
+    if (username.length < 3) return;
+    
+    final apiService = ApiService();
+    final result = await apiService.checkUsername(username);
+    
+    if (mounted) {
+      setState(() {
+        _isCheckingNickname = false;
+        if (result.success && result.data != null) {
+          final isAvailable = result.data!['available'] == true;
+          _isNicknameAvailable = isAvailable;
+          _isNicknameTaken = !isAvailable;
+          _nicknameError = isAvailable ? null : (result.data!['message'] ?? 'Никнейм уже занят');
+        } else {
+          _isNicknameAvailable = false;
+          _isNicknameTaken = true;
+          print('Ошибка проверки никнейма: ${result.error}');
+          _nicknameError = result.error ?? 'Ошибка проверки';
+        }
+      });
+    }
+  }
+  
+  void _onEmailChanged() {
+    _emailDebounce++;
+    final currentDebounce = _emailDebounce;
+    
+    final email = _emailController.text.trim();
+    final isValidFormat = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(email);
+    
+    setState(() {
+      _isEmailAvailable = false;
+      _isEmailTaken = false;
+      _emailError = null;
+      if (isValidFormat) {
+        _isCheckingEmail = true;
+      } else {
+        _isCheckingEmail = false;
+      }
+    });
+    
+    if (!isValidFormat) return;
+    
+    Future.delayed(const Duration(milliseconds: 500), () async {
+      if (currentDebounce == _emailDebounce && mounted) {
+        await _validateEmail();
+      }
+    });
+  }
+  
+  Future<void> _validateEmail() async {
+    final email = _emailController.text.trim();
+    final isValidFormat = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(email);
+    if (!isValidFormat) return;
+    
+    final apiService = ApiService();
+    final result = await apiService.checkEmail(email);
+    
+    if (mounted) {
+      setState(() {
+        _isCheckingEmail = false;
+        if (result.success && result.data != null) {
+          final isAvailable = result.data!['available'] == true;
+          _isEmailAvailable = isAvailable;
+          _isEmailTaken = !isAvailable;
+          _emailError = isAvailable ? null : (result.data!['message'] ?? 'Email уже занят');
+        } else {
+          _isEmailAvailable = false;
+          _isEmailTaken = true;
+          _emailError = result.error ?? 'Ошибка проверки';
+        }
+      });
+    }
+  }
+
+  /// Отправить код верификации на email
+  Future<void> _sendVerificationCode() async {
+    setState(() {
+      _isLoading = true;
+      _verificationError = null;
+    });
+    
+    final email = _emailController.text.trim();
+    final nickname = _nicknameController.text.trim();
+    print('DEBUG UI: Starting _sendVerificationCode with email: $email, nickname: $nickname');
+
+    final apiService = ApiService();
+    final result = await apiService.sendVerificationCode(
+      email: email,
+      username: nickname,
     );
     
-    if (result == true && mounted) {
-      // Email подтверждён, переходим к следующему шагу
-      setState(() => _currentStep = 4);
+    print('DEBUG UI: _sendVerificationCode result: success=${result.success}, error=${result.error}');
+
+    setState(() {
+      _isLoading = false;
+    });
+    
+    if (result.success) {
+      setState(() {
+        _currentStep = 4; // Переходим к шагу подтверждения
+      });
+    } else {
+      setState(() {
+        _verificationError = result.error ?? 'Ошибка отправки кода';
+      });
+      _showErrorMessage(_verificationError!);
+    }
+  }
+  
+  /// Подтвердить код
+  Future<void> _verifyEmailCode() async {
+    setState(() {
+      _isLoading = true;
+      _verificationError = null;
+    });
+    
+    final email = _emailController.text.trim();
+    final code = _verificationCodeController.text.trim();
+    print('DEBUG UI: Starting _verifyEmailCode with email: $email, code: $code');
+
+    final apiService = ApiService();
+    final result = await apiService.verifyEmailCode(
+      email: email,
+      code: code,
+    );
+
+    print('DEBUG UI: _verifyEmailCode result: success=${result.success}, error=${result.error}');
+    
+    setState(() {
+      _isLoading = false;
+    });
+    
+    if (result.success) {
+      setState(() {
+        _currentStep = 5; // Переходим к шагу ввода пароля
+      });
+    } else {
+      setState(() {
+        _verificationError = result.error ?? 'Неверный код подтверждения';
+      });
+      _showErrorMessage(_verificationError!);
     }
   }
   
@@ -199,29 +383,164 @@ class _RegisterScreenState extends State<RegisterScreen>
   
   /// Выбрать дату рождения
   Future<void> _selectBirthDate() async {
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: DateTime.now().subtract(const Duration(days: 365 * 18)),
-      firstDate: DateTime(1900),
-      lastDate: DateTime.now().subtract(const Duration(days: 365 * 14)),
-      locale: const Locale('ru', 'RU'),
-    );
+    final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
+    final isDark = themeProvider.isDarkMode;
     
-    if (picked != null) {
-      setState(() {
-        _birthDateController.text = '${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
-      });
+    // Parse existing date if any, otherwise default to 18 years ago.
+    DateTime initialDate = DateTime.now().subtract(const Duration(days: 365 * 18));
+    if (_birthDateController.text.isNotEmpty) {
+      try {
+        initialDate = DateTime.parse(_birthDateController.text);
+      } catch (_) {}
+    } else if (_selectedBirthDate != null) {
+      initialDate = _selectedBirthDate!;
+    }
+    
+    DateTime tempPickedDate = initialDate;
+
+    await showCupertinoModalPopup<void>(
+      context: context,
+      builder: (_) {
+        return Align(
+          alignment: Alignment.bottomCenter,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 450),
+            child: Container(
+              height: 300,
+              margin: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.3),
+                    blurRadius: 15,
+                    offset: const Offset(0, 5),
+                  ),
+                ],
+              ),
+              child: Material(
+                color: Colors.transparent,
+                child: Column(
+                  children: [
+                    // Header with Cancel / Done buttons
+                    Container(
+                      height: 55,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      decoration: BoxDecoration(
+                        border: Border(
+                          bottom: BorderSide(
+                            color: isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.08),
+                            width: 1,
+                          ),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          CupertinoButton(
+                            padding: EdgeInsets.zero,
+                            child: Text(
+                              'Отмена',
+                              style: TextStyle(
+                                color: isDark ? Colors.white54 : Colors.black54,
+                                fontSize: 16,
+                                fontWeight: FontWeight.normal,
+                              ),
+                            ),
+                            onPressed: () => Navigator.of(context).pop(),
+                          ),
+                          Text(
+                            'Дата рождения',
+                            style: TextStyle(
+                              color: isDark ? Colors.white : Colors.black87,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          CupertinoButton(
+                            padding: EdgeInsets.zero,
+                            child: Text(
+                              'Готово',
+                              style: TextStyle(
+                                color: isDark ? Colors.white : Colors.black,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                _selectedBirthDate = tempPickedDate;
+                                _birthDateController.text =
+                                    '${tempPickedDate.year}-${tempPickedDate.month.toString().padLeft(2, '0')}-${tempPickedDate.day.toString().padLeft(2, '0')}';
+                              });
+                              Navigator.of(context).pop();
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                    // Date picker field
+                    Expanded(
+                      child: CupertinoTheme(
+                        data: CupertinoThemeData(
+                          brightness: isDark ? Brightness.dark : Brightness.light,
+                          textTheme: CupertinoTextThemeData(
+                            dateTimePickerTextStyle: TextStyle(
+                              color: isDark ? Colors.white : Colors.black87,
+                              fontSize: 20,
+                            ),
+                          ),
+                        ),
+                        child: CupertinoDatePicker(
+                          key: _pickerKey,
+                          mode: CupertinoDatePickerMode.date,
+                          initialDateTime: tempPickedDate,
+                          minimumDate: DateTime(1900),
+                          maximumDate: DateTime.now().subtract(const Duration(days: 365 * 14)),
+                          onDateTimeChanged: (DateTime val) {
+                            tempPickedDate = val;
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// Обработчик глобальных событий указателя для ограничения чувствительности колеса мыши в календаре
+  void _handleGlobalPointerEvent(PointerEvent event) {
+    if (event is PointerScrollEvent) {
+      final RenderBox? renderBox = _pickerKey.currentContext?.findRenderObject() as RenderBox?;
+      if (renderBox != null && renderBox.hasSize) {
+        final Offset localPos = renderBox.globalToLocal(event.position);
+        if (renderBox.paintBounds.contains(localPos)) {
+          _scrollTickCounter++;
+          if (_scrollTickCounter % 2 == 0) {
+            GestureBinding.instance.pointerSignalResolver.register(event, (PointerSignalEvent resolvedEvent) {
+              // Поглощаем каждое второе событие прокрутки мыши
+            });
+          }
+        }
+      }
     }
   }
   
   /// Перейти к следующему шагу
   void _nextStep() {
-    if (_currentStep < 6) {
-      setState(() => _currentStep++);
-      
-      // Если шаг 3 (email), показываем модалку подтверждения
+    if (_currentStep < 8) {
       if (_currentStep == 3) {
-        _showEmailVerificationModal();
+        _sendVerificationCode();
+      } else if (_currentStep == 4) {
+        _verifyEmailCode();
+      } else {
+        setState(() => _currentStep++);
       }
     }
   }
@@ -298,15 +617,20 @@ class _RegisterScreenState extends State<RegisterScreen>
         return _birthDateController.text.trim().isNotEmpty;
       case 2: // Никнейм
         return _nicknameController.text.trim().length >= 3 && _isNicknameAvailable;
-      case 3: // Email (проверяется в модалке)
+      case 3: // Email
         return _emailController.text.trim().isNotEmpty && 
-               RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(_emailController.text.trim());
-      case 4: // Пароль
-        return _passwordController.text.length >= 8 &&
+               RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(_emailController.text.trim()) &&
+               _isEmailAvailable;
+      case 4: // Код подтверждения
+        return _verificationCodeController.text.trim().length == 6;
+      case 5: // Пароль
+        return _passwordController.text.length >= 8;
+      case 6: // Подтверждение пароля
+        return _passwordConfirmController.text.isNotEmpty &&
                _passwordController.text == _passwordConfirmController.text;
-      case 5: // Аватар (опционально)
+      case 7: // Аватар (опционально)
         return true;
-      case 6: // Условия
+      case 8: // Условия
         return _acceptTerms && _acceptDataProcessing;
       default:
         return false;
@@ -410,7 +734,7 @@ class _RegisterScreenState extends State<RegisterScreen>
                                     // Текущий шаг
                                     _buildCurrentStep(scaleProvider, isDark),
                                     
-                                    SizedBox(height: 24 * scaleProvider.scale),
+                                    SizedBox(height: (_currentStep == 8 ? 12 : 24) * scaleProvider.scale),
                                     
                                     // Кнопки навигации
                                     _buildNavigationButtons(scaleProvider, isDark),
@@ -441,7 +765,9 @@ class _RegisterScreenState extends State<RegisterScreen>
       'Когда вы родились?',
       'Придумайте никнейм',
       'Ваш email',
+      'Подтверждение Email',
       'Создайте пароль',
+      'Подтверждение пароля',
       'Добавьте фото',
       'Последний шаг',
     ];
@@ -451,9 +777,11 @@ class _RegisterScreenState extends State<RegisterScreen>
       'Вам должно быть не менее 14 лет',
       'Никнейм должен быть уникальным',
       'Мы отправим код подтверждения',
+      'Введите 6-значный код из письма',
       'Придумайте надёжный пароль',
+      'Повторите пароль ещё раз',
       'Это необязательно, но приятно',
-      'Примите условия использования',
+      'Проверьте ваши данные и примите условия',
     ];
     
     return Column(
@@ -466,17 +794,16 @@ class _RegisterScreenState extends State<RegisterScreen>
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [
-                Colors.blue.shade400,
-                Colors.purple.shade400,
-              ],
+              colors: isDark
+                  ? [Colors.white, Colors.grey.shade400]
+                  : [Colors.black, Colors.grey.shade700],
             ),
             borderRadius: BorderRadius.circular(20 * scaleProvider.scale),
           ),
           child: Icon(
             Icons.person_add,
             size: 40 * scaleProvider.scale,
-            color: Colors.white,
+            color: isDark ? Colors.black87 : Colors.white,
           ),
         ),
         SizedBox(height: 24 * scaleProvider.scale),
@@ -508,17 +835,17 @@ class _RegisterScreenState extends State<RegisterScreen>
   
   Widget _buildProgressIndicator(ScaleProvider scaleProvider, bool isDark) {
     return Row(
-      children: List.generate(7, (index) {
+      children: List.generate(9, (index) {
         final isActive = index <= _currentStep;
         return Expanded(
           child: Container(
             height: 4,
             margin: EdgeInsets.only(
-              right: index < 6 ? 4 * scaleProvider.scale : 0,
+              right: index < 8 ? 4 * scaleProvider.scale : 0,
             ),
             decoration: BoxDecoration(
               color: isActive
-                  ? (isDark ? Colors.blue.shade400 : Colors.blue.shade600)
+                  ? (isDark ? Colors.white : Colors.black)
                   : (isDark ? Colors.white.withOpacity(0.1) : Colors.black.withOpacity(0.1)),
               borderRadius: BorderRadius.circular(2),
             ),
@@ -544,6 +871,10 @@ class _RegisterScreenState extends State<RegisterScreen>
         return _buildStep5(scaleProvider, isDark);
       case 6:
         return _buildStep6(scaleProvider, isDark);
+      case 7:
+        return _buildStep7(scaleProvider, isDark);
+      case 8:
+        return _buildStep8(scaleProvider, isDark);
       default:
         return const SizedBox.shrink();
     }
@@ -576,10 +907,6 @@ class _RegisterScreenState extends State<RegisterScreen>
           focusNode: _nicknameFocus,
           label: 'Никнейм',
           icon: Icons.alternate_email,
-          onChanged: (_) {
-            _isNicknameAvailable = false;
-            _isNicknameTaken = false;
-          },
           scaleProvider: scaleProvider,
           isDark: isDark,
         ),
@@ -595,7 +922,7 @@ class _RegisterScreenState extends State<RegisterScreen>
                 child: CircularProgressIndicator(
                   strokeWidth: 2,
                   valueColor: AlwaysStoppedAnimation<Color>(
-                    isDark ? Colors.blue.shade400 : Colors.blue.shade600,
+                    isDark ? Colors.white : Colors.black,
                   ),
                 ),
               ),
@@ -637,7 +964,7 @@ class _RegisterScreenState extends State<RegisterScreen>
               ),
               SizedBox(width: 8 * scaleProvider.scale),
               Text(
-                'Никнейм занят',
+                _nicknameError ?? 'Никнейм занят',
                 style: TextStyle(
                   fontSize: 14 * scaleProvider.scale,
                   color: Colors.red,
@@ -651,47 +978,161 @@ class _RegisterScreenState extends State<RegisterScreen>
   
   // Шаг 3: Email
   Widget _buildStep3(ScaleProvider scaleProvider, bool isDark) {
-    return _buildTextField(
-      controller: _emailController,
-      focusNode: _emailFocus,
-      label: 'Email',
-      icon: Icons.email,
-      keyboardType: TextInputType.emailAddress,
-      scaleProvider: scaleProvider,
-      isDark: isDark,
-    );
-  }
-  
-  // Шаг 4: Пароль
-  Widget _buildStep4(ScaleProvider scaleProvider, bool isDark) {
     return Column(
       children: [
-        _buildPasswordField(
-          controller: _passwordController,
-          focusNode: _passwordFocus,
-          label: 'Пароль',
-          obscureText: _obscurePassword,
-          onTap: () => setState(() => _obscurePassword = !_obscurePassword),
+        _buildTextField(
+          controller: _emailController,
+          focusNode: _emailFocus,
+          label: 'Email',
+          icon: Icons.email,
+          keyboardType: TextInputType.emailAddress,
           scaleProvider: scaleProvider,
           isDark: isDark,
         ),
         SizedBox(height: 16 * scaleProvider.scale),
         
-        _buildPasswordField(
-          controller: _passwordConfirmController,
-          focusNode: _passwordConfirmFocus,
-          label: 'Подтвердите пароль',
-          obscureText: _obscureConfirmPassword,
-          onTap: () => setState(() => _obscureConfirmPassword = !_obscureConfirmPassword),
-          scaleProvider: scaleProvider,
-          isDark: isDark,
-        ),
+        // Статус доступности email
+        if (_isCheckingEmail)
+          Row(
+            children: [
+              SizedBox(
+                width: 16 * scaleProvider.scale,
+                height: 16 * scaleProvider.scale,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    isDark ? Colors.white : Colors.black,
+                  ),
+                ),
+              ),
+              SizedBox(width: 8 * scaleProvider.scale),
+              Text(
+                'Проверка доступности...',
+                style: TextStyle(
+                  fontSize: 14 * scaleProvider.scale,
+                  color: isDark ? Colors.white60 : Colors.black54,
+                ),
+              ),
+            ],
+          )
+        else if (_isEmailAvailable)
+          Row(
+            children: [
+              Icon(
+                Icons.check_circle,
+                color: Colors.green,
+                size: 16 * scaleProvider.scale,
+              ),
+              SizedBox(width: 8 * scaleProvider.scale),
+              Text(
+                'Email доступен',
+                style: TextStyle(
+                  fontSize: 14 * scaleProvider.scale,
+                  color: Colors.green,
+                ),
+              ),
+            ],
+          )
+        else if (_isEmailTaken)
+          Row(
+            children: [
+              Icon(
+                Icons.cancel,
+                color: Colors.red,
+                size: 16 * scaleProvider.scale,
+              ),
+              SizedBox(width: 8 * scaleProvider.scale),
+              Text(
+                _emailError ?? 'Email занят',
+                style: TextStyle(
+                  fontSize: 14 * scaleProvider.scale,
+                  color: Colors.red,
+                ),
+              ),
+            ],
+          ),
       ],
     );
   }
   
-  // Шаг 5: Аватар
+  // Шаг 4: Подтверждение Email
+  Widget _buildStep4(ScaleProvider scaleProvider, bool isDark) {
+    return Column(
+      children: [
+        Text(
+          'Код отправлен на ${_emailController.text}',
+          style: TextStyle(
+            fontSize: 14 * scaleProvider.scale,
+            color: isDark ? Colors.white70 : Colors.black87,
+          ),
+          textAlign: TextAlign.center,
+        ),
+        SizedBox(height: 24 * scaleProvider.scale),
+        _buildTextField(
+          controller: _verificationCodeController,
+          focusNode: _verificationCodeFocus,
+          label: 'Код подтверждения',
+          icon: Icons.security,
+          keyboardType: TextInputType.number,
+          scaleProvider: scaleProvider,
+          isDark: isDark,
+          onChanged: (val) {
+            if (val.trim().length == 6) {
+              _verifyEmailCode();
+            }
+          },
+        ),
+        if (_verificationError != null) ...[
+          SizedBox(height: 12 * scaleProvider.scale),
+          Text(
+            _verificationError!,
+            style: const TextStyle(color: Colors.red, fontSize: 13),
+            textAlign: TextAlign.center,
+          ),
+        ],
+        SizedBox(height: 16 * scaleProvider.scale),
+        TextButton(
+          onPressed: _isLoading ? null : _sendVerificationCode,
+          child: Text(
+            'Отправить код повторно',
+              style: TextStyle(
+                fontSize: 14 * scaleProvider.scale,
+                color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+              ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // Шаг 5: Пароль
   Widget _buildStep5(ScaleProvider scaleProvider, bool isDark) {
+    return _buildPasswordField(
+      controller: _passwordController,
+      focusNode: _passwordFocus,
+      label: 'Пароль',
+      obscureText: _obscurePassword,
+      onTap: () => setState(() => _obscurePassword = !_obscurePassword),
+      scaleProvider: scaleProvider,
+      isDark: isDark,
+    );
+  }
+  
+  // Шаг 6: Подтверждение пароля
+  Widget _buildStep6(ScaleProvider scaleProvider, bool isDark) {
+    return _buildPasswordField(
+      controller: _passwordConfirmController,
+      focusNode: _passwordConfirmFocus,
+      label: 'Подтвердите пароль',
+      obscureText: _obscureConfirmPassword,
+      onTap: () => setState(() => _obscureConfirmPassword = !_obscureConfirmPassword),
+      scaleProvider: scaleProvider,
+      isDark: isDark,
+    );
+  }
+  
+  // Шаг 7: Аватар
+  Widget _buildStep7(ScaleProvider scaleProvider, bool isDark) {
     return Column(
       children: [
         // Превью аватара
@@ -753,11 +1194,69 @@ class _RegisterScreenState extends State<RegisterScreen>
       ],
     );
   }
-  
-  // Шаг 6: Условия
-  Widget _buildStep6(ScaleProvider scaleProvider, bool isDark) {
+
+  // Шаг 8: Превью и условия
+  Widget _buildStep8(ScaleProvider scaleProvider, bool isDark) {
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // Превью профиля
+        Container(
+          padding: EdgeInsets.symmetric(
+            vertical: 8 * scaleProvider.scale,
+            horizontal: 16 * scaleProvider.scale,
+          ),
+          decoration: BoxDecoration(
+            color: isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.03),
+            borderRadius: BorderRadius.circular(16 * scaleProvider.scale),
+            border: Border.all(
+              color: isDark ? Colors.white.withOpacity(0.1) : Colors.black.withOpacity(0.05),
+            ),
+          ),
+          child: Row(
+            children: [
+              // Аватар
+              CircleAvatar(
+                radius: 24 * scaleProvider.scale,
+                backgroundColor: isDark ? Colors.white.withOpacity(0.1) : Colors.black.withOpacity(0.05),
+                backgroundImage: _avatarFile != null ? FileImage(_avatarFile!) : null,
+                child: _avatarFile == null
+                    ? Icon(
+                        Icons.person,
+                        size: 24 * scaleProvider.scale,
+                        color: isDark ? Colors.white60 : Colors.black54,
+                      )
+                    : null,
+              ),
+              SizedBox(width: 16 * scaleProvider.scale),
+              // Информация
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _firstNameController.text.trim(),
+                      style: TextStyle(
+                        fontSize: 16 * scaleProvider.scale,
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? Colors.white : Colors.black87,
+                      ),
+                    ),
+                    Text(
+                      '@${_nicknameController.text.trim()}',
+                      style: TextStyle(
+                        fontSize: 13 * scaleProvider.scale,
+                        color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        SizedBox(height: 12 * scaleProvider.scale),
+        
         // Принятие условий
         CheckboxListTile(
           value: _acceptTerms,
@@ -765,12 +1264,15 @@ class _RegisterScreenState extends State<RegisterScreen>
           title: Text(
             'Я принимаю условия использования',
             style: TextStyle(
-              fontSize: 14 * scaleProvider.scale,
-              color: isDark ? Colors.white : Colors.black87,
+              fontSize: 13 * scaleProvider.scale,
+              color: isDark ? Colors.white70 : Colors.black87,
             ),
           ),
+          dense: true,
+          visualDensity: const VisualDensity(horizontal: 0, vertical: -4),
           controlAffinity: ListTileControlAffinity.leading,
           contentPadding: EdgeInsets.zero,
+          activeColor: isDark ? Colors.white : Colors.black,
         ),
         
         // Согласие на обработку данных
@@ -780,12 +1282,15 @@ class _RegisterScreenState extends State<RegisterScreen>
           title: Text(
             'Я согласен на обработку персональных данных',
             style: TextStyle(
-              fontSize: 14 * scaleProvider.scale,
-              color: isDark ? Colors.white : Colors.black87,
+              fontSize: 13 * scaleProvider.scale,
+              color: isDark ? Colors.white70 : Colors.black87,
             ),
           ),
+          dense: true,
+          visualDensity: const VisualDensity(horizontal: 0, vertical: -4),
           controlAffinity: ListTileControlAffinity.leading,
           contentPadding: EdgeInsets.zero,
+          activeColor: isDark ? Colors.white : Colors.black,
         ),
       ],
     );
@@ -826,10 +1331,10 @@ class _RegisterScreenState extends State<RegisterScreen>
           child: ElevatedButton(
             onPressed: _isLoading || !_validateCurrentStep() 
                 ? null 
-                : (_currentStep == 6 ? _completeRegistration : _nextStep),
+                : (_currentStep == 8 ? _completeRegistration : _nextStep),
             style: ElevatedButton.styleFrom(
-              backgroundColor: isDark ? Colors.blue.shade400 : Colors.blue.shade600,
-              foregroundColor: Colors.white,
+              backgroundColor: isDark ? Colors.white : Colors.black,
+              foregroundColor: isDark ? Colors.black : Colors.white,
               padding: EdgeInsets.symmetric(vertical: 16 * scaleProvider.scale),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12 * scaleProvider.scale),
@@ -840,13 +1345,13 @@ class _RegisterScreenState extends State<RegisterScreen>
                 ? SizedBox(
                     width: 24 * scaleProvider.scale,
                     height: 24 * scaleProvider.scale,
-                    child: const CircularProgressIndicator(
+                    child: CircularProgressIndicator(
                       strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      valueColor: AlwaysStoppedAnimation<Color>(isDark ? Colors.black : Colors.white),
                     ),
                   )
                 : Text(
-                    _currentStep == 6 ? 'Завершить' : 'Далее',
+                    _currentStep == 8 ? 'Завершить' : 'Далее',
                     style: TextStyle(
                       fontSize: 16 * scaleProvider.scale,
                       fontWeight: FontWeight.bold,
@@ -898,8 +1403,8 @@ class _RegisterScreenState extends State<RegisterScreen>
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12 * scaleProvider.scale),
           borderSide: BorderSide(
-            color: isDark ? Colors.blue.shade400 : Colors.blue.shade600,
-            width: 2,
+            color: isDark ? Colors.white : Colors.black,
+            width: 1.5,
           ),
         ),
         errorBorder: OutlineInputBorder(
@@ -956,8 +1461,8 @@ class _RegisterScreenState extends State<RegisterScreen>
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12 * scaleProvider.scale),
           borderSide: BorderSide(
-            color: isDark ? Colors.blue.shade400 : Colors.blue.shade600,
-            width: 2,
+            color: isDark ? Colors.white : Colors.black,
+            width: 1.5,
           ),
         ),
         errorBorder: OutlineInputBorder(
@@ -997,8 +1502,8 @@ class _RegisterScreenState extends State<RegisterScreen>
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12 * scaleProvider.scale),
           borderSide: BorderSide(
-            color: isDark ? Colors.blue.shade400 : Colors.blue.shade600,
-            width: 2,
+            color: isDark ? Colors.white : Colors.black,
+            width: 1.5,
           ),
         ),
         errorBorder: OutlineInputBorder(

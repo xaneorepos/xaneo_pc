@@ -2,19 +2,6 @@ import 'dart:io';
 import 'dart:ui';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:flutter/cupertino.dart' show
-    showCupertinoModalPopup,
-    CupertinoDatePicker,
-    CupertinoDatePickerMode,
-    CupertinoTheme,
-    CupertinoThemeData,
-    CupertinoTextThemeData,
-    CupertinoButton;
-import 'package:flutter/gestures.dart' show
-    PointerEvent,
-    PointerScrollEvent,
-    PointerSignalEvent,
-    GestureBinding;
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import '../l10n/app_localizations.dart';
@@ -93,8 +80,7 @@ class _RegisterScreenState extends State<RegisterScreen>
   File? _avatarFile;
   final ImagePicker _imagePicker = ImagePicker();
   DateTime? _selectedBirthDate;
-  final GlobalKey _pickerKey = GlobalKey();
-  int _scrollTickCounter = 0;
+
   
   // Этапы регистрации (0-8, всего 9 шагов)
   int _currentStep = 0;
@@ -121,8 +107,6 @@ class _RegisterScreenState extends State<RegisterScreen>
     _passwordController.addListener(_onFieldChanged);
     _passwordConfirmController.addListener(_onFieldChanged);
     _verificationCodeController.addListener(_onFieldChanged);
-    
-    GestureBinding.instance.pointerRouter.addGlobalRoute(_handleGlobalPointerEvent);
     
     _fadeController = AnimationController(
       duration: const Duration(milliseconds: 800),
@@ -166,7 +150,6 @@ class _RegisterScreenState extends State<RegisterScreen>
   
   @override
   void dispose() {
-    GestureBinding.instance.pointerRouter.removeGlobalRoute(_handleGlobalPointerEvent);
     _firstNameController.dispose();
     _birthDateController.dispose();
     _nicknameController.dispose();
@@ -381,12 +364,11 @@ class _RegisterScreenState extends State<RegisterScreen>
     setState(() => _avatarFile = null);
   }
   
-  /// Выбрать дату рождения
+  /// Выбрать дату рождения — кастомный сеточный календарь
   Future<void> _selectBirthDate() async {
     final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
     final isDark = themeProvider.isDarkMode;
-    
-    // Parse existing date if any, otherwise default to 18 years ago.
+
     DateTime initialDate = DateTime.now().subtract(const Duration(days: 365 * 18));
     if (_birthDateController.text.isNotEmpty) {
       try {
@@ -395,144 +377,29 @@ class _RegisterScreenState extends State<RegisterScreen>
     } else if (_selectedBirthDate != null) {
       initialDate = _selectedBirthDate!;
     }
-    
-    DateTime tempPickedDate = initialDate;
 
-    await showCupertinoModalPopup<void>(
+    final DateTime? picked = await showModalBottomSheet<DateTime>(
       context: context,
-      builder: (_) {
-        return Align(
-          alignment: Alignment.bottomCenter,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 450),
-            child: Container(
-              height: 300,
-              margin: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-                borderRadius: BorderRadius.circular(24),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.3),
-                    blurRadius: 15,
-                    offset: const Offset(0, 5),
-                  ),
-                ],
-              ),
-              child: Material(
-                color: Colors.transparent,
-                child: Column(
-                  children: [
-                    // Header with Cancel / Done buttons
-                    Container(
-                      height: 55,
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      decoration: BoxDecoration(
-                        border: Border(
-                          bottom: BorderSide(
-                            color: isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.08),
-                            width: 1,
-                          ),
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          CupertinoButton(
-                            padding: EdgeInsets.zero,
-                            child: Text(
-                              'Отмена',
-                              style: TextStyle(
-                                color: isDark ? Colors.white54 : Colors.black54,
-                                fontSize: 16,
-                                fontWeight: FontWeight.normal,
-                              ),
-                            ),
-                            onPressed: () => Navigator.of(context).pop(),
-                          ),
-                          Text(
-                            'Дата рождения',
-                            style: TextStyle(
-                              color: isDark ? Colors.white : Colors.black87,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          CupertinoButton(
-                            padding: EdgeInsets.zero,
-                            child: Text(
-                              'Готово',
-                              style: TextStyle(
-                                color: isDark ? Colors.white : Colors.black,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            onPressed: () {
-                              setState(() {
-                                _selectedBirthDate = tempPickedDate;
-                                _birthDateController.text =
-                                    '${tempPickedDate.year}-${tempPickedDate.month.toString().padLeft(2, '0')}-${tempPickedDate.day.toString().padLeft(2, '0')}';
-                              });
-                              Navigator.of(context).pop();
-                            },
-                          ),
-                        ],
-                      ),
-                    ),
-                    // Date picker field
-                    Expanded(
-                      child: CupertinoTheme(
-                        data: CupertinoThemeData(
-                          brightness: isDark ? Brightness.dark : Brightness.light,
-                          textTheme: CupertinoTextThemeData(
-                            dateTimePickerTextStyle: TextStyle(
-                              color: isDark ? Colors.white : Colors.black87,
-                              fontSize: 20,
-                            ),
-                          ),
-                        ),
-                        child: CupertinoDatePicker(
-                          key: _pickerKey,
-                          mode: CupertinoDatePickerMode.date,
-                          initialDateTime: tempPickedDate,
-                          minimumDate: DateTime(1900),
-                          maximumDate: DateTime.now().subtract(const Duration(days: 365 * 14)),
-                          onDateTimeChanged: (DateTime val) {
-                            tempPickedDate = val;
-                          },
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        );
-      },
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => _CustomDatePickerSheet(
+        initialDate: initialDate,
+        minDate: DateTime(1900),
+        maxDate: DateTime.now().subtract(const Duration(days: 365 * 14)),
+        isDark: isDark,
+      ),
     );
-  }
 
-  /// Обработчик глобальных событий указателя для ограничения чувствительности колеса мыши в календаре
-  void _handleGlobalPointerEvent(PointerEvent event) {
-    if (event is PointerScrollEvent) {
-      final RenderBox? renderBox = _pickerKey.currentContext?.findRenderObject() as RenderBox?;
-      if (renderBox != null && renderBox.hasSize) {
-        final Offset localPos = renderBox.globalToLocal(event.position);
-        if (renderBox.paintBounds.contains(localPos)) {
-          _scrollTickCounter++;
-          if (_scrollTickCounter % 2 == 0) {
-            GestureBinding.instance.pointerSignalResolver.register(event, (PointerSignalEvent resolvedEvent) {
-              // Поглощаем каждое второе событие прокрутки мыши
-            });
-          }
-        }
-      }
+    if (picked != null) {
+      setState(() {
+        _selectedBirthDate = picked;
+        _birthDateController.text =
+            '${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}';
+      });
     }
   }
-  
-  /// Перейти к следующему шагу
+
+    /// Перейти к следующему шагу
   void _nextStep() {
     if (_currentStep < 8) {
       if (_currentStep == 3) {
@@ -2186,6 +2053,451 @@ class _RegisterScreenState extends State<RegisterScreen>
             ),
           );
         }).toList(),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Кастомный пикер даты (сеточный календарь)
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _CustomDatePickerSheet extends StatefulWidget {
+  final DateTime initialDate;
+  final DateTime minDate;
+  final DateTime maxDate;
+  final bool isDark;
+
+  const _CustomDatePickerSheet({
+    required this.initialDate,
+    required this.minDate,
+    required this.maxDate,
+    required this.isDark,
+  });
+
+  @override
+  State<_CustomDatePickerSheet> createState() => _CustomDatePickerSheetState();
+}
+
+class _CustomDatePickerSheetState extends State<_CustomDatePickerSheet>
+    with SingleTickerProviderStateMixin {
+  late int _displayYear;
+  late int _displayMonth;
+  late DateTime _selected;
+  bool _showYearPicker = false;
+
+  late AnimationController _animCtrl;
+  late Animation<double> _fadeAnim;
+
+  static const List<String> _monthNames = [
+    'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
+    'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь',
+  ];
+  static const List<String> _weekDays = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+
+  @override
+  void initState() {
+    super.initState();
+    _selected = widget.initialDate;
+    _displayYear = widget.initialDate.year;
+    _displayMonth = widget.initialDate.month;
+    _animCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 220),
+    );
+    _fadeAnim = CurvedAnimation(parent: _animCtrl, curve: Curves.easeOut);
+    _animCtrl.forward();
+  }
+
+  @override
+  void dispose() {
+    _animCtrl.dispose();
+    super.dispose();
+  }
+
+  Color get _accent => const Color(0xFF6C63FF);
+  Color get _bg => widget.isDark ? const Color(0xFF1C1C1E) : Colors.white;
+  Color get _surface => widget.isDark ? const Color(0xFF2C2C2E) : const Color(0xFFF2F2F7);
+  Color get _textPrimary => widget.isDark ? Colors.white : Colors.black;
+  Color get _textSecondary => widget.isDark ? Colors.white54 : Colors.black45;
+  Color get _divider => widget.isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.07);
+
+  void _prevMonth() {
+    setState(() {
+      if (_displayMonth == 1) {
+        _displayMonth = 12;
+        _displayYear--;
+      } else {
+        _displayMonth--;
+      }
+    });
+  }
+
+  void _nextMonth() {
+    setState(() {
+      if (_displayMonth == 12) {
+        _displayMonth = 1;
+        _displayYear++;
+      } else {
+        _displayMonth++;
+      }
+    });
+  }
+
+  bool _canGoPrev() {
+    return DateTime(_displayYear, _displayMonth).isAfter(
+      DateTime(widget.minDate.year, widget.minDate.month),
+    );
+  }
+
+  bool _canGoNext() {
+    return DateTime(_displayYear, _displayMonth).isBefore(
+      DateTime(widget.maxDate.year, widget.maxDate.month),
+    );
+  }
+
+  List<DateTime?> _buildCalendarDays() {
+    final firstDay = DateTime(_displayYear, _displayMonth, 1);
+    // Monday = 1 … Sunday = 7
+    int startWeekday = firstDay.weekday; // 1-7
+    final daysInMonth = DateUtils.getDaysInMonth(_displayYear, _displayMonth);
+    final cells = <DateTime?>[];
+    for (int i = 1; i < startWeekday; i++) cells.add(null);
+    for (int d = 1; d <= daysInMonth; d++) {
+      cells.add(DateTime(_displayYear, _displayMonth, d));
+    }
+    return cells;
+  }
+
+  bool _isSelectable(DateTime day) {
+    final d = DateTime(day.year, day.month, day.day);
+    final min = DateTime(widget.minDate.year, widget.minDate.month, widget.minDate.day);
+    final max = DateTime(widget.maxDate.year, widget.maxDate.month, widget.maxDate.day);
+    return !d.isBefore(min) && !d.isAfter(max);
+  }
+
+  bool _isSelected(DateTime day) =>
+      day.year == _selected.year &&
+      day.month == _selected.month &&
+      day.day == _selected.day;
+
+  bool _isToday(DateTime day) {
+    final now = DateTime.now();
+    return day.year == now.year && day.month == now.month && day.day == now.day;
+  }
+
+  Widget _buildYearPicker() {
+    final years = List.generate(
+      widget.maxDate.year - widget.minDate.year + 1,
+      (i) => widget.minDate.year + i,
+    ).reversed.toList();
+
+    return ListView.builder(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      itemCount: years.length,
+      itemBuilder: (_, i) {
+        final y = years[i];
+        final isActive = y == _displayYear;
+        return InkWell(
+          onTap: () {
+            setState(() {
+              _displayYear = y;
+              _showYearPicker = false;
+            });
+          },
+          borderRadius: BorderRadius.circular(10),
+          child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            decoration: isActive
+                ? BoxDecoration(
+                    color: _accent.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  )
+                : null,
+            child: Center(
+              child: Text(
+                '$y',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: isActive ? FontWeight.w700 : FontWeight.normal,
+                  color: isActive ? _accent : _textPrimary,
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildCalendar() {
+    final days = _buildCalendarDays();
+    return Column(
+      children: [
+        // Weekday headers
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          child: Row(
+            children: _weekDays.map((d) {
+              return Expanded(
+                child: Center(
+                  child: Text(
+                    d,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: _textSecondary,
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+        // Day grid
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 7,
+              mainAxisSpacing: 2,
+              crossAxisSpacing: 2,
+              childAspectRatio: 1.1,
+            ),
+            itemCount: days.length,
+            itemBuilder: (_, i) {
+              final day = days[i];
+              if (day == null) return const SizedBox.shrink();
+
+              final selectable = _isSelectable(day);
+              final selected = _isSelected(day);
+              final today = _isToday(day);
+
+              return GestureDetector(
+                onTap: selectable ? () => setState(() => _selected = day) : null,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 150),
+                  decoration: BoxDecoration(
+                    color: selected
+                        ? _accent
+                        : today
+                            ? _accent.withOpacity(0.12)
+                            : Colors.transparent,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Center(
+                    child: Text(
+                      '${day.day}',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: selected || today ? FontWeight.w700 : FontWeight.normal,
+                        color: selected
+                            ? Colors.white
+                            : selectable
+                                ? _textPrimary
+                                : _textSecondary.withOpacity(0.35),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _fadeAnim,
+      child: Align(
+        alignment: Alignment.bottomCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 460),
+          child: Container(
+            margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+            decoration: BoxDecoration(
+              color: _bg,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.25),
+                  blurRadius: 20,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Material(
+              color: Colors.transparent,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // ── Header ──────────────────────────────────────────────
+                  Container(
+                    height: 56,
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    decoration: BoxDecoration(
+                      border: Border(
+                        bottom: BorderSide(color: _divider, width: 1),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        TextButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          style: TextButton.styleFrom(
+                            foregroundColor: _textSecondary,
+                            padding: EdgeInsets.zero,
+                            minimumSize: const Size(48, 36),
+                          ),
+                          child: const Text('Отмена', style: TextStyle(fontSize: 15)),
+                        ),
+                        Text(
+                          'Дата рождения',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: _textPrimary,
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () => Navigator.of(context).pop(_selected),
+                          style: TextButton.styleFrom(
+                            foregroundColor: _accent,
+                            padding: EdgeInsets.zero,
+                            minimumSize: const Size(48, 36),
+                          ),
+                          child: const Text(
+                            'Готово',
+                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // ── Month / Year navigation ──────────────────────────────
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+                    child: Row(
+                      children: [
+                        // Prev month
+                        _NavButton(
+                          icon: Icons.chevron_left_rounded,
+                          enabled: _canGoPrev(),
+                          isDark: widget.isDark,
+                          onTap: _prevMonth,
+                        ),
+                        const SizedBox(width: 8),
+                        // Month label
+                        Expanded(
+                          child: GestureDetector(
+                            onTap: () => setState(() => _showYearPicker = !_showYearPicker),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                              decoration: BoxDecoration(
+                                color: _surface,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    '${_monthNames[_displayMonth - 1]} $_displayYear',
+                                    style: TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w600,
+                                      color: _textPrimary,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  AnimatedRotation(
+                                    turns: _showYearPicker ? 0.5 : 0,
+                                    duration: const Duration(milliseconds: 200),
+                                    child: Icon(
+                                      Icons.keyboard_arrow_down_rounded,
+                                      size: 18,
+                                      color: _textSecondary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        // Next month
+                        _NavButton(
+                          icon: Icons.chevron_right_rounded,
+                          enabled: _canGoNext(),
+                          isDark: widget.isDark,
+                          onTap: _nextMonth,
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // ── Calendar grid or year picker ─────────────────────────
+                  AnimatedCrossFade(
+                    duration: const Duration(milliseconds: 200),
+                    crossFadeState: _showYearPicker
+                        ? CrossFadeState.showSecond
+                        : CrossFadeState.showFirst,
+                    firstChild: Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: _buildCalendar(),
+                    ),
+                    secondChild: SizedBox(
+                      height: 220,
+                      child: _buildYearPicker(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NavButton extends StatelessWidget {
+  final IconData icon;
+  final bool enabled;
+  final bool isDark;
+  final VoidCallback onTap;
+
+  const _NavButton({
+    required this.icon,
+    required this.enabled,
+    required this.isDark,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isDark ? Colors.white : Colors.black;
+    return GestureDetector(
+      onTap: enabled ? onTap : null,
+      child: Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF2C2C2E) : const Color(0xFFF2F2F7),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Icon(
+          icon,
+          size: 20,
+          color: enabled ? color : color.withOpacity(0.25),
+        ),
       ),
     );
   }

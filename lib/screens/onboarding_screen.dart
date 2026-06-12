@@ -8,6 +8,8 @@ import '../providers/scale_provider.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/geometry_3d.dart';
 import '../widgets/advanced_background.dart';
+import '../services/api_service.dart';
+import '../services/crypto_service.dart';
 
 /// Экран онбординга с продвинутыми 3D эффектами
 class OnboardingScreen extends StatefulWidget {
@@ -36,6 +38,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   @override
   void initState() {
     super.initState();
+    _checkAuthAndRedirect();
     
     // Инициализация контроллеров анимации
     _fadeController = AnimationController(
@@ -128,6 +131,32 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     
     if (mounted) {
       Navigator.of(context).pushReplacementNamed('/login');
+    }
+  }
+
+  Future<void> _checkAuthAndRedirect() async {
+    final apiService = ApiService();
+    final cryptoService = CryptoService();
+    
+    // Check if user is authenticated and has keys
+    final authenticated = await apiService.isAuthenticated();
+    if (authenticated) {
+      final hasKeys = await cryptoService.init();
+      if (hasKeys) {
+        if (mounted) {
+          Navigator.of(context).pushReplacementNamed('/messenger');
+          return;
+        }
+      }
+    }
+
+    // Otherwise, check if onboarding is already completed
+    final prefs = await SharedPreferences.getInstance();
+    final hasSeenOnboarding = prefs.getBool('has_seen_onboarding') ?? false;
+    if (hasSeenOnboarding) {
+      if (mounted) {
+        Navigator.of(context).pushReplacementNamed('/login');
+      }
     }
   }
 

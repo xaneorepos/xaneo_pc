@@ -12,6 +12,7 @@ import 'providers/scale_provider.dart';
 import 'screens/onboarding_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/register_screen.dart';
+import 'screens/messenger_screen.dart';
 import 'widgets/zoom_toast.dart';
 import 'widgets/custom_title_bar.dart';
 import 'widgets/settings_modal.dart';
@@ -128,6 +129,7 @@ class MyApp extends StatelessWidget {
             '/onboarding': (context) => const ZoomScope(child: OnboardingScreen()),
             '/login': (context) => const ZoomScope(child: LoginScreen()),
             '/register': (context) => const ZoomScope(child: RegisterScreen()),
+            '/messenger': (context) => const ZoomScope(child: MessengerScreen()),
           },
         );
       },

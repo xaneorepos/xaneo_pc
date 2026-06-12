@@ -11,6 +11,7 @@ import '../providers/locale_provider.dart';
 import '../widgets/glass_card.dart';
 import '../widgets/advanced_background.dart';
 import '../services/api_service.dart';
+import '../services/crypto_service.dart';
 
 /// Экран регистрации с 7 шагами (как в xaneo_mobile)
 class RegisterScreen extends StatefulWidget {
@@ -440,15 +441,31 @@ class _RegisterScreenState extends State<RegisterScreen>
           : _firstNameController.text.trim(),
     );
     
-    setState(() => _isLoading = false);
-    
     if (result.success) {
+      // Генерируем и сохраняем E2EE ключи
+      try {
+        final newBlob = await CryptoService().generateAndStoreKeys(_passwordController.text);
+        final uploadResponse = await apiService.uploadKeys(
+          x25519PublicKey: newBlob['pub']['x25519'] as String,
+          ed25519PublicKey: newBlob['pub']['ed25519'] as String,
+          encryptedBlob: newBlob,
+        );
+        if (!uploadResponse.success) {
+          print("Error uploading keys during registration: ${uploadResponse.error}");
+        }
+      } catch (e) {
+        print("Error generating keys during registration: $e");
+      }
+
+      setState(() => _isLoading = false);
       _showSuccessMessage('Регистрация успешна!');
+      
       // Возвращаемся на экран входа
       if (mounted) {
         Navigator.of(context).pop(true); // true означает успешную регистрацию
       }
     } else {
+      setState(() => _isLoading = false);
       _showErrorMessage(result.error ?? 'Ошибка регистрации');
     }
   }

@@ -383,6 +383,163 @@ class ApiService {
     }
   }
   
+  // ==================== XSEC-2 CRYPTO ENDPOINTS ====================
+  
+  /// Загрузить публичные ключи и зашифрованный blob на сервер
+  Future<ApiResponse> uploadKeys({
+    required String x25519PublicKey,
+    required String ed25519PublicKey,
+    required Map<String, dynamic> encryptedBlob,
+    Map<String, dynamic>? recoveryBlob,
+  }) async {
+    try {
+      final options = await _getAuthOptions();
+      final response = await _dio.post(
+        '$_baseUrl/xsec2/upload-keys/',
+        options: options,
+        data: {
+          'x25519_public_key': x25519PublicKey,
+          'ed25519_public_key': ed25519PublicKey,
+          'encrypted_blob': encryptedBlob,
+          if (recoveryBlob != null) 'recovery_blob': recoveryBlob,
+        },
+      );
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(
+        success: false,
+        error: 'Ошибка отправки ключей на сервер: $e',
+      );
+    }
+  }
+
+  /// Получить свои зашифрованные ключи с сервера
+  Future<ApiResponse> getMyKeys() async {
+    try {
+      final options = await _getAuthOptions();
+      final response = await _dio.get(
+        '$_baseUrl/xsec2/my-keys/',
+        options: options,
+      );
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(
+        success: false,
+        error: 'Ошибка получения ключей с сервера: $e',
+      );
+    }
+  }
+
+  /// Получить публичные ключи собеседника по имени пользователя
+  Future<ApiResponse> getUserPublicKey(String username) async {
+    try {
+      final options = await _getAuthOptions();
+      final response = await _dio.get(
+        '$_baseUrl/xsec2/keys/$username/',
+        options: options,
+      );
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(
+        success: false,
+        error: 'Ошибка получения публичного ключа пользователя: $e',
+      );
+    }
+  }
+
+  /// Получить симметричный ключ чата для групповых чатов / каналов
+  Future<ApiResponse> getChatKey(String chatId) async {
+    try {
+      final options = await _getAuthOptions();
+      final response = await _dio.get(
+        '$_baseUrl/xsec2/keys/chat/$chatId/',
+        options: options,
+      );
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(
+        success: false,
+        error: 'Ошибка получения ключа чата: $e',
+      );
+    }
+  }
+
+  // ==================== MESSAGING ENDPOINTS ====================
+
+  /// Получить список чатов
+  Future<ApiResponse> getChats() async {
+    try {
+      final options = await _getAuthOptions();
+      final response = await _dio.get(
+        '$_baseUrl/chats/',
+        options: options,
+      );
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(
+        success: false,
+        error: 'Ошибка получения списка чатов: $e',
+      );
+    }
+  }
+
+  /// Получить список сообщений в чате
+  Future<ApiResponse> getMessages(String chatId) async {
+    try {
+      final options = await _getAuthOptions();
+      final response = await _dio.get(
+        '$_baseUrl/encrypted-messages/',
+        options: options,
+        queryParameters: {'chat_id': chatId},
+      );
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(
+        success: false,
+        error: 'Ошибка получения сообщений: $e',
+      );
+    }
+  }
+
+  /// Отправить зашифрованное сообщение
+  Future<ApiResponse> sendMessage(String chatId, String encryptedText) async {
+    try {
+      final options = await _getAuthOptions();
+      final response = await _dio.post(
+        '$_baseUrl/encrypted-messages/',
+        options: options,
+        data: {
+          'chat_id': chatId,
+          'encrypted_text': encryptedText,
+        },
+      );
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(
+        success: false,
+        error: 'Ошибка отправки сообщения: $e',
+      );
+    }
+  }
+
+  /// Поиск пользователей, групп, каналов
+  Future<ApiResponse> searchUsers(String query) async {
+    try {
+      final options = await _getAuthOptions();
+      final response = await _dio.get(
+        '$_baseUrl/user/search/',
+        options: options,
+        queryParameters: {'q': query},
+      );
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(
+        success: false,
+        error: 'Ошибка поиска: $e',
+      );
+    }
+  }
+
   /// Выход из системы
   Future<void> logout() async {
     final prefs = await SharedPreferences.getInstance();

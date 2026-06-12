@@ -8,6 +8,7 @@ import '../widgets/glass_card.dart';
 import '../widgets/geometry_3d.dart';
 import '../widgets/advanced_background.dart';
 import '../services/api_service.dart';
+import '../services/crypto_service.dart';
 import 'register_screen.dart';
 
 /// Экран входа в систему с продвинутыми 3D эффектами
@@ -113,33 +114,118 @@ class _LoginScreenState extends State<LoginScreen>
       });
 
       try {
+        final password = _passwordController.text;
+        
         // Получаем JWT токен
         final tokenResponse = await _apiService.obtainToken(
           _loginController.text.trim(),
-          _passwordController.text,
+          password,
         );
 
-        setState(() {
-          _isLoading = false;
-        });
-
         if (tokenResponse.success) {
-          // Токен получен успешно
-          if (mounted) {
-            final l10n = AppLocalizations.of(context);
-            if (l10n != null) {
+          // Токен получен успешно, теперь настраиваем крипто-ключи (E2EE)
+          final keysResponse = await _apiService.getMyKeys();
+          bool cryptoSetupSuccess = false;
+
+          if (keysResponse.success && keysResponse.data != null && keysResponse.data!['xsec2'] != null) {
+            // Ключи есть на сервере, расшифровываем их
+            final xsec2 = keysResponse.data!['xsec2'] as Map<String, dynamic>;
+            final encryptedBlob = xsec2['encrypted_blob'] as Map<String, dynamic>;
+            
+            cryptoSetupSuccess = await CryptoService().unlockFromBlob(encryptedBlob, password);
+            if (!cryptoSetupSuccess) {
+              // В случае неудачи (например, старый Argon2id blob с веб-клиента),
+              // генерируем новые ключи в поддерживаемом формате pbkdf2-aes-gcm и загружаем их.
+              print("Warning: Failed to decrypt server keys. Regenerating new keys under pbkdf2-aes-gcm...");
+              try {
+                final newBlob = await CryptoService().generateAndStoreKeys(password);
+                final uploadResponse = await _apiService.uploadKeys(
+                  x25519PublicKey: newBlob['pub']['x25519'] as String,
+                  ed25519PublicKey: newBlob['pub']['ed25519'] as String,
+                  encryptedBlob: newBlob,
+                );
+                cryptoSetupSuccess = uploadResponse.success;
+                if (!cryptoSetupSuccess) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(uploadResponse.error ?? 'Ошибка восстановления ключей (не удалось перезаписать)'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
+                }
+              } catch (e) {
+                print("Error during fallback key generation: $e");
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Критическая ошибка при пересоздании ключей шифрования'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
+            }
+          } else if (keysResponse.statusCode == 404 || (keysResponse.data != null && keysResponse.data!['code'] == 'KEYS_NOT_FOUND')) {
+            // Ключей нет на сервере, генерируем новые
+            try {
+              final newBlob = await CryptoService().generateAndStoreKeys(password);
+              final uploadResponse = await _apiService.uploadKeys(
+                x25519PublicKey: newBlob['pub']['x25519'] as String,
+                ed25519PublicKey: newBlob['pub']['ed25519'] as String,
+                encryptedBlob: newBlob,
+              );
+              
+              cryptoSetupSuccess = uploadResponse.success;
+              if (!cryptoSetupSuccess) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(uploadResponse.error ?? 'Ошибка загрузки ключей на сервер'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
+            } catch (e) {
+              print("Error generating keys: $e");
+            }
+          } else {
+            // Другая ошибка при получении ключей
+            if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: Text(l10n.welcomeUser(_loginController.text)),
-                  backgroundColor: Colors.green,
+                  content: Text(keysResponse.error ?? 'Ошибка при получении ключей шифрования'),
+                  backgroundColor: Colors.red,
                 ),
               );
             }
           }
-          
-          // TODO: Навигация на главный экран
-          // Navigator.of(context).pushReplacementNamed('/home');
+
+          setState(() {
+            _isLoading = false;
+          });
+
+          if (cryptoSetupSuccess) {
+            if (mounted) {
+              final l10n = AppLocalizations.of(context);
+              if (l10n != null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(l10n.welcomeUser(_loginController.text)),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              }
+              // Навигация в мессенджер
+              Navigator.of(context).pushReplacementNamed('/messenger');
+            }
+          }
         } else {
+          setState(() {
+            _isLoading = false;
+          });
           // Ошибка авторизации
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(

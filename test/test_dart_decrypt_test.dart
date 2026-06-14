@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'package:xaneo_pc/services/crypto_service.dart';
 
 import "package:flutter_test/flutter_test.dart";
@@ -17,9 +16,9 @@ void main() {
   final cryptoService = CryptoService();
   try {
     final success = await cryptoService.unlockFromBlob(blob, password);
-    print("Unlock success: \$success");
+    print("Unlock success: $success");
   } catch (e) {
-    print("Error unlocking: \$e");
+    print("Error unlocking: $e");
   }
+  });
 }
-  });\n}

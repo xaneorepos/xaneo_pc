@@ -480,49 +480,51 @@ New-ItemProperty -Path \$RegPath -Name "InstallLocation" -Value "${targetDir.pat
     return Scaffold(
       body: Column(
         children: [
-          Container(
-            height: 40,
-            color: const Color(0xFF1A1A1A),
-            child: Row(
-              children: [
-                const SizedBox(width: 16),
-                const Icon(Icons.computer, color: Colors.white, size: 16),
-                const SizedBox(width: 8),
-                Text(t('title'), style: const TextStyle(fontFamily: _kFontFamily, color: Colors.white, fontSize: 14)),
-                const Spacer(),
-                if (!_installing)
-                  DropdownButton<String>(
-                    value: _lang,
-                    dropdownColor: const Color(0xFF2A2A2A),
-                    underline: const SizedBox(),
-                    icon: const Icon(Icons.language, color: Colors.white, size: 16),
-                    style: const TextStyle(fontFamily: _kFontFamily, color: Colors.white, fontSize: 12),
-                    items: const [
-                      DropdownMenuItem(value: 'en', child: Text('English', style: TextStyle(fontFamily: _kFontFamily))),
-                      DropdownMenuItem(value: 'ru', child: Text('Русский', style: TextStyle(fontFamily: _kFontFamily))),
-                      DropdownMenuItem(value: 'ar', child: Text('العربية', style: TextStyle(fontFamily: _kFontFamily))),
-                      DropdownMenuItem(value: 'es', child: Text('Español', style: TextStyle(fontFamily: _kFontFamily))),
-                      DropdownMenuItem(value: 'fr', child: Text('Français', style: TextStyle(fontFamily: _kFontFamily))),
-                      DropdownMenuItem(value: 'ja', child: Text('日本語', style: TextStyle(fontFamily: _kFontFamily))),
-                      DropdownMenuItem(value: 'ko', child: Text('한국어', style: TextStyle(fontFamily: _kFontFamily))),
-                      DropdownMenuItem(value: 'zh', child: Text('中文', style: TextStyle(fontFamily: _kFontFamily))),
-                    ],
-                    onChanged: (v) {
-                      if (v != null) _setLang(v);
-                    },
+          DragToMoveArea(
+            child: Container(
+              height: 40,
+              color: const Color(0xFF1A1A1A),
+              child: Row(
+                children: [
+                  const SizedBox(width: 16),
+                  const Icon(Icons.computer, color: Colors.white, size: 16),
+                  const SizedBox(width: 8),
+                  Text(t('title'), style: const TextStyle(fontFamily: _kFontFamily, color: Colors.white, fontSize: 14)),
+                  const Spacer(),
+                  if (!_installing)
+                    DropdownButton<String>(
+                      value: _lang,
+                      dropdownColor: const Color(0xFF2A2A2A),
+                      underline: const SizedBox(),
+                      icon: const Icon(Icons.language, color: Colors.white, size: 16),
+                      style: const TextStyle(fontFamily: _kFontFamily, color: Colors.white, fontSize: 12),
+                      items: const [
+                        DropdownMenuItem(value: 'en', child: Text('English', style: TextStyle(fontFamily: _kFontFamily))),
+                        DropdownMenuItem(value: 'ru', child: Text('Русский', style: TextStyle(fontFamily: _kFontFamily))),
+                        DropdownMenuItem(value: 'ar', child: Text('العربية', style: TextStyle(fontFamily: _kFontFamily))),
+                        DropdownMenuItem(value: 'es', child: Text('Español', style: TextStyle(fontFamily: _kFontFamily))),
+                        DropdownMenuItem(value: 'fr', child: Text('Français', style: TextStyle(fontFamily: _kFontFamily))),
+                        DropdownMenuItem(value: 'ja', child: Text('日本語', style: TextStyle(fontFamily: _kFontFamily))),
+                        DropdownMenuItem(value: 'ko', child: Text('한국어', style: TextStyle(fontFamily: _kFontFamily))),
+                        DropdownMenuItem(value: 'zh', child: Text('中文', style: TextStyle(fontFamily: _kFontFamily))),
+                      ],
+                      onChanged: (v) {
+                        if (v != null) _setLang(v);
+                      },
+                    ),
+                  const SizedBox(width: 16),
+                  TextButton.icon(
+                    icon: const Icon(Icons.bug_report_outlined, color: Colors.grey, size: 16),
+                    label: const Text('Logs', style: TextStyle(color: Colors.grey, fontSize: 12, fontFamily: _kFontFamily)),
+                    onPressed: () => _showLogsDialog(context),
                   ),
-                const SizedBox(width: 16),
-                TextButton.icon(
-                  icon: const Icon(Icons.bug_report_outlined, color: Colors.grey, size: 16),
-                  label: const Text('Logs', style: TextStyle(color: Colors.grey, fontSize: 12, fontFamily: _kFontFamily)),
-                  onPressed: () => _showLogsDialog(context),
-                ),
-                const SizedBox(width: 16),
-                IconButton(
-                  icon: const Icon(Icons.close, color: Colors.grey, size: 16),
-                  onPressed: () => windowManager.close(),
-                ),
-              ],
+                  const SizedBox(width: 16),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.grey, size: 16),
+                    onPressed: () => windowManager.close(),
+                  ),
+                ],
+              ),
             ),
           ),
           
@@ -728,30 +730,32 @@ class _UninstallerScreenState extends State<UninstallerScreen> {
     return Scaffold(
       body: Column(
         children: [
-          Container(
-            height: 40,
-            color: const Color(0xFF1A1A1A),
-            child: Row(
-              children: [
-                const SizedBox(width: 16),
-                const Icon(Icons.delete_outline, color: Colors.white, size: 16),
-                const SizedBox(width: 8),
-                Text(t('title'), style: const TextStyle(fontFamily: _kFontFamily, color: Colors.white, fontSize: 14)),
-                const Spacer(),
-                TextButton.icon(
-                  icon: const Icon(Icons.bug_report_outlined, color: Colors.grey, size: 16),
-                  label: const Text('Logs', style: TextStyle(color: Colors.grey, fontSize: 12, fontFamily: _kFontFamily)),
-                  onPressed: () => _showLogsDialog(context),
-                ),
-                const SizedBox(width: 16),
-                IconButton(
-                  icon: const Icon(Icons.close, color: Colors.grey, size: 16),
-                  onPressed: () {
-                    windowManager.close();
-                    exit(1); // Exit code 1 tells NSIS wrapper to abort deletion
-                  },
-                ),
-              ],
+          DragToMoveArea(
+            child: Container(
+              height: 40,
+              color: const Color(0xFF1A1A1A),
+              child: Row(
+                children: [
+                  const SizedBox(width: 16),
+                  const Icon(Icons.delete_outline, color: Colors.white, size: 16),
+                  const SizedBox(width: 8),
+                  Text(t('title'), style: const TextStyle(fontFamily: _kFontFamily, color: Colors.white, fontSize: 14)),
+                  const Spacer(),
+                  TextButton.icon(
+                    icon: const Icon(Icons.bug_report_outlined, color: Colors.grey, size: 16),
+                    label: const Text('Logs', style: TextStyle(color: Colors.grey, fontSize: 12, fontFamily: _kFontFamily)),
+                    onPressed: () => _showLogsDialog(context),
+                  ),
+                  const SizedBox(width: 16),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.grey, size: 16),
+                    onPressed: () {
+                      windowManager.close();
+                      exit(1); // Exit code 1 tells NSIS wrapper to abort deletion
+                    },
+                  ),
+                ],
+              ),
             ),
           ),
           Expanded(

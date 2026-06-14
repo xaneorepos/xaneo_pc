@@ -37,6 +37,20 @@ class ApiService {
     _instance._dio.options.baseUrl = _baseUrl;
   }
   
+  /// Получить WebSocket URL для чата
+  static String getWebSocketUrl(String chatId, String? token) {
+    final uri = Uri.parse(_baseUrl);
+    final scheme = uri.scheme == 'https' ? 'wss' : 'ws';
+    final host = uri.host;
+    final port = uri.hasPort ? ':${uri.port}' : '';
+    
+    var wsUrl = '$scheme://$host$port/ws/chat/$chatId/';
+    if (token != null) {
+      wsUrl += '?token=${Uri.encodeComponent(token)}';
+    }
+    return wsUrl;
+  }
+  
   ApiService._internal() {
     _dio = Dio(BaseOptions(
       baseUrl: _baseUrl,
@@ -540,11 +554,17 @@ class ApiService {
     }
   }
 
+  /// Очистить все куки сессии
+  Future<void> clearCookies() async {
+    await _cookieJar.deleteAll();
+  }
+
   /// Выход из системы
   Future<void> logout() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_accessTokenKey);
     await prefs.remove(_refreshTokenKey);
+    await clearCookies();
   }
   
   // ==================== ПРОФИЛЬ ====================

@@ -1,11 +1,15 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import '../providers/theme_provider.dart';
 import '../providers/scale_provider.dart';
 import '../widgets/advanced_background.dart';
 import '../services/api_service.dart';
 import '../services/crypto_service.dart';
+import '../services/account_service.dart';
+import '../services/websocket_service.dart';
 
 class MessengerScreen extends StatefulWidget {
   const MessengerScreen({super.key});
@@ -35,6 +39,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
   Map<String, dynamic>? _myProfile;
   int? _myId;
   String? _myUsername;
+  List<AccountInfo> _accounts = [];
 
   // Search dialog state
   bool _isSearching = false;
@@ -48,6 +53,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
   // Polling timer
   Timer? _pollingTimer;
+  WebSocketService? _webSocketService;
+  final Map<String, String> _sentPlaintexts = {};
+  double _chatListWidth = 320.0;
 
   @override
   void initState() {
@@ -57,6 +65,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
   @override
   void dispose() {
+    _webSocketService?.dispose();
     _pollingTimer?.cancel();
     _searchController.dispose();
     _messageController.dispose();
@@ -76,9 +85,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
       }
     }
 
-    // 2. Load profile
+    // 2. Load profile & save current account to switcher list
     final profileRes = await _apiService.getProfile();
     if (profileRes.success && profileRes.data != null) {
+      await AccountService().saveCurrentAccount(profileRes.data!);
       if (mounted) {
         setState(() {
           _myProfile = profileRes.data;
@@ -86,6 +96,21 @@ class _MessengerScreenState extends State<MessengerScreen> {
           _myUsername = profileRes.data!['username'] as String?;
         });
       }
+    } else {
+      if (profileRes.statusCode == 401) {
+        if (mounted) {
+          await _logout();
+          return;
+        }
+      }
+    }
+
+    // Load active accounts list
+    final accountsList = await AccountService().getAccounts();
+    if (mounted) {
+      setState(() {
+        _accounts = accountsList;
+      });
     }
 
     // 3. Load chats & start polling
@@ -97,10 +122,91 @@ class _MessengerScreenState extends State<MessengerScreen> {
     _pollingTimer?.cancel();
     _pollingTimer = Timer.periodic(const Duration(seconds: 8), (timer) {
       _loadChats(silent: true);
-      if (_selectedChat != null) {
+      
+      final wsActive = _webSocketService?.isConnected ?? false;
+      if (_selectedChat != null && !wsActive) {
         _loadMessages(_selectedChat!['chat_id'] as String, silent: true);
       }
     });
+  }
+
+  Future<void> _connectWebSocket(String chatId) async {
+    await _webSocketService?.disconnect();
+    
+    final token = await _apiService.getAccessToken();
+    final wsUrl = ApiService.getWebSocketUrl(chatId, token);
+    
+    _webSocketService = WebSocketService(
+      onMessageReceived: (data) => _handleWebSocketMessage(data, chatId),
+      onError: (err) {
+        print("WS error callback: $err");
+        if (mounted && _selectedChat?['chat_id'] == chatId) {
+          Future.delayed(const Duration(seconds: 5), () {
+            if (mounted && _selectedChat?['chat_id'] == chatId && !(_webSocketService?.isConnected ?? false)) {
+              _connectWebSocket(chatId);
+            }
+          });
+        }
+      },
+      onDone: () {
+        print("WS done callback");
+        if (mounted && _selectedChat?['chat_id'] == chatId) {
+          Future.delayed(const Duration(seconds: 5), () {
+            if (mounted && _selectedChat?['chat_id'] == chatId && !(_webSocketService?.isConnected ?? false)) {
+              _connectWebSocket(chatId);
+            }
+          });
+        }
+      },
+    );
+    
+    try {
+      await _webSocketService!.connect(wsUrl);
+    } catch (e) {
+      print("Failed to connect to WS: $e");
+    }
+  }
+
+  Future<void> _handleWebSocketMessage(Map<String, dynamic> data, String activeChatId) async {
+    final type = data['type'] as String?;
+    if (type == 'encrypted_message') {
+      final msgChatId = data['chat_id'] as String?;
+      if (msgChatId != activeChatId) return;
+      
+      final msgId = data['id'] as int?;
+      if (msgId == null) return;
+      
+      final exists = _messages.any((m) => m['id'] == msgId);
+      if (exists) return;
+      
+      final encryptedText = data['encrypted_text'] as String?;
+      final otherUser = _selectedChat?['other_user'] as Map<String, dynamic>?;
+      
+      String decryptedText = "";
+      if (encryptedText != null && encryptedText.isNotEmpty) {
+        if (_sentPlaintexts.containsKey(encryptedText)) {
+          decryptedText = _sentPlaintexts[encryptedText]!;
+          _sentPlaintexts.remove(encryptedText);
+        } else {
+          try {
+            decryptedText = await _decryptForChat(encryptedText, activeChatId, otherUser);
+          } catch (_) {
+            decryptedText = "[Ошибка дешифрования]";
+          }
+        }
+      }
+      
+      if (mounted) {
+        setState(() {
+          _decryptedMessages[msgId] = decryptedText;
+          _messages.insert(0, data);
+        });
+        _scrollToBottom();
+      }
+      _loadChats(silent: true);
+    } else if (type == 'chat_list_update' || type == 'new_chat') {
+      _loadChats(silent: true);
+    }
   }
 
   Future<void> _loadChats({bool silent = false}) async {
@@ -140,8 +246,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
       final msgList = res.data!['results'] as List? ?? [];
       if (mounted) {
         setState(() {
-          // Reverse list for bottom-up scrolling
-          _messages = msgList.reversed.toList();
+          _messages = msgList.toList();
           _isMessagesLoading = false;
         });
         
@@ -311,20 +416,32 @@ class _MessengerScreenState extends State<MessengerScreen> {
       return;
     }
 
-    final res = await _apiService.sendMessage(chatId, encryptedText);
-    if (res.success && res.data != null) {
-      // Store our own plaintext directly — no need to decrypt
-      final newMsg = res.data!;
-      final id = newMsg['id'] as int;
-      _decryptedMessages[id] = text;
+    _sentPlaintexts[encryptedText] = text;
 
-      if (mounted) {
-        setState(() {
-          _messages.add(newMsg);
-        });
-        _scrollToBottom();
+    bool sentViaWs = false;
+    if (_webSocketService != null && _webSocketService!.isConnected) {
+      sentViaWs = _webSocketService!.sendMessage({
+        'type': 'encrypted_message',
+        'encrypted_text': encryptedText,
+      });
+    }
+
+    if (!sentViaWs) {
+      _sentPlaintexts.remove(encryptedText);
+      final res = await _apiService.sendMessage(chatId, encryptedText);
+      if (res.success && res.data != null) {
+        final newMsg = res.data!;
+        final id = newMsg['id'] as int;
+        _decryptedMessages[id] = text;
+
+        if (mounted) {
+          setState(() {
+            _messages.insert(0, newMsg);
+          });
+          _scrollToBottom();
+        }
+        _loadChats(silent: true);
       }
-      _loadChats(silent: true);
     }
   }
 
@@ -332,7 +449,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) {
         _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
+          0.0,
           duration: const Duration(milliseconds: 300),
           curve: Curves.easeOut,
         );
@@ -347,6 +464,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
       _isMessagesLoading = true;
     });
     _loadMessages(chat['chat_id'] as String);
+    _connectWebSocket(chat['chat_id'] as String);
     _scrollToBottom();
   }
 
@@ -403,14 +521,183 @@ class _MessengerScreenState extends State<MessengerScreen> {
     });
     
     _loadMessages(chatId);
+    _connectWebSocket(chatId);
   }
 
   Future<void> _logout() async {
     await _apiService.logout();
     await _cryptoService.clearKeys();
-    if (mounted) {
-      Navigator.of(context).pushReplacementNamed('/login');
+    await _webSocketService?.disconnect();
+    
+    if (_myId != null) {
+      await AccountService().removeAccount(_myId!);
     }
+    
+    final remainingAccounts = await AccountService().getAccounts();
+    if (remainingAccounts.isNotEmpty) {
+      await _switchAccount(remainingAccounts.first.userId);
+    } else {
+      if (mounted) {
+        Navigator.of(context).pushReplacementNamed('/login');
+      }
+    }
+  }
+
+  Future<void> _switchAccount(int userId) async {
+    if (mounted) {
+      setState(() {
+        _isChatsLoading = true;
+        _isMessagesLoading = true;
+      });
+    }
+    
+    _pollingTimer?.cancel();
+    await _webSocketService?.disconnect();
+    
+    final success = await AccountService().switchAccount(userId);
+    if (success) {
+      _selectedChat = null;
+      _messages = [];
+      _decryptedMessages.clear();
+      await _initMessenger();
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Не удалось переключить аккаунт'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      if (mounted) {
+        setState(() {
+          _isChatsLoading = false;
+          _isMessagesLoading = false;
+        });
+      }
+    }
+  }
+
+  void _showAccountSwitcherDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            final isDark = Theme.of(context).brightness == Brightness.dark;
+            
+            return AlertDialog(
+              backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+              title: Row(
+                children: [
+                  Icon(Icons.supervised_user_circle_rounded, color: isDark ? Colors.white : Colors.black87),
+                  const SizedBox(width: 8),
+                  const Text('Управление аккаунтами'),
+                ],
+              ),
+              content: SizedBox(
+                width: 360,
+                child: FutureBuilder<List<AccountInfo>>(
+                  future: AccountService().getAccounts(),
+                  builder: (context, snapshot) {
+                    if (!snapshot.hasData) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    final accounts = snapshot.data!;
+                    return Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        ...accounts.map((acc) {
+                          final isActive = acc.userId == _myId;
+                          return Container(
+                            margin: const EdgeInsets.symmetric(vertical: 4),
+                            decoration: BoxDecoration(
+                              color: isActive 
+                                  ? (isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.05))
+                                  : Colors.transparent,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: isActive ? const Color(0xFF2563EB) : Colors.transparent,
+                                width: 1,
+                              ),
+                            ),
+                            child: ListTile(
+                              leading: CircleAvatar(
+                                backgroundColor: const Color(0xFF2563EB).withOpacity(0.2),
+                                child: Text(
+                                  acc.username.substring(0, acc.username.isNotEmpty ? 1 : 0).toUpperCase(),
+                                  style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                              title: Text(acc.username, style: const TextStyle(fontWeight: FontWeight.bold)),
+                              subtitle: acc.email != null ? Text(acc.email!) : null,
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (isActive)
+                                    const Icon(Icons.check_circle, color: Colors.greenAccent, size: 20)
+                                  else
+                                    IconButton(
+                                      icon: const Icon(Icons.swap_horiz_rounded),
+                                      onPressed: () {
+                                        Navigator.of(context).pop();
+                                        _switchAccount(acc.userId);
+                                      },
+                                      tooltip: 'Войти',
+                                    ),
+                                  if (!isActive)
+                                    IconButton(
+                                      icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                                      onPressed: () async {
+                                        await AccountService().removeAccount(acc.userId);
+                                        setState(() {}); // refresh dialog
+                                      },
+                                      tooltip: 'Удалить сессию',
+                                    ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                        if (accounts.length < 5) ...[
+                          const SizedBox(height: 16),
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF2563EB),
+                              foregroundColor: Colors.white,
+                              minimumSize: const Size(double.infinity, 44),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            icon: const Icon(Icons.person_add_alt_1_rounded),
+                            label: const Text('Добавить аккаунт'),
+                            onPressed: () {
+                              Navigator.of(context).pop();
+                              Navigator.of(context).pushNamed('/login');
+                            },
+                          ),
+                        ] else ...[
+                          const SizedBox(height: 16),
+                          const Text(
+                            'Достигнут лимит в 5 аккаунтов',
+                            style: TextStyle(color: Colors.grey, fontSize: 12),
+                          ),
+                        ],
+                      ],
+                    );
+                  },
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Закрыть', style: TextStyle(color: Colors.grey)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   @override
@@ -428,30 +715,54 @@ class _MessengerScreenState extends State<MessengerScreen> {
           Positioned.fill(
             child: AdvancedBackground(
               isDark: isDark,
-              enableGrid: true,
-              enableParticles: true,
+              enableGrid: false,
+              enableParticles: false,
               enableGeometricShapes: false,
             ),
           ),
           
           // Main layout
-          SafeArea(
-            child: Row(
-              children: [
-                // 1. Sidebar (narrow along oX - 80px)
-                _buildSidebar(isDark, scale),
+          Padding(
+            padding: const EdgeInsets.only(top: 40),
+            child: SafeArea(
+              child: Row(
+                children: [
+                  // 1. Chat List Panel (resizable)
+                  Container(
+                    width: _chatListWidth * scale,
+                    color: isDark ? Colors.black.withOpacity(0.2) : Colors.white.withOpacity(0.2),
+                    child: _buildChatListPanel(isDark, scale),
+                  ),
 
-                // Vertical Divider
-                Container(
-                  width: 1,
-                  color: isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.05),
-                ),
+                  // Resizable Divider
+                  MouseRegion(
+                    cursor: SystemMouseCursors.resizeLeftRight,
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.translucent,
+                      onHorizontalDragUpdate: (details) {
+                        setState(() {
+                          _chatListWidth = (_chatListWidth + details.delta.dx / scale).clamp(240.0, 600.0);
+                        });
+                      },
+                      child: Container(
+                        width: 8,
+                        color: Colors.transparent,
+                        child: Center(
+                          child: Container(
+                            width: 1,
+                            color: isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.05),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
 
-                // 2. Main Chat Panel (takes the rest)
-                Expanded(
-                  child: _buildChatPanel(isDark, scale),
-                ),
-              ],
+                  // 2. Main Chat Panel (takes the rest)
+                  Expanded(
+                    child: _buildChatPanel(isDark, scale),
+                  ),
+                ],
+              ),
             ),
           ),
 
@@ -462,222 +773,377 @@ class _MessengerScreenState extends State<MessengerScreen> {
     );
   }
 
-  Widget _buildSidebar(bool isDark, double scale) {
-    return Container(
-      width: 80 * scale,
-      color: isDark ? Colors.black.withOpacity(0.4) : Colors.white.withOpacity(0.4),
-      child: Column(
-        children: [
-          const SizedBox(height: 16),
-          // Logo / App Icon
-          Container(
-            width: 48 * scale,
-            height: 48 * scale,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: const LinearGradient(
-                colors: [Colors.purpleAccent, Colors.blueAccent],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.blueAccent.withOpacity(0.3),
-                  blurRadius: 10,
-                  spreadRadius: 1,
-                ),
-              ],
-            ),
-            child: const Icon(Icons.security, color: Colors.white, size: 24),
-          ),
-          const SizedBox(height: 20),
-
-          // Search button
-          _buildSidebarButton(
-            icon: Icons.search_rounded,
-            tooltip: 'Поиск контактов',
-            onTap: () {
-              setState(() {
-                _isSearching = true;
-                _searchResults = [];
-              });
-            },
-            isDark: isDark,
-            scale: scale,
-          ),
-          const SizedBox(height: 12),
-
-          // Chats List (narrow column of avatars)
-          Expanded(
-            child: _isChatsLoading
-                ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
-                : ListView.builder(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    itemCount: _chats.length,
-                    itemBuilder: (context, index) {
-                      final chat = _chats[index];
-                      final isSelected = _selectedChat != null && _selectedChat!['chat_id'] == chat['chat_id'];
-                      return _buildSidebarChatItem(chat, isSelected, isDark, scale);
-                    },
-                  ),
-          ),
-
-          // Settings / Logout
-          _buildSidebarButton(
-            icon: Icons.exit_to_app_rounded,
-            tooltip: 'Выйти из аккаунта',
-            onTap: _logout,
-            isDark: isDark,
-            scale: scale,
-            color: Colors.redAccent,
-          ),
-          const SizedBox(height: 16),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSidebarButton({
-    required IconData icon,
-    required String tooltip,
-    required VoidCallback onTap,
-    required bool isDark,
-    required double scale,
-    Color? color,
-  }) {
-    return Tooltip(
-      message: tooltip,
-      preferBelow: false,
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        child: GestureDetector(
-          onTap: onTap,
-          child: Container(
-            width: 48 * scale,
-            height: 48 * scale,
-            decoration: BoxDecoration(
-              color: isDark ? Colors.white.withOpacity(0.06) : Colors.black.withOpacity(0.03),
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: isDark ? Colors.white.withOpacity(0.1) : Colors.black.withOpacity(0.05),
-              ),
-            ),
-            child: Icon(icon, color: color ?? (isDark ? Colors.white70 : Colors.black87), size: 22 * scale),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSidebarChatItem(Map<String, dynamic> chat, bool isSelected, bool isDark, double scale) {
-    final chatType = chat['chat_type'] as String?;
-    final displayName = chat['chat_display_name'] as String? ?? "Чат";
-    final unreadCount = chat['unread_count'] as int? ?? 0;
-    
-    // Choose display avatar & color
-    Widget avatarWidget;
-    if (chatType == 'favorites') {
-      avatarWidget = CircleAvatar(
-        radius: 24 * scale,
-        backgroundColor: Colors.blue.withOpacity(0.2),
-        child: const Icon(Icons.bookmark_rounded, color: Colors.blueAccent),
-      );
-    } else {
-      final otherUser = chat['other_user'] as Map<String, dynamic>?;
-      final initials = displayName.substring(0, displayName.length > 0 ? 1 : 0).toUpperCase();
-      avatarWidget = CircleAvatar(
-        radius: 24 * scale,
-        backgroundColor: Colors.purple.withOpacity(0.2),
-        child: Text(
-          initials,
-          style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black, fontSize: 16 * scale),
-        ),
-      );
-    }
-
-    return Tooltip(
-      message: displayName,
-      preferBelow: false,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
-        child: MouseRegion(
-          cursor: SystemMouseCursors.click,
-          child: GestureDetector(
-            onTap: () => _selectChat(chat),
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                // Selected border glow
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  width: 56 * scale,
-                  height: 56 * scale,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: isSelected 
-                          ? Colors.purpleAccent 
-                          : Colors.transparent,
-                      width: 2,
-                    ),
-                    boxShadow: isSelected ? [
-                      BoxShadow(
-                        color: Colors.purpleAccent.withOpacity(0.3),
-                        blurRadius: 8,
-                        spreadRadius: 1,
-                      )
-                    ] : [],
-                  ),
-                ),
-                
-                // Avatar itself
-                avatarWidget,
-
-                // Unread Count Badge
-                if (unreadCount > 0)
-                  Positioned(
-                    right: 4,
-                    top: 0,
+  Widget _buildChatListPanel(bool isDark, double scale) {
+    return Column(
+      children: [
+        // Header
+        Padding(
+          padding: const EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 12),
+          child: Row(
+            children: [
+              // Active User Profile / Switcher Button
+              MouseRegion(
+                cursor: SystemMouseCursors.click,
+                child: GestureDetector(
+                  onTap: () => _showAccountSwitcherDialog(context),
+                  child: Tooltip(
+                    message: 'Сменить аккаунт (${_myUsername ?? "..."})',
                     child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: const BoxDecoration(
-                        color: Colors.redAccent,
+                      width: 40 * scale,
+                      height: 40 * scale,
+                      decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                      ),
-                      constraints: const BoxConstraints(
-                        minWidth: 16,
-                        minHeight: 16,
-                      ),
-                      child: Text(
-                        '$unreadCount',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
+                        color: isDark ? Colors.white.withOpacity(0.1) : Colors.black.withOpacity(0.05),
+                        border: Border.all(
+                          color: isDark ? Colors.white.withOpacity(0.15) : Colors.black.withOpacity(0.15),
                         ),
-                        textAlign: TextAlign.center,
+                      ),
+                      child: Center(
+                        child: Text(
+                          (_myUsername != null && _myUsername!.isNotEmpty)
+                              ? _myUsername!.substring(0, 1).toUpperCase()
+                              : 'U',
+                          style: TextStyle(
+                            color: isDark ? Colors.white : Colors.black87,
+                            fontSize: 16 * scale,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ),
                     ),
                   ),
-
-                // E2EE padlock small indicator
-                Positioned(
-                  left: 2,
-                  bottom: 2,
-                  child: Icon(
-                    Icons.lock_rounded, 
-                    size: 12 * scale, 
-                    color: chatType == 'personal' || chatType == 'favorites' 
-                        ? Colors.greenAccent 
-                        : Colors.orangeAccent
-                  ),
                 ),
-              ],
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  _myProfile != null ? (_myProfile!['realname'] ?? _myProfile!['username'] ?? "Xaneo") : "Xaneo",
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15 * scale,
+                    color: isDark ? Colors.white : Colors.black87,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              // Search button
+              IconButton(
+                icon: Icon(Icons.search_rounded, size: 20 * scale),
+                tooltip: 'Поиск контактов',
+                onPressed: () {
+                  setState(() {
+                    _isSearching = true;
+                    _searchResults = [];
+                  });
+                },
+                color: isDark ? Colors.white70 : Colors.black54,
+              ),
+              // Logout button
+              IconButton(
+                icon: Icon(Icons.exit_to_app_rounded, size: 20 * scale),
+                tooltip: 'Выйти из аккаунта',
+                onPressed: _logout,
+                color: Colors.redAccent,
+              ),
+            ],
+          ),
+        ),
+        
+        // Horizontal divider
+        Container(
+          height: 1,
+          color: isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.05),
+        ),
+        
+        // Chats List
+        Expanded(
+          child: _isChatsLoading
+              ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
+              : ListView.builder(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  itemCount: _chats.length,
+                  itemBuilder: (context, index) {
+                    final chat = _chats[index];
+                    final isSelected = _selectedChat != null && _selectedChat!['chat_id'] == chat['chat_id'];
+                    return _buildChatItem(chat, isSelected, isDark, scale);
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildChatItem(Map<String, dynamic> chat, bool isSelected, bool isDark, double scale) {
+    final chatType = chat['chat_type'] as String?;
+    final displayName = _getChatName(chat);
+    final unreadCount = chat['unread_count'] as int? ?? 0;
+    final lastMsg = chat['last_message'];
+    
+    String lastMsgText = "Нет сообщений";
+    String lastMsgTime = "";
+    if (lastMsg != null) {
+      final msgId = lastMsg['id'] as int?;
+      if (msgId != null) {
+        lastMsgText = _decryptedMessages[msgId] ?? "[Зашифрованное сообщение]";
+        if (lastMsgText.isEmpty) {
+          lastMsgText = "📎 Файл";
+        }
+      }
+      lastMsgTime = _formatMessageTime(lastMsg['created_at'] as String?);
+    }
+    
+    final otherUser = chat['other_user'] as Map<String, dynamic>?;
+    final isOnline = otherUser != null && (otherUser['is_online'] as bool? ?? false);
+    
+    Widget avatarWithStatus = Stack(
+      children: [
+        if (chatType == 'favorites')
+          CircleAvatar(
+            radius: 22 * scale,
+            backgroundColor: isDark ? Colors.white.withOpacity(0.1) : Colors.black.withOpacity(0.05),
+            child: const Icon(Icons.bookmark_rounded, color: Color(0xFF2563EB), size: 22),
+          )
+        else
+          _buildAvatar(
+            otherUser?['avatar_url'] as String?,
+            displayName,
+            22,
+            scale,
+            isDark,
+          ),
+        if (chatType == 'personal' && isOnline)
+          Positioned(
+            right: 0,
+            bottom: 0,
+            child: Container(
+              width: 10 * scale,
+              height: 10 * scale,
+              decoration: BoxDecoration(
+                color: Colors.green,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: isDark ? Colors.black : Colors.white,
+                  width: 1.5,
+                ),
+              ),
             ),
+          ),
+      ],
+    );
+
+    const activeBrandColor = Color(0xFF2563EB);
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: () => _selectChat(chat),
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? (isDark ? activeBrandColor.withOpacity(0.15) : activeBrandColor.withOpacity(0.08))
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            children: [
+              avatarWithStatus,
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            displayName,
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14 * scale,
+                              color: isSelected
+                                  ? (isDark ? Colors.white : activeBrandColor)
+                                  : (isDark ? Colors.white70 : Colors.black87),
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (lastMsgTime.isNotEmpty)
+                          Text(
+                            lastMsgTime,
+                            style: TextStyle(
+                              fontSize: 11 * scale,
+                              color: isDark ? Colors.white38 : Colors.black38,
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            lastMsgText,
+                            style: TextStyle(
+                              fontSize: 13 * scale,
+                              color: isDark ? Colors.white38 : Colors.black45,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (unreadCount > 0)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: activeBrandColor,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Text(
+                              '$unreadCount',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
       ),
     );
+  }
+
+  Widget _buildAvatar(String? avatarUrl, String displayName, double radius, double scale, bool isDark) {
+    final initials = displayName.isNotEmpty ? displayName.substring(0, 1).toUpperCase() : "?";
+    
+    if (avatarUrl == null || avatarUrl.isEmpty) {
+      return _buildInitialsAvatar(initials, radius, scale, isDark);
+    }
+    
+    if (avatarUrl.startsWith('data:image/svg+xml;base64,')) {
+      try {
+        final base64String = avatarUrl.substring('data:image/svg+xml;base64,'.length);
+        final svgString = utf8.decode(base64.decode(base64String));
+        return ClipOval(
+          child: Container(
+            width: radius * 2,
+            height: radius * 2,
+            child: SvgPicture.string(
+              svgString,
+              width: radius * 2,
+              height: radius * 2,
+              fit: BoxFit.cover,
+            ),
+          ),
+        );
+      } catch (e) {
+        print("Error parsing base64 SVG avatar: $e");
+        return _buildInitialsAvatar(initials, radius, scale, isDark);
+      }
+    } else if (avatarUrl.startsWith('data:image/svg+xml')) {
+      return _buildInitialsAvatar(initials, radius, scale, isDark);
+    }
+    
+    String fullUrl = avatarUrl;
+    if (!avatarUrl.startsWith('http://') && !avatarUrl.startsWith('https://')) {
+      final uri = Uri.parse(ApiService.baseUrl);
+      final origin = "${uri.scheme}://${uri.host}${uri.hasPort ? ':${uri.port}' : ''}";
+      fullUrl = "$origin$avatarUrl";
+    }
+    
+    return ClipOval(
+      child: Image.network(
+        fullUrl,
+        width: radius * 2,
+        height: radius * 2,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) {
+          print("Error loading avatar from network: $error");
+          return _buildInitialsAvatar(initials, radius, scale, isDark);
+        },
+        loadingBuilder: (context, child, loadingProgress) {
+          if (loadingProgress == null) return child;
+          return Container(
+            width: radius * 2,
+            height: radius * 2,
+            color: isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.03),
+            child: const Center(
+              child: SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 1.5),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildInitialsAvatar(String initials, double radius, double scale, bool isDark) {
+    return CircleAvatar(
+      radius: radius,
+      backgroundColor: isDark ? Colors.white.withOpacity(0.1) : Colors.black.withOpacity(0.05),
+      child: Text(
+        initials,
+        style: TextStyle(
+          fontWeight: FontWeight.bold,
+          color: isDark ? Colors.white70 : Colors.black87,
+          fontSize: (radius * 0.7) * scale,
+        ),
+      ),
+    );
+  }
+
+  String _getChatName(Map<String, dynamic> chat) {
+    final chatType = chat['chat_type'] as String?;
+    if (chatType == 'favorites') {
+      return "Избранное";
+    }
+    
+    if (chatType == 'personal') {
+      final otherUser = chat['other_user'] as Map<String, dynamic>?;
+      if (otherUser != null) {
+        final firstName = otherUser['first_name'] as String?;
+        final realName = otherUser['realname'] as String?;
+        if (firstName != null && firstName.trim().isNotEmpty) return firstName;
+        if (realName != null && realName.trim().isNotEmpty) return realName;
+        return otherUser['username'] as String? ?? "Пользователь";
+      }
+    }
+    
+    return chat['chat_display_name'] as String? ?? "Чат";
+  }
+
+  String _formatMessageTime(String? createdAtStr) {
+    if (createdAtStr == null || createdAtStr.isEmpty) return "";
+    try {
+      final dateTime = DateTime.parse(createdAtStr).toLocal();
+      final now = DateTime.now();
+      final difference = now.difference(dateTime);
+      
+      if (difference.inDays == 0 && dateTime.day == now.day) {
+        final hour = dateTime.hour.toString().padLeft(2, '0');
+        final minute = dateTime.minute.toString().padLeft(2, '0');
+        return "$hour:$minute";
+      } else {
+        final day = dateTime.day.toString().padLeft(2, '0');
+        final month = dateTime.month.toString().padLeft(2, '0');
+        return "$day.$month";
+      }
+    } catch (_) {
+      return "";
+    }
   }
 
   Widget _buildChatPanel(bool isDark, double scale) {
@@ -701,15 +1167,27 @@ class _MessengerScreenState extends State<MessengerScreen> {
       );
     }
 
-    final displayName = _selectedChat!['chat_display_name'] as String? ?? "Чат";
+    final displayName = _getChatName(_selectedChat!);
     final chatType = _selectedChat!['chat_type'] as String?;
-    final isE2EE = chatType == 'personal' || chatType == 'favorites';
+    final otherUser = _selectedChat!['other_user'] as Map<String, dynamic>?;
+    final isOnline = otherUser != null && (otherUser['is_online'] as bool? ?? false);
+
+    String statusText = "";
+    if (chatType == 'favorites') {
+      statusText = "Избранные сообщения";
+    } else if (chatType == 'personal') {
+      statusText = isOnline ? "в сети" : "не в сети";
+    } else if (chatType == 'group') {
+      statusText = "группа";
+    } else if (chatType == 'channel') {
+      statusText = "канал";
+    }
 
     return Column(
       children: [
         // Chat Header
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
           decoration: BoxDecoration(
             color: isDark ? Colors.black.withOpacity(0.2) : Colors.white.withOpacity(0.2),
             border: Border(
@@ -720,59 +1198,54 @@ class _MessengerScreenState extends State<MessengerScreen> {
           ),
           child: Row(
             children: [
-              // Chat title
+              // Chat Title & Status
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Text(
-                          displayName,
-                          style: TextStyle(
-                            fontSize: 18 * scale,
-                            fontWeight: FontWeight.bold,
-                            color: isDark ? Colors.white : Colors.black87,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Icon(
-                          Icons.lock_rounded,
-                          size: 16 * scale,
-                          color: isE2EE ? Colors.greenAccent : Colors.orangeAccent,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          isE2EE ? "E2EE" : "Symmetric",
-                          style: TextStyle(
-                            fontSize: 12 * scale,
-                            fontWeight: FontWeight.w600,
-                            color: isE2EE ? Colors.greenAccent : Colors.orangeAccent,
-                          ),
-                        ),
-                      ],
+                    Text(
+                      displayName,
+                      style: TextStyle(
+                        fontSize: 16 * scale,
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? Colors.white : Colors.black87,
+                      ),
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      chatType == 'favorites'
-                          ? 'Ваш личный сейф сообщений'
-                          : chatType == 'personal'
-                              ? 'Зашифровано с помощью ECDH X25519'
-                              : 'Зашифровано симметричным ключом сервера',
+                      statusText,
                       style: TextStyle(
-                        fontSize: 12 * scale,
-                        color: isDark ? Colors.white54 : Colors.black54,
+                        fontSize: 11 * scale,
+                        color: chatType == 'personal' && isOnline
+                            ? Colors.green
+                            : (isDark ? Colors.white38 : Colors.black38),
                       ),
                     ),
                   ],
                 ),
               ),
 
-              // Close / Refresh buttons
+              // Action buttons: Call, Settings
+              if (chatType == 'personal' || chatType == 'group')
+                IconButton(
+                  icon: Icon(Icons.phone_rounded, size: 20 * scale),
+                  tooltip: 'Позвонить',
+                  onPressed: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Функция звонков находится в разработке')),
+                    );
+                  },
+                  color: isDark ? Colors.white70 : Colors.black54,
+                ),
               IconButton(
-                icon: const Icon(Icons.refresh_rounded),
-                onPressed: () => _loadMessages(_selectedChat!['chat_id'] as String),
-                tooltip: 'Обновить сообщения',
+                icon: Icon(Icons.settings_rounded, size: 20 * scale),
+                tooltip: 'Настройки чата',
+                onPressed: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Настройки чата пока недоступны')),
+                  );
+                },
+                color: isDark ? Colors.white70 : Colors.black54,
               ),
             ],
           ),
@@ -791,11 +1264,12 @@ class _MessengerScreenState extends State<MessengerScreen> {
                     )
                   : ListView.builder(
                       controller: _scrollController,
+                      reverse: true,
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                       itemCount: _messages.length,
                       itemBuilder: (context, index) {
                         final msg = _messages[index];
-                        final isMe = msg['author_id'] == _myId;
+                        final isMe = msg['author_id']?.toString() == _myId?.toString();
                         return _buildMessageBubble(msg, isMe, isDark, scale);
                       },
                     ),
@@ -826,7 +1300,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
         decoration: BoxDecoration(
           gradient: isMe
               ? const LinearGradient(
-                  colors: [Colors.purpleAccent, Colors.blueAccent],
+                  colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 )
@@ -859,7 +1333,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 12,
-                    color: Colors.purpleAccent,
+                    color: const Color(0xFF2563EB),
                   ),
                 ),
               ),
@@ -917,7 +1391,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
             child: TextField(
               controller: _messageController,
               decoration: InputDecoration(
-                hintText: 'Зашифрованное сообщение...',
+                hintText: 'Написать сообщение...',
                 hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.black38),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(24),
@@ -941,9 +1415,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
               padding: const EdgeInsets.all(12),
               decoration: const BoxDecoration(
                 shape: BoxShape.circle,
-                gradient: LinearGradient(
-                  colors: [Colors.purpleAccent, Colors.blueAccent],
-                ),
+                color: Color(0xFF2563EB),
               ),
               child: const Icon(Icons.send_rounded, color: Colors.white, size: 20),
             ),
@@ -984,7 +1456,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      'Новый E2EE чат',
+                      'Новый чат',
                       style: TextStyle(
                         fontSize: 20 * scale,
                         fontWeight: FontWeight.bold,
@@ -1047,7 +1519,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                 final user = _searchResults[index];
                                 return ListTile(
                                   leading: CircleAvatar(
-                                    backgroundColor: Colors.purpleAccent.withOpacity(0.2),
+                                    backgroundColor: const Color(0xFF2563EB).withOpacity(0.2),
                                     child: Text(
                                       (user['first_name'] as String? ?? user['username'] as String)[0].toUpperCase(),
                                       style: TextStyle(color: isDark ? Colors.white : Colors.black),
@@ -1061,7 +1533,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                     '@${user['username']}',
                                     style: const TextStyle(color: Colors.grey),
                                   ),
-                                  trailing: const Icon(Icons.message_rounded, color: Colors.purpleAccent),
+                                  trailing: const Icon(Icons.message_rounded, color: Color(0xFF2563EB)),
                                   onTap: () => _startChatWithUser(user),
                                 );
                               },

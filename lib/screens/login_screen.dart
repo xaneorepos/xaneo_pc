@@ -9,6 +9,7 @@ import '../widgets/geometry_3d.dart';
 import '../widgets/advanced_background.dart';
 import '../services/api_service.dart';
 import '../services/crypto_service.dart';
+import '../services/account_service.dart';
 import 'register_screen.dart';
 
 /// Экран входа в систему с продвинутыми 3D эффектами
@@ -208,6 +209,29 @@ class _LoginScreenState extends State<LoginScreen>
           });
 
           if (cryptoSetupSuccess) {
+            final profileRes = await _apiService.getProfile();
+            bool savedSuccess = false;
+            if (profileRes.success && profileRes.data != null) {
+              savedSuccess = await AccountService().saveCurrentAccount(profileRes.data!);
+            }
+            
+            if (!savedSuccess) {
+              await _apiService.logout();
+              await CryptoService().clearKeys();
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Превышен лимит в 5 аккаунтов на этом клиенте или ошибка подключения.'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+              }
+              setState(() {
+                _isLoading = false;
+              });
+              return;
+            }
+
             if (mounted) {
               final l10n = AppLocalizations.of(context);
               if (l10n != null) {

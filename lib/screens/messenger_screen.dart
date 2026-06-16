@@ -1,15 +1,19 @@
+import 'dart:ui';
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/theme_provider.dart';
 import '../providers/scale_provider.dart';
 import '../widgets/advanced_background.dart';
+import '../widgets/settings_modal.dart';
 import '../services/api_service.dart';
 import '../services/crypto_service.dart';
 import '../services/account_service.dart';
 import '../services/websocket_service.dart';
+import '../widgets/custom_toast.dart';
 
 class MessengerScreen extends StatefulWidget {
   const MessengerScreen({super.key});
@@ -21,8 +25,11 @@ class MessengerScreen extends StatefulWidget {
 class _MessengerScreenState extends State<MessengerScreen> {
   final ApiService _apiService = ApiService();
   final CryptoService _cryptoService = CryptoService();
+  final GlobalKey<SettingsButtonState> _settingsKey = GlobalKey<SettingsButtonState>();
 
   List<dynamic> _chats = [];
+  List<dynamic> _archivedChats = [];
+  bool _viewingArchive = false;
   Map<String, dynamic>? _selectedChat;
   List<dynamic> _messages = [];
   bool _isChatsLoading = true;
@@ -60,7 +67,18 @@ class _MessengerScreenState extends State<MessengerScreen> {
   @override
   void initState() {
     super.initState();
+    _loadPreferences();
     _initMessenger();
+  }
+
+  Future<void> _loadPreferences() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedWidth = prefs.getDouble('chat_list_width');
+    if (savedWidth != null && mounted) {
+      setState(() {
+        _chatListWidth = savedWidth;
+      });
+    }
   }
 
   @override
@@ -215,15 +233,22 @@ class _MessengerScreenState extends State<MessengerScreen> {
     }
     final res = await _apiService.getChats();
     if (res.success && res.data != null) {
-      final chatList = res.data!['chats'] as List? ?? [];
+      final chatList = (res.data!['chats'] as List? ?? [])
+          .map((c) => Map<String, dynamic>.from(c as Map))
+          .toList();
+      final archivedList = (res.data!['archived_chats'] as List? ?? [])
+          .map((c) => Map<String, dynamic>.from(c as Map))
+          .toList();
+
       if (mounted) {
         setState(() {
           _chats = chatList;
+          _archivedChats = archivedList;
           _isChatsLoading = false;
         });
         
         // Decrypt latest message preview in each chat
-        for (var chat in chatList) {
+        for (var chat in [...chatList, ...archivedList]) {
           final lastMsg = chat['last_message'];
           if (lastMsg != null) {
             _decryptSingleMessage(lastMsg, chat['chat_id'] as String, chat['other_user']);
@@ -235,6 +260,136 @@ class _MessengerScreenState extends State<MessengerScreen> {
         setState(() => _isChatsLoading = false);
       }
     }
+  }
+
+  int _getArchivedUnreadCount() {
+    int count = 0;
+    for (var chat in _archivedChats) {
+      count += (chat['unread_count'] as int? ?? 0);
+    }
+    return count;
+  }
+
+  Future<void> _toggleArchive(Map<String, dynamic> chat) async {
+    final chatId = chat['chat_id'] as String;
+    final isArchived = chat['is_archived'] as bool? ?? false;
+    final newStatus = !isArchived;
+
+    // Optimistically update the UI status
+    setState(() {
+      if (newStatus) {
+        _chats.removeWhere((c) => c['chat_id'] == chatId);
+        chat['is_archived'] = true;
+        if (!_archivedChats.any((c) => c['chat_id'] == chatId)) {
+          _archivedChats.add(chat);
+        }
+        if (_selectedChat != null && _selectedChat!['chat_id'] == chatId) {
+          _selectedChat = null;
+        }
+      } else {
+        _archivedChats.removeWhere((c) => c['chat_id'] == chatId);
+        chat['is_archived'] = false;
+        if (!_chats.any((c) => c['chat_id'] == chatId)) {
+          _chats.add(chat);
+        }
+        if (_selectedChat != null && _selectedChat!['chat_id'] == chatId) {
+          _selectedChat = null;
+        }
+      }
+    });
+
+    final res = await _apiService.archiveChat(chatId, newStatus);
+    if (!res.success) {
+      CustomToast.show(
+        context,
+        newStatus ? 'Не удалось архивировать чат' : 'Не удалось разархивировать чат',
+        type: ToastType.error,
+      );
+      _loadChats(silent: true);
+    }
+  }
+
+  Widget _buildArchiveFolderItem(BuildContext context, bool isDark, double scale) {
+    final unreadCount = _getArchivedUnreadCount();
+    
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: () {
+          setState(() {
+            _viewingArchive = true;
+          });
+        },
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+          decoration: BoxDecoration(
+            color: Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 44 * scale,
+                height: 44 * scale,
+                decoration: BoxDecoration(
+                  color: isDark ? Colors.white.withOpacity(0.04) : Colors.black.withOpacity(0.03),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.archive_outlined,
+                  color: isDark ? Colors.white70 : Colors.black54,
+                  size: 20 * scale,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Архив',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w500,
+                        fontSize: 13.5 * scale,
+                        color: isDark ? Colors.white : Colors.black87,
+                        fontFamily: 'Inter',
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Архивированные чаты',
+                      style: TextStyle(
+                        fontSize: 11 * scale,
+                        color: isDark ? Colors.white30 : Colors.black38,
+                        fontFamily: 'Inter',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (unreadCount > 0)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.white.withOpacity(0.2) : Colors.black.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    unreadCount.toString(),
+                    style: TextStyle(
+                      fontSize: 10 * scale,
+                      fontWeight: FontWeight.w600,
+                      color: isDark ? Colors.white : Colors.black87,
+                      fontFamily: 'Inter',
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _loadMessages(String chatId, {bool silent = false}) async {
@@ -395,8 +550,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
       } else if (chatId.startsWith('personal_')) {
         final peerPubKey = await _getPeerPublicKey(otherUser);
         if (peerPubKey == null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Не удалось получить ключ шифрования для чата')),
+          CustomToast.show(
+            context,
+            'Не удалось получить ключ шифрования для чата',
+            type: ToastType.error,
           );
           return;
         }
@@ -404,8 +561,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
       } else if (chatId.startsWith('group_') || chatId.startsWith('channel_')) {
         final chatKeyHex = await _getGroupChatKey(chatId);
         if (chatKeyHex == null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Не удалось получить ключ шифрования для чата')),
+          CustomToast.show(
+            context,
+            'Не удалось получить ключ шифрования для чата',
+            type: ToastType.error,
           );
           return;
         }
@@ -458,6 +617,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
   }
 
   void _selectChat(Map<String, dynamic> chat) {
+    if (_selectedChat != null && _selectedChat!['chat_id'] == chat['chat_id']) {
+      return;
+    }
+    
     setState(() {
       _selectedChat = chat;
       _messages = [];
@@ -525,13 +688,30 @@ class _MessengerScreenState extends State<MessengerScreen> {
   }
 
   Future<void> _logout() async {
-    await _apiService.logout();
-    await _cryptoService.clearKeys();
     await _webSocketService?.disconnect();
     
-    if (_myId != null) {
-      await AccountService().removeAccount(_myId!);
+    // Find the account to remove by the current token, because _myId might be out of sync
+    // during an account switch if the new account's token is invalid.
+    int? accountToRemove;
+    final prefs = await SharedPreferences.getInstance();
+    final currentToken = prefs.getString('xaneo_access_token');
+    if (currentToken != null) {
+      final accounts = await AccountService().getAccounts();
+      try {
+        final match = accounts.firstWhere((a) => a.accessToken == currentToken);
+        accountToRemove = match.userId;
+      } catch (_) {}
     }
+    accountToRemove ??= _myId;
+
+    await _apiService.logout();
+    await _cryptoService.clearKeys();
+    
+    if (accountToRemove != null) {
+      await AccountService().removeAccount(accountToRemove);
+    }
+    
+    _myId = null;
     
     final remainingAccounts = await AccountService().getAccounts();
     if (remainingAccounts.isNotEmpty) {
@@ -562,11 +742,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
       await _initMessenger();
     } else {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Не удалось переключить аккаунт'),
-            backgroundColor: Colors.red,
-          ),
+        CustomToast.show(
+          context,
+          'Не удалось переключить аккаунт',
+          type: ToastType.error,
         );
       }
       if (mounted) {
@@ -579,120 +758,282 @@ class _MessengerScreenState extends State<MessengerScreen> {
   }
 
   void _showAccountSwitcherDialog(BuildContext context) {
-    showDialog(
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final scaleProvider = Provider.of<ScaleProvider>(context, listen: false);
+    final scale = scaleProvider.scale;
+    
+    showGeneralDialog(
       context: context,
-      builder: (context) {
+      barrierLabel: "AccountSwitcher",
+      barrierDismissible: true,
+      barrierColor: isDark ? Colors.black.withOpacity(0.85) : Colors.black.withOpacity(0.3),
+      transitionDuration: const Duration(milliseconds: 200),
+      transitionBuilder: (context, anim1, anim2, child) {
+        return FadeTransition(
+          opacity: anim1,
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.98, end: 1.0).animate(
+              CurvedAnimation(parent: anim1, curve: Curves.easeOut),
+            ),
+            child: child,
+          ),
+        );
+      },
+      pageBuilder: (context, anim1, anim2) {
         return StatefulBuilder(
-          builder: (context, setState) {
-            final isDark = Theme.of(context).brightness == Brightness.dark;
+          builder: (context, setModalState) {
+            final screenSize = MediaQuery.of(context).size;
+            final bgColor = isDark ? const Color(0xFF0C0C0C) : Colors.white;
+            final borderColor = isDark ? const Color(0xFF1E1E1E) : const Color(0xFFEBEBEB);
             
-            return AlertDialog(
-              backgroundColor: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-              title: Row(
-                children: [
-                  Icon(Icons.supervised_user_circle_rounded, color: isDark ? Colors.white : Colors.black87),
-                  const SizedBox(width: 8),
-                  const Text('Управление аккаунтами'),
-                ],
-              ),
-              content: SizedBox(
-                width: 360,
-                child: FutureBuilder<List<AccountInfo>>(
-                  future: AccountService().getAccounts(),
-                  builder: (context, snapshot) {
-                    if (!snapshot.hasData) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-                    final accounts = snapshot.data!;
-                    return Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        ...accounts.map((acc) {
-                          final isActive = acc.userId == _myId;
-                          return Container(
-                            margin: const EdgeInsets.symmetric(vertical: 4),
-                            decoration: BoxDecoration(
-                              color: isActive 
-                                  ? (isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.05))
-                                  : Colors.transparent,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: isActive ? const Color(0xFF2563EB) : Colors.transparent,
-                                width: 1,
+            return Material(
+              type: MaterialType.transparency,
+              child: Center(
+                child: Container(
+                  width: 340 * scale,
+                  constraints: BoxConstraints(
+                    maxHeight: screenSize.height * 0.75,
+                  ),
+                  margin: EdgeInsets.all(20 * scale),
+                  decoration: BoxDecoration(
+                    color: bgColor,
+                    borderRadius: BorderRadius.circular(12 * scale),
+                    border: Border.all(
+                      color: borderColor,
+                      width: 1,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(isDark ? 0.6 : 0.06),
+                        blurRadius: 24 * scale,
+                        offset: Offset(0, 8 * scale),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Header
+                      Padding(
+                        padding: EdgeInsets.fromLTRB(20 * scale, 20 * scale, 20 * scale, 12 * scale),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'АККАУНТЫ',
+                              style: TextStyle(
+                                fontSize: 10 * scale,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: 1.5 * scale,
+                                color: isDark ? Colors.white38 : Colors.black38,
+                                fontFamily: 'Inter',
                               ),
                             ),
-                            child: ListTile(
-                              leading: CircleAvatar(
-                                backgroundColor: const Color(0xFF2563EB).withOpacity(0.2),
-                                child: Text(
-                                  acc.username.substring(0, acc.username.isNotEmpty ? 1 : 0).toUpperCase(),
-                                  style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontWeight: FontWeight.bold),
+                            GestureDetector(
+                              onTap: () => Navigator.of(context).pop(),
+                              child: MouseRegion(
+                                cursor: SystemMouseCursors.click,
+                                child: Icon(
+                                  Icons.close_rounded,
+                                  size: 16 * scale,
+                                  color: isDark ? Colors.white38 : Colors.black38,
                                 ),
                               ),
-                              title: Text(acc.username, style: const TextStyle(fontWeight: FontWeight.bold)),
-                              subtitle: acc.email != null ? Text(acc.email!) : null,
-                              trailing: Row(
+                            ),
+                          ],
+                        ),
+                      ),
+                      
+                      // Accounts List
+                      Flexible(
+                        child: SingleChildScrollView(
+                          padding: EdgeInsets.symmetric(horizontal: 10 * scale),
+                          child: FutureBuilder<List<AccountInfo>>(
+                            future: AccountService().getAccounts(),
+                            builder: (context, snapshot) {
+                              if (!snapshot.hasData) {
+                                return Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 20 * scale),
+                                  child: Center(
+                                    child: SizedBox(
+                                      width: 16 * scale,
+                                      height: 16 * scale,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 1.5,
+                                        color: Colors.grey,
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }
+                              
+                              final accounts = snapshot.data!;
+                              
+                              return Column(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  if (isActive)
-                                    const Icon(Icons.check_circle, color: Colors.greenAccent, size: 20)
+                                  ...accounts.map((acc) {
+                                    final isActive = acc.userId == _myId;
+                                    
+                                    return Padding(
+                                      padding: EdgeInsets.symmetric(vertical: 2 * scale),
+                                      child: Container(
+                                        decoration: BoxDecoration(
+                                          color: isActive
+                                              ? (isDark ? Colors.white.withOpacity(0.04) : Colors.black.withOpacity(0.03))
+                                              : Colors.transparent,
+                                          borderRadius: BorderRadius.circular(8 * scale),
+                                        ),
+                                        child: Material(
+                                          color: Colors.transparent,
+                                          child: InkWell(
+                                            onTap: isActive
+                                                ? null
+                                                : () {
+                                                    Navigator.of(context).pop();
+                                                    _switchAccount(acc.userId);
+                                                  },
+                                            hoverColor: isDark ? Colors.white.withOpacity(0.06) : Colors.black.withOpacity(0.04),
+                                            splashColor: isDark ? Colors.white.withOpacity(0.12) : Colors.black.withOpacity(0.08),
+                                            highlightColor: isDark ? Colors.white.withOpacity(0.04) : Colors.black.withOpacity(0.03),
+                                            borderRadius: BorderRadius.circular(8 * scale),
+                                            child: Padding(
+                                              padding: EdgeInsets.symmetric(horizontal: 10 * scale, vertical: 8 * scale),
+                                              child: Row(
+                                                children: [
+                                                  _buildAvatar(
+                                                    acc.avatarUrl,
+                                                    (acc.firstName != null && acc.firstName!.isNotEmpty) ? acc.firstName! : acc.username,
+                                                    16 * scale,
+                                                    1.0,
+                                                    isDark,
+                                                    avatarGradient: acc.avatarGradient,
+                                                  ),
+                                                  SizedBox(width: 10 * scale),
+                                                  Expanded(
+                                                    child: Column(
+                                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                                      children: [
+                                                        Text(
+                                                          (acc.firstName != null && acc.firstName!.isNotEmpty) ? acc.firstName! : acc.username,
+                                                          style: TextStyle(
+                                                            fontWeight: isActive ? FontWeight.w500 : FontWeight.w400,
+                                                            fontSize: 13 * scale,
+                                                            color: isDark ? Colors.white70 : Colors.black87,
+                                                            fontFamily: 'Inter',
+                                                          ),
+                                                        ),
+                                                        if (acc.firstName != null && acc.firstName!.isNotEmpty) ...[
+                                                          SizedBox(height: 1 * scale),
+                                                          Text(
+                                                            '@${acc.username}',
+                                                            style: TextStyle(
+                                                              fontSize: 10.5 * scale,
+                                                              color: isDark ? Colors.white38 : Colors.black38,
+                                                              fontFamily: 'Inter',
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ],
+                                                    ),
+                                                  ),
+                                                  SizedBox(width: 8 * scale),
+                                                  if (isActive)
+                                                    Icon(
+                                                      Icons.check_rounded,
+                                                      color: isDark ? Colors.white70 : Colors.black87,
+                                                      size: 14 * scale,
+                                                    )
+                                                  else
+                                                    GestureDetector(
+                                                      onTap: () async {
+                                                        await AccountService().removeAccount(acc.userId);
+                                                        setModalState(() {});
+                                                        final updated = await AccountService().getAccounts();
+                                                        setState(() {
+                                                          _accounts = updated;
+                                                        });
+                                                      },
+                                                      child: MouseRegion(
+                                                        cursor: SystemMouseCursors.click,
+                                                        child: Padding(
+                                                          padding: EdgeInsets.all(4 * scale),
+                                                          child: Icon(
+                                                            Icons.close_rounded,
+                                                            size: 14 * scale,
+                                                            color: isDark ? Colors.white38 : Colors.black38,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  }).toList(),
+                                  
+                                  SizedBox(height: 12 * scale),
+                                  
+                                  if (accounts.length < 5)
+                                    Padding(
+                                      padding: EdgeInsets.symmetric(horizontal: 4 * scale, vertical: 8 * scale),
+                                      child: SizedBox(
+                                        width: double.infinity,
+                                        height: 36 * scale,
+                                        child: ElevatedButton(
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: isDark ? Colors.white : Colors.black,
+                                            foregroundColor: isDark ? Colors.black : Colors.white,
+                                            elevation: 0,
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius: BorderRadius.circular(6 * scale),
+                                            ),
+                                            padding: EdgeInsets.zero,
+                                          ),
+                                          onPressed: () {
+                                            Navigator.of(context).pop();
+                                            Navigator.of(context).pushNamed('/login');
+                                          },
+                                          child: Text(
+                                            'Добавить аккаунт',
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.w500,
+                                              fontSize: 12 * scale,
+                                              fontFamily: 'Inter',
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    )
                                   else
-                                    IconButton(
-                                      icon: const Icon(Icons.swap_horiz_rounded),
-                                      onPressed: () {
-                                        Navigator.of(context).pop();
-                                        _switchAccount(acc.userId);
-                                      },
-                                      tooltip: 'Войти',
-                                    ),
-                                  if (!isActive)
-                                    IconButton(
-                                      icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                                      onPressed: () async {
-                                        await AccountService().removeAccount(acc.userId);
-                                        setState(() {}); // refresh dialog
-                                      },
-                                      tooltip: 'Удалить сессию',
+                                    Padding(
+                                      padding: EdgeInsets.symmetric(vertical: 12 * scale),
+                                      child: Center(
+                                        child: Text(
+                                          'Лимит: 5 аккаунтов',
+                                          style: TextStyle(
+                                            color: isDark ? Colors.white38 : Colors.black38,
+                                            fontSize: 11 * scale,
+                                            fontFamily: 'Inter',
+                                          ),
+                                        ),
+                                      ),
                                     ),
                                 ],
-                              ),
-                            ),
-                          );
-                        }).toList(),
-                        if (accounts.length < 5) ...[
-                          const SizedBox(height: 16),
-                          ElevatedButton.icon(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF2563EB),
-                              foregroundColor: Colors.white,
-                              minimumSize: const Size(double.infinity, 44),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                            ),
-                            icon: const Icon(Icons.person_add_alt_1_rounded),
-                            label: const Text('Добавить аккаунт'),
-                            onPressed: () {
-                              Navigator.of(context).pop();
-                              Navigator.of(context).pushNamed('/login');
+                              );
                             },
                           ),
-                        ] else ...[
-                          const SizedBox(height: 16),
-                          const Text(
-                            'Достигнут лимит в 5 аккаунтов',
-                            style: TextStyle(color: Colors.grey, fontSize: 12),
-                          ),
-                        ],
-                      ],
-                    );
-                  },
+                        ),
+                      ),
+                      SizedBox(height: 12 * scale),
+                    ],
+                  ),
                 ),
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Закрыть', style: TextStyle(color: Colors.grey)),
-                ),
-              ],
             );
           },
         );
@@ -727,14 +1068,31 @@ class _MessengerScreenState extends State<MessengerScreen> {
             child: SafeArea(
               child: Row(
                 children: [
-                  // 1. Chat List Panel (resizable)
+                  // 1. Chat List Panel (resizable with Liquid Glass effect)
                   Container(
                     width: _chatListWidth * scale,
-                    color: isDark ? Colors.black.withOpacity(0.2) : Colors.white.withOpacity(0.2),
-                    child: _buildChatListPanel(isDark, scale),
+                    decoration: BoxDecoration(
+                      color: isDark 
+                          ? Colors.black.withOpacity(0.15) 
+                          : Colors.white.withOpacity(0.15),
+                      border: Border(
+                        right: BorderSide(
+                          color: isDark 
+                              ? Colors.white.withOpacity(0.08) 
+                              : Colors.black.withOpacity(0.04),
+                          width: 1,
+                        ),
+                      ),
+                    ),
+                    child: ClipRect(
+                      child: BackdropFilter(
+                        filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+                        child: _buildChatListPanel(isDark, scale),
+                      ),
+                    ),
                   ),
 
-                  // Resizable Divider
+                  // Resizable Divider (overlapping transparent zone for dragging)
                   MouseRegion(
                     cursor: SystemMouseCursors.resizeLeftRight,
                     child: GestureDetector(
@@ -744,15 +1102,12 @@ class _MessengerScreenState extends State<MessengerScreen> {
                           _chatListWidth = (_chatListWidth + details.delta.dx / scale).clamp(240.0, 600.0);
                         });
                       },
-                      child: Container(
+                      onHorizontalDragEnd: (details) async {
+                        final prefs = await SharedPreferences.getInstance();
+                        await prefs.setDouble('chat_list_width', _chatListWidth);
+                      },
+                      child: const SizedBox(
                         width: 8,
-                        color: Colors.transparent,
-                        child: Center(
-                          child: Container(
-                            width: 1,
-                            color: isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.05),
-                          ),
-                        ),
                       ),
                     ),
                   ),
@@ -763,6 +1118,14 @@ class _MessengerScreenState extends State<MessengerScreen> {
                   ),
                 ],
               ),
+            ),
+          ),
+
+          // Settings Modal Overlay (hidden button, modal triggered programmatically)
+          Positioned.fill(
+            child: SettingsButton(
+              key: _settingsKey,
+              showFloatingButton: false,
             ),
           ),
 
@@ -777,99 +1140,292 @@ class _MessengerScreenState extends State<MessengerScreen> {
     return Column(
       children: [
         // Header
-        Padding(
-          padding: const EdgeInsets.only(left: 16, right: 16, top: 16, bottom: 12),
+        Container(
+          height: 46 + 18 * scale,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          decoration: BoxDecoration(
+            color: isDark ? Colors.black.withOpacity(0.2) : Colors.white.withOpacity(0.2),
+            border: Border(
+              bottom: BorderSide(
+                color: isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.05),
+              ),
+            ),
+          ),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              // Active User Profile / Switcher Button
-              MouseRegion(
-                cursor: SystemMouseCursors.click,
-                child: GestureDetector(
-                  onTap: () => _showAccountSwitcherDialog(context),
-                  child: Tooltip(
-                    message: 'Сменить аккаунт (${_myUsername ?? "..."})',
-                    child: Container(
-                      width: 40 * scale,
-                      height: 40 * scale,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: isDark ? Colors.white.withOpacity(0.1) : Colors.black.withOpacity(0.05),
-                        border: Border.all(
-                          color: isDark ? Colors.white.withOpacity(0.15) : Colors.black.withOpacity(0.15),
-                        ),
-                      ),
-                      child: Center(
-                        child: Text(
-                          (_myUsername != null && _myUsername!.isNotEmpty)
-                              ? _myUsername!.substring(0, 1).toUpperCase()
-                              : 'U',
-                          style: TextStyle(
-                            color: isDark ? Colors.white : Colors.black87,
-                            fontSize: 16 * scale,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
+              if (_viewingArchive)
+                IconButton(
+                  icon: Icon(Icons.arrow_back_rounded, size: 20 * scale),
+                  tooltip: 'Назад к чатам',
+                  onPressed: () {
+                    setState(() {
+                      _viewingArchive = false;
+                    });
+                  },
+                  color: isDark ? Colors.white70 : Colors.black54,
+                )
+              else
+                IconButton(
+                  icon: Icon(Icons.menu_rounded, size: 20 * scale),
+                  tooltip: 'Настройки',
+                  onPressed: () {
+                    _settingsKey.currentState?.openSettings();
+                  },
+                  color: isDark ? Colors.white70 : Colors.black54,
+                ),
+              const SizedBox(width: 8),
+              Text(
+                _viewingArchive ? 'Архив' : 'Чаты',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18 * scale,
+                  color: isDark ? Colors.white : Colors.black87,
                 ),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  _myProfile != null ? (_myProfile!['realname'] ?? _myProfile!['username'] ?? "Xaneo") : "Xaneo",
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 15 * scale,
-                    color: isDark ? Colors.white : Colors.black87,
-                  ),
-                  overflow: TextOverflow.ellipsis,
+              const Spacer(),
+              if (!_viewingArchive)
+                IconButton(
+                  icon: Icon(Icons.search_rounded, size: 20 * scale),
+                  tooltip: 'Поиск контактов',
+                  onPressed: () {
+                    setState(() {
+                      _isSearching = true;
+                      _searchResults = [];
+                    });
+                  },
+                  color: isDark ? Colors.white70 : Colors.black54,
                 ),
-              ),
-              // Search button
-              IconButton(
-                icon: Icon(Icons.search_rounded, size: 20 * scale),
-                tooltip: 'Поиск контактов',
-                onPressed: () {
-                  setState(() {
-                    _isSearching = true;
-                    _searchResults = [];
-                  });
-                },
-                color: isDark ? Colors.white70 : Colors.black54,
-              ),
-              // Logout button
-              IconButton(
-                icon: Icon(Icons.exit_to_app_rounded, size: 20 * scale),
-                tooltip: 'Выйти из аккаунта',
-                onPressed: _logout,
-                color: Colors.redAccent,
-              ),
             ],
           ),
-        ),
-        
-        // Horizontal divider
-        Container(
-          height: 1,
-          color: isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.05),
         ),
         
         // Chats List
         Expanded(
           child: _isChatsLoading
               ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
-              : ListView.builder(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  itemCount: _chats.length,
-                  itemBuilder: (context, index) {
-                    final chat = _chats[index];
-                    final isSelected = _selectedChat != null && _selectedChat!['chat_id'] == chat['chat_id'];
-                    return _buildChatItem(chat, isSelected, isDark, scale);
-                  },
-                ),
+              : _viewingArchive
+                  ? (_archivedChats.isEmpty
+                      ? Center(
+                          child: Text(
+                            'Архив пуст',
+                            style: TextStyle(
+                              color: isDark ? Colors.white38 : Colors.black38,
+                              fontSize: 13 * scale,
+                              fontFamily: 'Inter',
+                            ),
+                          ),
+                        )
+                      : ListView.builder(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          itemCount: _archivedChats.length,
+                          itemBuilder: (context, index) {
+                            final chat = _archivedChats[index];
+                            final isSelected = _selectedChat != null && _selectedChat!['chat_id'] == chat['chat_id'];
+                            return _buildChatItem(chat, isSelected, isDark, scale);
+                          },
+                        ))
+                  : ListView.builder(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      itemCount: _archivedChats.isNotEmpty ? _chats.length + 1 : _chats.length,
+                      itemBuilder: (context, index) {
+                        if (_archivedChats.isNotEmpty) {
+                          if (index == 0) {
+                            return _buildArchiveFolderItem(context, isDark, scale);
+                          }
+                          final chat = _chats[index - 1];
+                          final isSelected = _selectedChat != null && _selectedChat!['chat_id'] == chat['chat_id'];
+                          return _buildChatItem(chat, isSelected, isDark, scale);
+                        } else {
+                          final chat = _chats[index];
+                          final isSelected = _selectedChat != null && _selectedChat!['chat_id'] == chat['chat_id'];
+                          return _buildChatItem(chat, isSelected, isDark, scale);
+                        }
+                      },
+                    ),
         ),
+
+        // Bottom Account Info
+        _buildBottomAccountInfo(isDark, scale),
       ],
+    );
+  }
+
+  Widget _buildBottomAccountInfo(bool isDark, double scale) {
+    String realName = 'Xaneo';
+    if (_myProfile != null) {
+      final firstName = _myProfile!['first_name'] as String?;
+      final profileRealName = _myProfile!['realname'] as String?;
+      final username = _myProfile!['username'] as String?;
+
+      if (firstName != null && firstName.trim().isNotEmpty) {
+        realName = firstName;
+      } else if (profileRealName != null && profileRealName.trim().isNotEmpty) {
+        realName = profileRealName;
+      } else if (username != null && username.trim().isNotEmpty) {
+        realName = username;
+      }
+    }
+
+    final radius = BorderRadius.circular(16 * scale);
+    bool isPressed = false;
+    bool isHovered = false;
+
+    return StatefulBuilder(
+      builder: (context, setCardState) {
+        return MouseRegion(
+          cursor: SystemMouseCursors.click,
+          onEnter: (_) => setCardState(() => isHovered = true),
+          onExit: (_) => setCardState(() => isHovered = false),
+          child: GestureDetector(
+            onTapDown: (_) => setCardState(() => isPressed = true),
+            onTapUp: (_) => setCardState(() => isPressed = false),
+            onTapCancel: () => setCardState(() => isPressed = false),
+            onTap: () => _showAccountSwitcherDialog(context),
+            child: AnimatedScale(
+              scale: isPressed ? 0.97 : (isHovered ? 1.02 : 1.0),
+              duration: const Duration(milliseconds: 100),
+              child: AnimatedOpacity(
+                opacity: isPressed ? 0.85 : 1.0,
+                duration: const Duration(milliseconds: 100),
+                child: Container(
+                  margin: const EdgeInsets.only(left: 12, right: 12, bottom: 12, top: 4),
+                  height: 52 * scale,
+                  child: Stack(
+                    children: [
+                      // 1. Subtle shadow for 3D depth
+                      Positioned.fill(
+                        child: Container(
+                          decoration: BoxDecoration(
+                            borderRadius: radius,
+                            boxShadow: [
+                              BoxShadow(
+                                color: isDark ? Colors.black.withOpacity(0.35) : Colors.black.withOpacity(0.08),
+                                blurRadius: 10,
+                                offset: const Offset(0, 3),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      // 2. Blurred glass layer
+                      Positioned.fill(
+                        child: ClipRRect(
+                          borderRadius: radius,
+                          child: BackdropFilter(
+                            filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                borderRadius: radius,
+                                border: Border.all(
+                                  color: isDark ? Colors.white.withOpacity(0.12) : Colors.black.withOpacity(0.06),
+                                  width: 1,
+                                ),
+                                gradient: LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: isDark
+                                      ? [
+                                          Colors.white.withOpacity(0.08),
+                                          Colors.white.withOpacity(0.02),
+                                        ]
+                                      : [
+                                          Colors.white.withOpacity(0.4),
+                                          Colors.white.withOpacity(0.15),
+                                        ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      // 3. Specular shine highlight (RadialGradient shader layer)
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: Container(
+                            decoration: BoxDecoration(
+                              borderRadius: radius,
+                              gradient: RadialGradient(
+                                center: const Alignment(-0.6, -0.5),
+                                radius: 0.8,
+                                colors: [
+                                  Colors.white.withOpacity(isDark ? 0.12 : 0.35),
+                                  Colors.white.withOpacity(0.0),
+                                ],
+                                stops: const [0.0, 1.0],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      // 4. Content layer
+                      Positioned.fill(
+                        child: Padding(
+                          padding: EdgeInsets.only(
+                            left: 14 * scale,
+                            right: 14 * scale,
+                            top: 6 * scale,
+                            bottom: 6 * scale,
+                          ),
+                          child: Row(
+                            children: [
+                              // Avatar (smaller, e.g. 30 * scale width/height)
+                              _buildAvatar(
+                                _myProfile != null ? (_myProfile!['avatar'] as String? ?? _myProfile!['avatar_url'] as String?) : null,
+                                realName,
+                                15 * scale,
+                                1.0,
+                                isDark,
+                                avatarGradient: _myProfile != null ? _myProfile!['avatar_gradient'] as String? : null,
+                              ),
+                              const SizedBox(width: 10),
+                              // User Real Name (smaller text)
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      realName,
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 13 * scale,
+                                        color: isDark ? Colors.white.withOpacity(0.9) : Colors.black87,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    Text(
+                                      _myUsername != null ? '@$_myUsername' : '',
+                                      style: TextStyle(
+                                        fontSize: 10 * scale,
+                                        color: isDark ? Colors.white38 : Colors.black45,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              // Logout action icon
+                              IconButton(
+                                icon: Icon(Icons.logout_rounded, size: 16 * scale),
+                                tooltip: 'Выйти из аккаунта',
+                                onPressed: _logout,
+                                color: isDark ? Colors.white54 : Colors.black54,
+                                constraints: const BoxConstraints(),
+                                padding: EdgeInsets.zero,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -898,18 +1454,15 @@ class _MessengerScreenState extends State<MessengerScreen> {
     Widget avatarWithStatus = Stack(
       children: [
         if (chatType == 'favorites')
-          CircleAvatar(
-            radius: 22 * scale,
-            backgroundColor: isDark ? Colors.white.withOpacity(0.1) : Colors.black.withOpacity(0.05),
-            child: const Icon(Icons.bookmark_rounded, color: Color(0xFF2563EB), size: 22),
-          )
+          _buildFavoritesAvatar(22, scale)
         else
           _buildAvatar(
             otherUser?['avatar_url'] as String?,
             displayName,
-            22,
-            scale,
+            22 * scale,
+            1.0,
             isDark,
+            avatarGradient: otherUser?['avatar_gradient'] as String?,
           ),
         if (chatType == 'personal' && isOnline)
           Positioned(
@@ -937,6 +1490,29 @@ class _MessengerScreenState extends State<MessengerScreen> {
       cursor: SystemMouseCursors.click,
       child: GestureDetector(
         onTap: () => _selectChat(chat),
+        onSecondaryTapDown: (details) {
+          final isArchived = chat['is_archived'] as bool? ?? false;
+          showMenu(
+            context: context,
+            position: RelativeRect.fromLTRB(
+              details.globalPosition.dx,
+              details.globalPosition.dy,
+              details.globalPosition.dx,
+              details.globalPosition.dy,
+            ),
+            items: [
+              PopupMenuItem(
+                value: 'archive_toggle',
+                child: Text(isArchived ? 'Разархивировать' : 'В архив'),
+              ),
+            ],
+            elevation: 8,
+          ).then((value) {
+            if (value == 'archive_toggle') {
+              _toggleArchive(chat);
+            }
+          });
+        },
         child: Container(
           margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
@@ -945,6 +1521,12 @@ class _MessengerScreenState extends State<MessengerScreen> {
                 ? (isDark ? activeBrandColor.withOpacity(0.15) : activeBrandColor.withOpacity(0.08))
                 : Colors.transparent,
             borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isSelected
+                  ? (isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.04))
+                  : Colors.transparent,
+              width: 1,
+            ),
           ),
           child: Row(
             children: [
@@ -1023,35 +1605,82 @@ class _MessengerScreenState extends State<MessengerScreen> {
     );
   }
 
-  Widget _buildAvatar(String? avatarUrl, String displayName, double radius, double scale, bool isDark) {
+  Widget _buildAvatar(
+    String? avatarUrl,
+    String displayName,
+    double radius,
+    double scale,
+    bool isDark, {
+    String? avatarGradient,
+    BorderRadius? borderRadius,
+  }) {
     final initials = displayName.isNotEmpty ? displayName.substring(0, 1).toUpperCase() : "?";
+    final effectiveBorderRadius = borderRadius ?? BorderRadius.circular(radius);
     
     if (avatarUrl == null || avatarUrl.isEmpty) {
-      return _buildInitialsAvatar(initials, radius, scale, isDark);
+      return _buildInitialsAvatar(initials, radius, scale, isDark, avatarGradient: avatarGradient, borderRadius: borderRadius);
     }
     
-    if (avatarUrl.startsWith('data:image/svg+xml;base64,')) {
+    if (avatarUrl.startsWith('data:image/svg+xml')) {
       try {
-        final base64String = avatarUrl.substring('data:image/svg+xml;base64,'.length);
-        final svgString = utf8.decode(base64.decode(base64String));
-        return ClipOval(
-          child: Container(
-            width: radius * 2,
-            height: radius * 2,
-            child: SvgPicture.string(
-              svgString,
+        String svgString;
+        if (avatarUrl.startsWith('data:image/svg+xml;base64,')) {
+          final base64String = avatarUrl.substring('data:image/svg+xml;base64,'.length);
+          svgString = utf8.decode(base64.decode(base64String));
+        } else {
+          final commaIndex = avatarUrl.indexOf(',');
+          if (commaIndex != -1) {
+            svgString = Uri.decodeComponent(avatarUrl.substring(commaIndex + 1));
+          } else {
+            svgString = '';
+          }
+        }
+        
+        if (svgString.isNotEmpty) {
+          if (svgString.contains('<text') && svgString.contains('</text>')) {
+            // It's an initials avatar generated by the backend!
+            // SvgPicture has major issues centering text baselines.
+            // Let's extract the background color and use our pixel-perfect native Flutter implementation instead.
+            String? extractedColor;
+            final rectMatch = RegExp(r'<rect[^>]*fill="(#[A-Fa-f0-9]{6})"').firstMatch(svgString);
+            if (rectMatch != null) {
+              extractedColor = rectMatch.group(1);
+            } else {
+              final pathMatch = RegExp(r'<path[^>]*fill="(#[A-Fa-f0-9]{6})"').firstMatch(svgString);
+              if (pathMatch != null) {
+                extractedColor = pathMatch.group(1);
+              }
+            }
+            
+            String? gradientToUse;
+            if (extractedColor != null) {
+              gradientToUse = '$extractedColor|$extractedColor';
+            } else {
+              gradientToUse = avatarGradient;
+            }
+            
+            return _buildInitialsAvatar(initials, radius, scale, isDark, avatarGradient: gradientToUse, borderRadius: borderRadius);
+          }
+
+          // Real vector avatars (without text) can safely use SvgPicture
+          return ClipRRect(
+            borderRadius: effectiveBorderRadius,
+            child: SizedBox(
               width: radius * 2,
               height: radius * 2,
-              fit: BoxFit.cover,
+              child: SvgPicture.string(
+                svgString,
+                width: radius * 2,
+                height: radius * 2,
+                fit: BoxFit.cover,
+              ),
             ),
-          ),
-        );
+          );
+        }
       } catch (e) {
-        print("Error parsing base64 SVG avatar: $e");
-        return _buildInitialsAvatar(initials, radius, scale, isDark);
+        print("Error parsing SVG avatar: $e");
+        return _buildInitialsAvatar(initials, radius, scale, isDark, avatarGradient: avatarGradient, borderRadius: borderRadius);
       }
-    } else if (avatarUrl.startsWith('data:image/svg+xml')) {
-      return _buildInitialsAvatar(initials, radius, scale, isDark);
     }
     
     String fullUrl = avatarUrl;
@@ -1061,7 +1690,8 @@ class _MessengerScreenState extends State<MessengerScreen> {
       fullUrl = "$origin$avatarUrl";
     }
     
-    return ClipOval(
+    return ClipRRect(
+      borderRadius: effectiveBorderRadius,
       child: Image.network(
         fullUrl,
         width: radius * 2,
@@ -1069,7 +1699,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
         fit: BoxFit.cover,
         errorBuilder: (context, error, stackTrace) {
           print("Error loading avatar from network: $error");
-          return _buildInitialsAvatar(initials, radius, scale, isDark);
+          return _buildInitialsAvatar(initials, radius, scale, isDark, avatarGradient: avatarGradient, borderRadius: borderRadius);
         },
         loadingBuilder: (context, child, loadingProgress) {
           if (loadingProgress == null) return child;
@@ -1090,16 +1720,66 @@ class _MessengerScreenState extends State<MessengerScreen> {
     );
   }
 
-  Widget _buildInitialsAvatar(String initials, double radius, double scale, bool isDark) {
-    return CircleAvatar(
-      radius: radius,
-      backgroundColor: isDark ? Colors.white.withOpacity(0.1) : Colors.black.withOpacity(0.05),
-      child: Text(
-        initials,
-        style: TextStyle(
-          fontWeight: FontWeight.bold,
-          color: isDark ? Colors.white70 : Colors.black87,
-          fontSize: (radius * 0.7) * scale,
+  Widget _buildInitialsAvatar(String initials, double radius, double scale, bool isDark, {String? avatarGradient, BorderRadius? borderRadius}) {
+    final diameter = radius * 2;
+    final effectiveBorderRadius = borderRadius ?? BorderRadius.circular(radius);
+    
+    Gradient? gradient;
+    if (avatarGradient != null && avatarGradient.contains('|')) {
+      try {
+        final colors = avatarGradient.split('|');
+        if (colors.length == 2) {
+          final color1 = Color(int.parse(colors[0].trim().replaceFirst('#', ''), radix: 16) + 0xFF000000);
+          final color2 = Color(int.parse(colors[1].trim().replaceFirst('#', ''), radix: 16) + 0xFF000000);
+          gradient = LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [color1, color2],
+          );
+        }
+      } catch (e) {
+        print("Error parsing avatar gradient: $e");
+      }
+    }
+
+    final color = isDark ? Colors.white.withOpacity(0.7) : Colors.black.withOpacity(0.87);
+    return Container(
+      width: diameter,
+      height: diameter,
+      decoration: BoxDecoration(
+        borderRadius: effectiveBorderRadius,
+        color: gradient == null
+            ? (isDark ? Colors.white.withOpacity(0.1) : Colors.black.withOpacity(0.05))
+            : null,
+        gradient: gradient,
+      ),
+      child: CustomPaint(
+        painter: _InitialsPainter(
+          initial: initials,
+          color: gradient != null ? Colors.white : color,
+          fontSize: radius * 0.9,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFavoritesAvatar(double radius, double scale) {
+    return Container(
+      width: radius * 2 * scale,
+      height: radius * 2 * scale,
+      decoration: const BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF8B5CF6), Color(0xFF6366F1)],
+        ),
+      ),
+      child: Center(
+        child: Icon(
+          Icons.bookmark_rounded,
+          color: Colors.white,
+          size: radius * 1.1 * scale,
         ),
       ),
     );
@@ -1187,7 +1867,8 @@ class _MessengerScreenState extends State<MessengerScreen> {
       children: [
         // Chat Header
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          height: 46 + 18 * scale,
+          padding: const EdgeInsets.symmetric(horizontal: 20),
           decoration: BoxDecoration(
             color: isDark ? Colors.black.withOpacity(0.2) : Colors.white.withOpacity(0.2),
             border: Border(
@@ -1197,11 +1878,13 @@ class _MessengerScreenState extends State<MessengerScreen> {
             ),
           ),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               // Chat Title & Status
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Text(
                       displayName,
@@ -1231,8 +1914,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
                   icon: Icon(Icons.phone_rounded, size: 20 * scale),
                   tooltip: 'Позвонить',
                   onPressed: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Функция звонков находится в разработке')),
+                    CustomToast.show(
+                      context,
+                      'Функция звонков находится в разработке',
+                      type: ToastType.info,
                     );
                   },
                   color: isDark ? Colors.white70 : Colors.black54,
@@ -1241,8 +1926,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
                 icon: Icon(Icons.settings_rounded, size: 20 * scale),
                 tooltip: 'Настройки чата',
                 onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Настройки чата пока недоступны')),
+                  CustomToast.show(
+                    context,
+                    'Настройки чата пока недоступны',
+                    type: ToastType.info,
                   );
                 },
                 color: isDark ? Colors.white70 : Colors.black54,
@@ -1546,4 +2233,54 @@ class _MessengerScreenState extends State<MessengerScreen> {
       ),
     );
   }
+}
+
+/// CustomPainter для точного центрирования буквы инициала в аватарке.
+/// Вычисляет позицию baseline и cap-height глифа, чтобы визуальный
+/// центр заглавной буквы совпадал с центром круга.
+class _InitialsPainter extends CustomPainter {
+  final String initial;
+  final Color color;
+  final double fontSize;
+
+  const _InitialsPainter({
+    required this.initial,
+    required this.color,
+    required this.fontSize,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: initial,
+        style: TextStyle(
+          color: color,
+          fontSize: fontSize,
+          fontWeight: FontWeight.bold,
+          fontFamily: 'Inter',
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    );
+    textPainter.layout();
+
+    // Расстояние от верха textPainter до baseline
+    final baseline = textPainter.computeDistanceToActualBaseline(TextBaseline.alphabetic);
+    // Cap-height ≈ 0.72 * fontSize для Inter (высота заглавных букв от baseline вверх)
+    final capHeight = fontSize * 0.72;
+    // Верх глифа (от верха textPainter)
+    final glyphTop = baseline - capHeight;
+    // Визуальный центр буквы (от верха textPainter)
+    final glyphVisualCenter = glyphTop + capHeight / 2;
+
+    // Сдвигаем textPainter так, чтобы glyphVisualCenter попал в size.height / 2
+    final dy = size.height / 2 - glyphVisualCenter;
+    final dx = (size.width - textPainter.width) / 2;
+    textPainter.paint(canvas, Offset(dx, dy));
+  }
+
+  @override
+  bool shouldRepaint(_InitialsPainter old) =>
+      old.initial != initial || old.color != color || old.fontSize != fontSize;
 }

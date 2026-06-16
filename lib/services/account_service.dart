@@ -12,6 +12,8 @@ class AccountInfo {
   final String refreshToken;
   final String x25519Private;
   final String ed25519Private;
+  final String? avatarGradient;
+  final String? firstName;
 
   AccountInfo({
     required this.userId,
@@ -22,6 +24,8 @@ class AccountInfo {
     required this.refreshToken,
     required this.x25519Private,
     required this.ed25519Private,
+    this.avatarGradient,
+    this.firstName,
   });
 
   Map<String, dynamic> toJson() => {
@@ -33,6 +37,8 @@ class AccountInfo {
     'refreshToken': refreshToken,
     'x25519Private': x25519Private,
     'ed25519Private': ed25519Private,
+    'avatarGradient': avatarGradient,
+    'firstName': firstName,
   };
 
   factory AccountInfo.fromJson(Map<String, dynamic> json) => AccountInfo(
@@ -44,6 +50,8 @@ class AccountInfo {
     refreshToken: json['refreshToken'] as String,
     x25519Private: json['x25519Private'] as String,
     ed25519Private: json['ed25519Private'] as String,
+    avatarGradient: json['avatarGradient'] as String?,
+    firstName: json['firstName'] as String?,
   );
 }
 
@@ -90,6 +98,8 @@ class AccountService {
     final username = profile['username'] as String;
     final email = profile['email'] as String?;
     final avatarUrl = profile['avatar'] as String? ?? profile['avatar_url'] as String?;
+    final avatarGradient = profile['avatar_gradient'] as String?;
+    final firstName = profile['first_name'] as String? ?? profile['realname'] as String?;
 
     final accounts = await getAccounts();
     final index = accounts.indexWhere((a) => a.userId == userId);
@@ -108,6 +118,8 @@ class AccountService {
       refreshToken: refreshToken,
       x25519Private: x25519Private,
       ed25519Private: ed25519Private,
+      avatarGradient: avatarGradient,
+      firstName: firstName,
     );
 
     if (index != -1) {
@@ -168,5 +180,27 @@ class AccountService {
     final accounts = await getAccounts();
     accounts.removeWhere((a) => a.userId == userId);
     await _saveAccounts(accounts);
+  }
+
+  /// Обновить access и (при наличии) refresh токены для аккаунта с указанным refresh токеном
+  Future<void> updateAccessToken(String refreshToken, String newAccessToken, [String? newRefreshToken]) async {
+    final accounts = await getAccounts();
+    final index = accounts.indexWhere((a) => a.refreshToken == refreshToken);
+    if (index != -1) {
+      final oldAccount = accounts[index];
+      accounts[index] = AccountInfo(
+        userId: oldAccount.userId,
+        username: oldAccount.username,
+        email: oldAccount.email,
+        avatarUrl: oldAccount.avatarUrl,
+        accessToken: newAccessToken,
+        refreshToken: newRefreshToken ?? oldAccount.refreshToken,
+        x25519Private: oldAccount.x25519Private,
+        ed25519Private: oldAccount.ed25519Private,
+        avatarGradient: oldAccount.avatarGradient,
+        firstName: oldAccount.firstName,
+      );
+      await _saveAccounts(accounts);
+    }
   }
 }

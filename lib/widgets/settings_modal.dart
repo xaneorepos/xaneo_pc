@@ -4,19 +4,21 @@ import 'dart:io' show Platform, Process;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../l10n/app_localizations.dart';
 import '../providers/theme_provider.dart';
 import '../providers/locale_provider.dart';
 
 /// Глобальная кнопка настроек с модальным окном
 class SettingsButton extends StatefulWidget {
-  const SettingsButton({super.key});
+  final bool showFloatingButton;
+  const SettingsButton({super.key, this.showFloatingButton = true});
 
   @override
-  State<SettingsButton> createState() => _SettingsButtonState();
+  State<SettingsButton> createState() => SettingsButtonState();
 }
 
-class _SettingsButtonState extends State<SettingsButton>
+class SettingsButtonState extends State<SettingsButton>
     with TickerProviderStateMixin {
   bool _showSettings = false;
   late AnimationController _settingsAnimationController;
@@ -37,6 +39,7 @@ class _SettingsButtonState extends State<SettingsButton>
   @override
   void initState() {
     super.initState();
+    _loadPreferences();
 
     _settingsAnimationController = AnimationController(
       duration: const Duration(milliseconds: 200),
@@ -62,9 +65,29 @@ class _SettingsButtonState extends State<SettingsButton>
     super.dispose();
   }
 
+  Future<void> _loadPreferences() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) {
+      setState(() {
+        _notificationsEnabled = prefs.getBool('settings_notifications') ?? true;
+        _fontSize = prefs.getDouble('settings_font_size') ?? 16.0;
+      });
+    }
+  }
+
+  Future<void> _savePreferences() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('settings_notifications', _notificationsEnabled);
+    await prefs.setDouble('settings_font_size', _fontSize);
+  }
+
   void _openSettings() {
     setState(() => _showSettings = true);
     _settingsAnimationController.forward();
+  }
+
+  void openSettings() {
+    _openSettings();
   }
 
   void _closeSettings() async {
@@ -553,51 +576,52 @@ class _SettingsButtonState extends State<SettingsButton>
     return Stack(
       children: [
         // Кнопка настроек
-        Positioned(
-          top: 50,
-          right: 20,
-          child: MouseRegion(
-            cursor: SystemMouseCursors.click,
-            child: GestureDetector(
-              onTap: _openSettings,
-              child: AnimatedBuilder(
-                animation: _pulseController,
-                builder: (context, child) {
-                  return Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: isDark
-                          ? Colors.white.withOpacity(0.08)
-                          : Colors.black.withOpacity(0.03),
-                      border: Border.all(
+        if (widget.showFloatingButton)
+          Positioned(
+            top: 50,
+            right: 20,
+            child: MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: GestureDetector(
+                onTap: _openSettings,
+                child: AnimatedBuilder(
+                  animation: _pulseController,
+                  builder: (context, child) {
+                    return Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
                         color: isDark
-                            ? Colors.white.withOpacity(0.1)
-                            : Colors.black.withOpacity(0.05),
-                        width: 1,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
+                            ? Colors.white.withOpacity(0.08)
+                            : Colors.black.withOpacity(0.03),
+                        border: Border.all(
                           color: isDark
-                              ? Colors.white.withOpacity((0.05 + _pulseController.value * 0.03).clamp(0.0, 1.0))
-                              : Colors.black.withOpacity((0.05 + _pulseController.value * 0.03).clamp(0.0, 1.0)),
-                          blurRadius: 10,
-                          spreadRadius: 1,
+                              ? Colors.white.withOpacity(0.1)
+                              : Colors.black.withOpacity(0.05),
+                          width: 1,
                         ),
-                      ],
-                    ),
-                    child: Icon(
-                      Icons.settings_outlined,
-                      color: isDark ? Colors.white : Colors.black,
-                      size: 22,
-                    ),
-                  );
-                },
+                        boxShadow: [
+                          BoxShadow(
+                            color: isDark
+                                ? Colors.white.withOpacity((0.05 + _pulseController.value * 0.03).clamp(0.0, 1.0))
+                                : Colors.black.withOpacity((0.05 + _pulseController.value * 0.03).clamp(0.0, 1.0)),
+                            blurRadius: 10,
+                            spreadRadius: 1,
+                          ),
+                        ],
+                      ),
+                      child: Icon(
+                        Icons.settings_outlined,
+                        color: isDark ? Colors.white : Colors.black,
+                        size: 22,
+                      ),
+                    );
+                  },
+                ),
               ),
             ),
           ),
-        ),
 
         // Модальное окно настроек
         if (_showSettings) _buildSettingsModal(context, isDark),
@@ -836,7 +860,10 @@ class _SettingsButtonState extends State<SettingsButton>
                                           value: _notificationsEnabled,
                                           isDark: isDark,
                                           onChanged: (value) {
-                                            setState(() => _notificationsEnabled = value);
+                                            setState(() {
+                                              _notificationsEnabled = value;
+                                              _savePreferences();
+                                            });
                                           },
                                         ),
                                       ),
@@ -1085,7 +1112,12 @@ class _SettingsButtonState extends State<SettingsButton>
                 min: 12.0,
                 max: 24.0,
                 divisions: 12,
-                onChanged: (value) => setState(() => _fontSize = value),
+                onChanged: (value) {
+                  setState(() {
+                    _fontSize = value;
+                    _savePreferences();
+                  });
+                },
               ),
             ),
           ),

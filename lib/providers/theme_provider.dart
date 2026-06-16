@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Провайдер для управления темой приложения
 class ThemeProvider extends ChangeNotifier {
@@ -204,13 +205,35 @@ class ThemeProvider extends ChangeNotifier {
     ),
   );
 
+  static const String _prefsKey = 'app_theme_preference';
+
+  ThemeProvider() {
+    _loadTheme();
+  }
+
+  Future<void> _loadTheme() async {
+    final prefs = await SharedPreferences.getInstance();
+    final isDark = prefs.getBool(_prefsKey);
+    if (isDark != null) {
+      _isDarkMode = isDark;
+      notifyListeners();
+    }
+  }
+
+  Future<void> _saveTheme() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_prefsKey, _isDarkMode);
+  }
+
   void toggleTheme() {
     _isDarkMode = !_isDarkMode;
+    _saveTheme();
     notifyListeners();
   }
 
   void setDarkMode(bool isDark) {
     _isDarkMode = isDark;
+    _saveTheme();
     notifyListeners();
   }
 }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:dio/dio.dart';
@@ -5,11 +6,12 @@ import 'package:dio/io.dart';
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import 'package:cookie_jar/cookie_jar.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'account_service.dart';
 
 /// API сервис для Xaneo PC с поддержкой автоматического сохранения сессионных кук (через Dio)
 class ApiService {
   // Базовый URL сервера (настраивается)
-  static String _baseUrl = 'https://192.168.3.65/api/v1';
+  static String _baseUrl = 'https://10.58.33.31/api/v1';
   
   // User-Agent для идентификации приложения
   static const String _userAgent = 'XaneoPC/1.0 xaneo-app';
@@ -17,6 +19,9 @@ class ApiService {
   // Ключи для хранения токенов
   static const String _accessTokenKey = 'xaneo_access_token';
   static const String _refreshTokenKey = 'xaneo_refresh_token';
+  
+  // Future для предотвращения одновременных запросов на обновление токена
+  Future<ApiResponse>? _refreshFuture;
   
   // Singleton
   static final ApiService _instance = ApiService._internal();
@@ -60,6 +65,85 @@ class ApiService {
     ));
     
     _dio.interceptors.add(CookieManager(_cookieJar));
+
+    // Автоматическое обновление токенов при получении 401 (Unauthorized)
+    _dio.interceptors.add(InterceptorsWrapper(
+      onResponse: (response, handler) async {
+        if (response.statusCode == 401) {
+          final path = response.requestOptions.path;
+          // Избегаем бесконечных циклов на эндпоинтах авторизации и обновления токена
+          if (path.contains('/auth/token/refresh/') ||
+              path.contains('/auth/login/') ||
+              path.contains('/auth/token/')) {
+            return handler.next(response);
+          }
+
+          final authHeader = response.requestOptions.headers['Authorization'] as String?;
+          if (authHeader != null && authHeader.startsWith('Bearer ')) {
+            final requestToken = authHeader.substring(7);
+            final currentToken = await getAccessToken();
+            
+            if (currentToken != null && requestToken != currentToken) {
+              // Токен запроса отличается от текущего активного токена.
+              // Проверим, не сменился ли аккаунт.
+              final accounts = await AccountService().getAccounts();
+              
+              bool isSameAccount = false;
+              if (accounts.isEmpty || accounts.length == 1) {
+                isSameAccount = true;
+              } else {
+                AccountInfo? requestAccount;
+                AccountInfo? currentAccount;
+                for (final a in accounts) {
+                  if (a.accessToken == requestToken) {
+                    requestAccount = a;
+                  }
+                  if (a.accessToken == currentToken) {
+                    currentAccount = a;
+                  }
+                }
+                if (requestAccount != null && currentAccount != null && requestAccount.userId == currentAccount.userId) {
+                  isSameAccount = true;
+                }
+              }
+              
+              if (isSameAccount) {
+                // Это тот же самый аккаунт, токен просто обновился в другом запросе.
+                // Повторяем исходный запрос с новым токеном.
+                final options = response.requestOptions;
+                options.headers['Authorization'] = 'Bearer $currentToken';
+                try {
+                  final retryResponse = await _dio.fetch(options);
+                  return handler.resolve(retryResponse);
+                } catch (e) {
+                  print('Error retrying request with already-refreshed token: $e');
+                }
+              }
+              
+              // Если аккаунт сменился или мы не можем сопоставить, то ничего не делаем.
+              return handler.next(response);
+            }
+          }
+
+          final refreshRes = await refreshToken();
+          if (refreshRes.success) {
+            final options = response.requestOptions;
+            final newToken = await getAccessToken();
+            if (newToken != null) {
+              options.headers['Authorization'] = 'Bearer $newToken';
+            }
+            try {
+              // Повторяем исходный запрос с новым токеном
+              final retryResponse = await _dio.fetch(options);
+              return handler.resolve(retryResponse);
+            } catch (e) {
+              print('Error retrying request after token refresh: $e');
+            }
+          }
+        }
+        return handler.next(response);
+      },
+    ));
     
     // Явная настройка для обхода SSL с самоподписанными сертификатами/несовпадением IP
     _dio.httpClientAdapter = IOHttpClientAdapter(
@@ -339,13 +423,22 @@ class ApiService {
   
   /// Обновление access токена
   Future<ApiResponse> refreshToken() async {
+    if (_refreshFuture != null) {
+      return _refreshFuture!;
+    }
+
+    final completer = Completer<ApiResponse>();
+    _refreshFuture = completer.future;
+
     try {
       final refreshToken = await getRefreshToken();
       if (refreshToken == null) {
-        return ApiResponse(
+        final res = ApiResponse(
           success: false,
           error: 'Refresh токен не найден',
         );
+        completer.complete(res);
+        return res;
       }
       
       final response = await _dio.post(
@@ -358,16 +451,31 @@ class ApiService {
       
       final result = _handleDioResponse(response);
       
-      if (result.success && result.data != null && result.data!['access'] != null) {
-        await saveAccessToken(result.data!['access'] as String);
+      if (result.success && result.data != null) {
+        final newAccess = result.data!['access'] as String?;
+        final newRefresh = result.data!['refresh'] as String?;
+        
+        if (newAccess != null) {
+          await saveAccessToken(newAccess);
+          if (newRefresh != null) {
+            await saveRefreshToken(newRefresh);
+          }
+          // Синхронизируем новые токены в списке сохраненных аккаунтов
+          await AccountService().updateAccessToken(refreshToken, newAccess, newRefresh);
+        }
       }
       
+      completer.complete(result);
       return result;
     } catch (e) {
-      return ApiResponse(
+      final res = ApiResponse(
         success: false,
         error: 'Ошибка обновления токена: $e',
       );
+      completer.complete(res);
+      return res;
+    } finally {
+      _refreshFuture = null;
     }
   }
   
@@ -493,6 +601,27 @@ class ApiService {
       return ApiResponse(
         success: false,
         error: 'Ошибка получения списка чатов: $e',
+      );
+    }
+  }
+
+  /// Архивировать/разархивировать чат
+  Future<ApiResponse> archiveChat(String chatId, bool isArchived) async {
+    try {
+      final options = await _getAuthOptions();
+      final response = await _dio.post(
+        '$_baseUrl/chats/archive/',
+        options: options,
+        data: {
+          'chat_id': chatId,
+          'is_archived': isArchived,
+        },
+      );
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(
+        success: false,
+        error: 'Ошибка архивации чата: $e',
       );
     }
   }

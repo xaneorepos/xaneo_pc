@@ -10,6 +10,7 @@ import '../widgets/geometry_3d.dart';
 import '../widgets/advanced_background.dart';
 import '../services/api_service.dart';
 import '../services/crypto_service.dart';
+import '../widgets/settings_modal.dart';
 
 /// Экран онбординга с продвинутыми 3D эффектами
 class OnboardingScreen extends StatefulWidget {
@@ -231,6 +232,11 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                 ),
               ),
             ),
+          ),
+          
+          // Кнопка настроек
+          const Positioned.fill(
+            child: SettingsButton(),
           ),
         ],
       ),

@@ -10,6 +10,8 @@ import '../widgets/advanced_background.dart';
 import '../services/api_service.dart';
 import '../services/crypto_service.dart';
 import '../services/account_service.dart';
+import '../widgets/settings_modal.dart';
+import '../widgets/custom_toast.dart';
 import 'register_screen.dart';
 
 /// Экран входа в систему с продвинутыми 3D эффектами
@@ -146,27 +148,25 @@ class _LoginScreenState extends State<LoginScreen>
                   encryptedBlob: newBlob,
                 );
                 cryptoSetupSuccess = uploadResponse.success;
-                if (!cryptoSetupSuccess) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(uploadResponse.error ?? 'Ошибка восстановления ключей (не удалось перезаписать)'),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                  }
-                }
-              } catch (e) {
-                print("Error during fallback key generation: $e");
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Критическая ошибка при пересоздании ключей шифрования'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                }
-              }
+                 if (!cryptoSetupSuccess) {
+                   if (mounted) {
+                     CustomToast.show(
+                       context,
+                       uploadResponse.error ?? 'Ошибка восстановления ключей (не удалось перезаписать)',
+                       type: ToastType.error,
+                     );
+                   }
+                 }
+               } catch (e) {
+                 print("Error during fallback key generation: $e");
+                 if (mounted) {
+                   CustomToast.show(
+                     context,
+                     'Критическая ошибка при пересоздании ключей шифрования',
+                     type: ToastType.error,
+                   );
+                 }
+               }
             }
           } else if (keysResponse.statusCode == 404 || (keysResponse.data != null && keysResponse.data!['code'] == 'KEYS_NOT_FOUND')) {
             // Ключей нет на сервере, генерируем новые
@@ -179,29 +179,27 @@ class _LoginScreenState extends State<LoginScreen>
               );
               
               cryptoSetupSuccess = uploadResponse.success;
-              if (!cryptoSetupSuccess) {
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(uploadResponse.error ?? 'Ошибка загрузки ключей на сервер'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                }
-              }
+               if (!cryptoSetupSuccess) {
+                 if (mounted) {
+                   CustomToast.show(
+                     context,
+                     uploadResponse.error ?? 'Ошибка загрузки ключей на сервер',
+                     type: ToastType.error,
+                   );
+                 }
+               }
             } catch (e) {
               print("Error generating keys: $e");
             }
           } else {
-            // Другая ошибка при получении ключей
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(keysResponse.error ?? 'Ошибка при получении ключей шифрования'),
-                  backgroundColor: Colors.red,
-                ),
-              );
-            }
+             // Другая ошибка при получении ключей
+             if (mounted) {
+               CustomToast.show(
+                 context,
+                 keysResponse.error ?? 'Ошибка при получении ключей шифрования',
+                 type: ToastType.error,
+               );
+             }
           }
 
           setState(() {
@@ -216,49 +214,46 @@ class _LoginScreenState extends State<LoginScreen>
             }
             
             if (!savedSuccess) {
-              await _apiService.logout();
-              await CryptoService().clearKeys();
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Превышен лимит в 5 аккаунтов на этом клиенте или ошибка подключения.'),
-                    backgroundColor: Colors.red,
-                  ),
-                );
-              }
-              setState(() {
-                _isLoading = false;
-              });
-              return;
-            }
+               await _apiService.logout();
+               await CryptoService().clearKeys();
+               if (mounted) {
+                 CustomToast.show(
+                   context,
+                   'Превышен лимит в 5 аккаунтов на этом клиенте или ошибка подключения.',
+                   type: ToastType.error,
+                 );
+               }
+               setState(() {
+                 _isLoading = false;
+               });
+               return;
+             }
 
-            if (mounted) {
-              final l10n = AppLocalizations.of(context);
-              if (l10n != null) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(l10n.welcomeUser(_loginController.text)),
-                    backgroundColor: Colors.green,
-                  ),
-                );
-              }
-              // Навигация в мессенджер
-              Navigator.of(context).pushReplacementNamed('/messenger');
-            }
+             if (mounted) {
+               final l10n = AppLocalizations.of(context);
+               if (l10n != null) {
+                 CustomToast.show(
+                   context,
+                   l10n.welcomeUser(_loginController.text),
+                   type: ToastType.success,
+                 );
+               }
+               // Навигация в мессенджер
+               Navigator.of(context).pushReplacementNamed('/messenger');
+             }
           }
         } else {
           setState(() {
             _isLoading = false;
           });
-          // Ошибка авторизации
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(tokenResponse.error ?? 'Ошибка авторизации'),
-                backgroundColor: Colors.red,
-              ),
-            );
-          }
+           // Ошибка авторизации
+           if (mounted) {
+             CustomToast.show(
+               context,
+               tokenResponse.error ?? 'Ошибка авторизации',
+               type: ToastType.error,
+             );
+           }
         }
       } catch (e) {
         setState(() {
@@ -266,13 +261,12 @@ class _LoginScreenState extends State<LoginScreen>
         });
         
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Ошибка подключения к серверу'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
+           CustomToast.show(
+             context,
+             'Ошибка подключения к серверу',
+             type: ToastType.error,
+           );
+         }
       }
     }
   }
@@ -324,6 +318,11 @@ class _LoginScreenState extends State<LoginScreen>
                 ),
               ),
             ),
+          ),
+          
+          // Кнопка настроек
+          const Positioned.fill(
+            child: SettingsButton(),
           ),
         ],
       ),

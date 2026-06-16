@@ -106,23 +106,6 @@ class MyApp extends StatelessWidget {
                   child: CustomTitleBar(),
                 ),
               ),
-              // Глобальная кнопка настроек обёрнута в Overlay
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: Overlay(
-                  initialEntries: [
-                    OverlayEntry(
-                      builder: (context) => const Material(
-                        type: MaterialType.transparency,
-                        child: SettingsButton(),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
             ],
           ),
           routes: {

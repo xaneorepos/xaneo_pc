@@ -12,6 +12,7 @@ import '../widgets/glass_card.dart';
 import '../widgets/advanced_background.dart';
 import '../services/api_service.dart';
 import '../services/crypto_service.dart';
+import '../widgets/custom_toast.dart';
 
 /// Экран регистрации с 7 шагами (как в xaneo_mobile)
 class RegisterScreen extends StatefulWidget {
@@ -472,24 +473,12 @@ class _RegisterScreenState extends State<RegisterScreen>
   
   /// Показать сообщение об ошибке
   void _showErrorMessage(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.red,
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+    CustomToast.show(context, message, type: ToastType.error);
   }
   
   /// Показать сообщение об успехе
   void _showSuccessMessage(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.green,
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+    CustomToast.show(context, message, type: ToastType.success);
   }
   
   /// Проверить валидность текущего шага

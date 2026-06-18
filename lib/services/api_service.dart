@@ -7,11 +7,12 @@ import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import 'package:cookie_jar/cookie_jar.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'account_service.dart';
+import 'logger_service.dart';
 
 /// API сервис для Xaneo PC с поддержкой автоматического сохранения сессионных кук (через Dio)
 class ApiService {
   // Базовый URL сервера (настраивается)
-  static String _baseUrl = 'https://10.58.33.31/api/v1';
+  static String _baseUrl = 'https://192.168.3.65/api/v1';
   
   // User-Agent для идентификации приложения
   static const String _userAgent = 'XaneoPC/1.0 xaneo-app';
@@ -186,6 +187,7 @@ class ApiService {
   /// Вход в систему
   /// Возвращает Map с данными пользователя или ошибкой
   Future<ApiResponse> login(String username, String password) async {
+    Logger.info('ApiService', 'Attempting login for user: $username');
     try {
       final response = await _dio.post(
         '$_baseUrl/auth/login/',
@@ -196,8 +198,11 @@ class ApiService {
         },
       );
       
-      return _handleDioResponse(response, isAuthRequest: true);
+      final result = _handleDioResponse(response, isAuthRequest: true);
+      Logger.info('ApiService', 'Login result for $username: success=${result.success}');
+      return result;
     } catch (e) {
+      Logger.error('ApiService', 'Login connection error for user: $username', e);
       return ApiResponse(
         success: false,
         error: 'Ошибка подключения к серверу: $e',
@@ -390,6 +395,7 @@ class ApiService {
   
   /// Получение JWT токена
   Future<ApiResponse> obtainToken(String username, String password) async {
+    Logger.info('ApiService', 'obtainToken called for user: $username');
     try {
       final response = await _dio.post(
         '$_baseUrl/auth/token/',
@@ -404,16 +410,20 @@ class ApiService {
       
       // Сохраняем токены
       if (result.success && result.data != null) {
+        Logger.info('ApiService', 'obtainToken succeeded. Saving tokens.');
         if (result.data!['access'] != null) {
           await saveAccessToken(result.data!['access'] as String);
         }
         if (result.data!['refresh'] != null) {
           await saveRefreshToken(result.data!['refresh'] as String);
         }
+      } else {
+        Logger.warning('ApiService', 'obtainToken failed: ${result.error}');
       }
       
       return result;
     } catch (e) {
+      Logger.error('ApiService', 'obtainToken connection error for user: $username', e);
       return ApiResponse(
         success: false,
         error: 'Ошибка получения токена: $e',
@@ -423,7 +433,9 @@ class ApiService {
   
   /// Обновление access токена
   Future<ApiResponse> refreshToken() async {
+    Logger.info('ApiService', 'Starting token refresh process...');
     if (_refreshFuture != null) {
+      Logger.info('ApiService', 'Token refresh already in progress, sharing future.');
       return _refreshFuture!;
     }
 
@@ -433,6 +445,7 @@ class ApiService {
     try {
       final refreshToken = await getRefreshToken();
       if (refreshToken == null) {
+        Logger.warning('ApiService', 'Refresh token not found in local storage.');
         final res = ApiResponse(
           success: false,
           error: 'Refresh токен не найден',
@@ -455,6 +468,7 @@ class ApiService {
         final newAccess = result.data!['access'] as String?;
         final newRefresh = result.data!['refresh'] as String?;
         
+        Logger.info('ApiService', 'Token refreshed successfully. Updating tokens locally.');
         if (newAccess != null) {
           await saveAccessToken(newAccess);
           if (newRefresh != null) {
@@ -463,11 +477,14 @@ class ApiService {
           // Синхронизируем новые токены в списке сохраненных аккаунтов
           await AccountService().updateAccessToken(refreshToken, newAccess, newRefresh);
         }
+      } else {
+        Logger.error('ApiService', 'Token refresh failed on server: ${result.error}');
       }
       
       completer.complete(result);
       return result;
     } catch (e) {
+      Logger.error('ApiService', 'Exception during token refresh', e);
       final res = ApiResponse(
         success: false,
         error: 'Ошибка обновления токена: $e',
@@ -824,6 +841,8 @@ class ApiService {
         break;
     }
     
+    Logger.warning('ApiService', 'API request failed: ${response.requestOptions.method} ${response.requestOptions.path} -> status $statusCode, error: $errorMessage');
+    
     return ApiResponse(
       success: false,
       error: errorMessage,
@@ -840,9 +859,32 @@ class ApiService {
         options: _getOptions(),
       ).timeout(const Duration(seconds: 5));
       
-      return response.statusCode == 200;
-    } catch (_) {
+      final available = response.statusCode == 200;
+      Logger.info('ApiService', 'Server availability check result: $available');
+      return available;
+    } catch (e) {
+      Logger.warning('ApiService', 'Server availability check failed: $e');
       return false;
+    }
+  }
+
+  /// Отметить сообщения в чате как прочитанные
+  Future<ApiResponse> markMessagesAsRead(String chatId) async {
+    try {
+      final options = await _getAuthOptions();
+      final response = await _dio.post(
+        '$_baseUrl/messages/mark-read/',
+        options: options,
+        data: {
+          'chat_id': chatId,
+        },
+      );
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(
+        success: false,
+        error: 'Ошибка отметки сообщений как прочитанных: $e',
+      );
     }
   }
 }

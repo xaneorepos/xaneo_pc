@@ -16,26 +16,41 @@ import 'screens/messenger_screen.dart';
 import 'widgets/zoom_toast.dart';
 import 'widgets/custom_title_bar.dart';
 import 'widgets/settings_modal.dart';
+import 'services/logger_service.dart';
+
+import 'package:shared_preferences/shared_preferences.dart';
 
 // Глобальный ключ для доступа к Navigator
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 void main() async {
-  HttpOverrides.global = MyHttpOverrides();
   WidgetsFlutterBinding.ensureInitialized();
+  await Logger.init();
+  Logger.info('Main', 'App main() entry point reached.');
+  
+  HttpOverrides.global = MyHttpOverrides();
   
   // Initialize window manager
   await windowManager.ensureInitialized();
 
-  WindowOptions windowOptions = const WindowOptions(
-    size: Size(1024, 768),
-    minimumSize: Size(900, 720),
+  // Load saved window options
+  final prefs = await SharedPreferences.getInstance();
+  final isMaximized = prefs.getBool('window_maximized') ?? false;
+  final width = prefs.getDouble('window_width') ?? 1024.0;
+  final height = prefs.getDouble('window_height') ?? 768.0;
+
+  WindowOptions windowOptions = WindowOptions(
+    size: Size(width, height),
+    minimumSize: const Size(900, 720),
     center: true,
     backgroundColor: Colors.transparent,
     skipTaskbar: false,
     titleBarStyle: TitleBarStyle.hidden,
   );
   windowManager.waitUntilReadyToShow(windowOptions, () async {
+    if (isMaximized) {
+      await windowManager.maximize();
+    }
     await windowManager.show();
     await windowManager.focus();
   });
@@ -60,8 +75,53 @@ void main() async {
   );
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> with WindowListener {
+  @override
+  void initState() {
+    super.initState();
+    windowManager.addListener(this);
+  }
+
+  @override
+  void dispose() {
+    windowManager.removeListener(this);
+    super.dispose();
+  }
+
+  @override
+  void onWindowResize() {
+    _saveWindowState();
+  }
+
+  @override
+  void onWindowMaximize() {
+    _saveWindowState();
+  }
+
+  @override
+  void onWindowUnmaximize() {
+    _saveWindowState();
+  }
+
+  Future<void> _saveWindowState() async {
+    try {
+      final isMaximized = await windowManager.isMaximized();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('window_maximized', isMaximized);
+      if (!isMaximized) {
+        final size = await windowManager.getSize();
+        await prefs.setDouble('window_width', size.width);
+        await prefs.setDouble('window_height', size.height);
+      }
+    } catch (_) {}
+  }
 
   @override
   Widget build(BuildContext context) {

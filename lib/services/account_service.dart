@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../services/crypto_service.dart';
+import 'logger_service.dart';
 
 class AccountInfo {
   final int userId;
@@ -91,6 +92,7 @@ class AccountService {
     final ed25519Private = prefs.getString('xsec2_ed25519_private');
 
     if (accessToken == null || refreshToken == null || x25519Private == null || ed25519Private == null) {
+      Logger.warning('AccountService', 'saveCurrentAccount failed: missing access_token, refresh_token or E2EE keys in local storage');
       return false;
     }
 
@@ -106,6 +108,7 @@ class AccountService {
     
     // Лимит: не более 5 аккаунтов
     if (index == -1 && accounts.length >= 5) {
+      Logger.warning('AccountService', 'saveCurrentAccount failed: reached limit of 5 accounts');
       return false;
     }
 
@@ -123,8 +126,10 @@ class AccountService {
     );
 
     if (index != -1) {
+      Logger.info('AccountService', 'saveCurrentAccount: Updating tokens for existing account: $username (ID: $userId)');
       accounts[index] = account; // Обновляем
     } else {
+      Logger.info('AccountService', 'saveCurrentAccount: Saving new account to list: $username (ID: $userId)');
       accounts.add(account); // Добавляем новый
     }
 
@@ -134,32 +139,41 @@ class AccountService {
 
   /// Переключение на аккаунт
   Future<bool> switchAccount(int userId) async {
+    Logger.info('AccountService', 'switchAccount: Initiating switch to account ID: $userId');
     final accounts = await getAccounts();
     final targetIndex = accounts.indexWhere((a) => a.userId == userId);
-    if (targetIndex == -1) return false;
+    if (targetIndex == -1) {
+      Logger.warning('AccountService', 'switchAccount failed: account ID: $userId not found in saved list');
+      return false;
+    }
 
     // 1. Попробуем обновить текущий аккаунт перед выходом, если он существует
     final prefs = await SharedPreferences.getInstance();
     final currentToken = prefs.getString('xaneo_access_token');
     if (currentToken != null) {
       try {
+        Logger.info('AccountService', 'switchAccount: Trying to save current account profile before switching.');
         final profileRes = await ApiService().getProfile();
         if (profileRes.success && profileRes.data != null) {
           await saveCurrentAccount(profileRes.data!);
         }
-      } catch (_) {}
+      } catch (e) {
+        Logger.warning('AccountService', 'switchAccount: Failed to update current account before switch: $e');
+      }
     }
 
     // Заново читаем актуальный список
     final updatedAccounts = await getAccounts();
     final accountToLoad = updatedAccounts.firstWhere((a) => a.userId == userId);
 
+    Logger.info('AccountService', 'switchAccount: Clearing old crypto keys and session cookies.');
     // 2. Сначала очищаем старые ключи (это удаляет ключи из SharedPreferences)
     await CryptoService().clearKeys();
 
     // 3. Очищаем старые куки сессии
     await ApiService().clearCookies();
 
+    Logger.info('AccountService', 'switchAccount: Setting new tokens and crypto keys for username: ${accountToLoad.username}');
     // 4. Устанавливаем новые токены и ключи в стандартные настройки
     await prefs.setString('xaneo_access_token', accountToLoad.accessToken);
     await prefs.setString('xaneo_refresh_token', accountToLoad.refreshToken);
@@ -170,8 +184,10 @@ class AccountService {
     await CryptoService().loadKeysFromLocalStorage();
 
     // 6. Продлеваем токен, если он истек
+    Logger.info('AccountService', 'switchAccount: Refreshing access token if necessary.');
     await ApiService().refreshToken();
 
+    Logger.info('AccountService', 'switchAccount: Successfully switched to user: ${accountToLoad.username}');
     return true;
   }
 

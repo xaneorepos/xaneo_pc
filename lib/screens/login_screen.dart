@@ -10,6 +10,7 @@ import '../widgets/advanced_background.dart';
 import '../services/api_service.dart';
 import '../services/crypto_service.dart';
 import '../services/account_service.dart';
+import '../services/logger_service.dart';
 import '../widgets/settings_modal.dart';
 import '../widgets/custom_toast.dart';
 import 'register_screen.dart';
@@ -111,6 +112,9 @@ class _LoginScreenState extends State<LoginScreen>
   final _apiService = ApiService();
 
   Future<void> _handleLogin() async {
+    final username = _loginController.text.trim();
+    Logger.info('LoginScreen', 'Login attempt started for user: $username');
+    
     if (_formKey.currentState!.validate()) {
       setState(() {
         _isLoading = true;
@@ -120,26 +124,28 @@ class _LoginScreenState extends State<LoginScreen>
         final password = _passwordController.text;
         
         // Получаем JWT токен
-        final tokenResponse = await _apiService.obtainToken(
-          _loginController.text.trim(),
-          password,
-        );
+        Logger.info('LoginScreen', 'Requesting JWT token for user: $username');
+        final tokenResponse = await _apiService.obtainToken(username, password);
 
         if (tokenResponse.success) {
+          Logger.info('LoginScreen', 'Token obtained successfully. Fetching E2EE keys from server.');
           // Токен получен успешно, теперь настраиваем крипто-ключи (E2EE)
           final keysResponse = await _apiService.getMyKeys();
           bool cryptoSetupSuccess = false;
 
           if (keysResponse.success && keysResponse.data != null && keysResponse.data!['xsec2'] != null) {
             // Ключи есть на сервере, расшифровываем их
+            Logger.info('LoginScreen', 'Keys found on server. Attempting to unlock/decrypt key bundle.');
             final xsec2 = keysResponse.data!['xsec2'] as Map<String, dynamic>;
             final encryptedBlob = xsec2['encrypted_blob'] as Map<String, dynamic>;
             
             cryptoSetupSuccess = await CryptoService().unlockFromBlob(encryptedBlob, password);
+            Logger.info('LoginScreen', 'Key bundle decryption result: $cryptoSetupSuccess');
+
             if (!cryptoSetupSuccess) {
               // В случае неудачи (например, старый Argon2id blob с веб-клиента),
               // генерируем новые ключи в поддерживаемом формате pbkdf2-aes-gcm и загружаем их.
-              print("Warning: Failed to decrypt server keys. Regenerating new keys under pbkdf2-aes-gcm...");
+              Logger.warning('LoginScreen', 'Failed to decrypt server keys. Regenerating new keys under pbkdf2-aes-gcm...');
               try {
                 final newBlob = await CryptoService().generateAndStoreKeys(password);
                 final uploadResponse = await _apiService.uploadKeys(
@@ -148,28 +154,31 @@ class _LoginScreenState extends State<LoginScreen>
                   encryptedBlob: newBlob,
                 );
                 cryptoSetupSuccess = uploadResponse.success;
-                 if (!cryptoSetupSuccess) {
-                   if (mounted) {
-                     CustomToast.show(
-                       context,
-                       uploadResponse.error ?? 'Ошибка восстановления ключей (не удалось перезаписать)',
-                       type: ToastType.error,
-                     );
-                   }
-                 }
-               } catch (e) {
-                 print("Error during fallback key generation: $e");
-                 if (mounted) {
-                   CustomToast.show(
-                     context,
-                     'Критическая ошибка при пересоздании ключей шифрования',
-                     type: ToastType.error,
-                   );
-                 }
-               }
+                Logger.info('LoginScreen', 'Fallback key regeneration and upload success status: $cryptoSetupSuccess');
+                if (!cryptoSetupSuccess) {
+                  Logger.error('LoginScreen', 'Failed to upload regenerated keys: ${uploadResponse.error}');
+                  if (mounted) {
+                    CustomToast.show(
+                      context,
+                      uploadResponse.error ?? 'Ошибка восстановления ключей (не удалось перезаписать)',
+                      type: ToastType.error,
+                    );
+                  }
+                }
+              } catch (e) {
+                Logger.error('LoginScreen', 'Error during fallback key generation', e);
+                if (mounted) {
+                  CustomToast.show(
+                    context,
+                    'Критическая ошибка при пересоздании ключей шифрования',
+                    type: ToastType.error,
+                  );
+                }
+              }
             }
           } else if (keysResponse.statusCode == 404 || (keysResponse.data != null && keysResponse.data!['code'] == 'KEYS_NOT_FOUND')) {
             // Ключей нет на сервере, генерируем новые
+            Logger.info('LoginScreen', 'Keys not found on server (404/KEYS_NOT_FOUND). Generating new keys.');
             try {
               final newBlob = await CryptoService().generateAndStoreKeys(password);
               final uploadResponse = await _apiService.uploadKeys(
@@ -179,27 +188,30 @@ class _LoginScreenState extends State<LoginScreen>
               );
               
               cryptoSetupSuccess = uploadResponse.success;
-               if (!cryptoSetupSuccess) {
-                 if (mounted) {
-                   CustomToast.show(
-                     context,
-                     uploadResponse.error ?? 'Ошибка загрузки ключей на сервер',
-                     type: ToastType.error,
-                   );
-                 }
-               }
+              Logger.info('LoginScreen', 'New key generation and upload success status: $cryptoSetupSuccess');
+              if (!cryptoSetupSuccess) {
+                Logger.error('LoginScreen', 'Failed to upload new keys: ${uploadResponse.error}');
+                if (mounted) {
+                  CustomToast.show(
+                    context,
+                    uploadResponse.error ?? 'Ошибка загрузки ключей на сервер',
+                    type: ToastType.error,
+                  );
+                }
+              }
             } catch (e) {
-              print("Error generating keys: $e");
+              Logger.error('LoginScreen', 'Error generating and uploading new keys', e);
             }
           } else {
-             // Другая ошибка при получении ключей
-             if (mounted) {
-               CustomToast.show(
-                 context,
-                 keysResponse.error ?? 'Ошибка при получении ключей шифрования',
-                 type: ToastType.error,
-               );
-             }
+            // Другая ошибка при получении ключей
+            Logger.error('LoginScreen', 'Failed to fetch keys from server: ${keysResponse.error} (status ${keysResponse.statusCode})');
+            if (mounted) {
+              CustomToast.show(
+                context,
+                keysResponse.error ?? 'Ошибка при получении ключей шифрования',
+                type: ToastType.error,
+              );
+            }
           }
 
           setState(() {
@@ -207,67 +219,77 @@ class _LoginScreenState extends State<LoginScreen>
           });
 
           if (cryptoSetupSuccess) {
+            Logger.info('LoginScreen', 'Crypto keys successfully configured. Fetching user profile...');
             final profileRes = await _apiService.getProfile();
             bool savedSuccess = false;
             if (profileRes.success && profileRes.data != null) {
+              Logger.info('LoginScreen', 'Profile fetched successfully. Saving current account: ${profileRes.data!['username']}');
               savedSuccess = await AccountService().saveCurrentAccount(profileRes.data!);
+            } else {
+              Logger.error('LoginScreen', 'Failed to fetch user profile: ${profileRes.error}');
             }
             
             if (!savedSuccess) {
-               await _apiService.logout();
-               await CryptoService().clearKeys();
-               if (mounted) {
-                 CustomToast.show(
-                   context,
-                   'Превышен лимит в 5 аккаунтов на этом клиенте или ошибка подключения.',
-                   type: ToastType.error,
-                 );
-               }
-               setState(() {
-                 _isLoading = false;
-               });
-               return;
-             }
+              Logger.error('LoginScreen', 'Failed to save account locally. Exceeded account limit or save error.');
+              await _apiService.logout();
+              await CryptoService().clearKeys();
+              if (mounted) {
+                CustomToast.show(
+                  context,
+                  'Превышен лимит в 5 аккаунтов на этом клиенте или ошибка подключения.',
+                  type: ToastType.error,
+                );
+              }
+              setState(() {
+                _isLoading = false;
+              });
+              return;
+            }
 
-             if (mounted) {
-               final l10n = AppLocalizations.of(context);
-               if (l10n != null) {
-                 CustomToast.show(
-                   context,
-                   l10n.welcomeUser(_loginController.text),
-                   type: ToastType.success,
-                 );
-               }
-               // Навигация в мессенджер
-               Navigator.of(context).pushReplacementNamed('/messenger');
-             }
+            if (mounted) {
+              Logger.info('LoginScreen', 'Login flow completed successfully. Navigating to messenger.');
+              final l10n = AppLocalizations.of(context);
+              if (l10n != null) {
+                CustomToast.show(
+                  context,
+                  l10n.welcomeUser(_loginController.text),
+                  type: ToastType.success,
+                );
+              }
+              // Навигация в мессенджер
+              Navigator.of(context).pushReplacementNamed('/messenger');
+            }
           }
         } else {
+          Logger.warning('LoginScreen', 'Token obtain failed: ${tokenResponse.error} (status ${tokenResponse.statusCode})');
           setState(() {
             _isLoading = false;
           });
-           // Ошибка авторизации
-           if (mounted) {
-             CustomToast.show(
-               context,
-               tokenResponse.error ?? 'Ошибка авторизации',
-               type: ToastType.error,
-             );
-           }
+          // Ошибка авторизации
+          if (mounted) {
+            CustomToast.show(
+              context,
+              tokenResponse.error ?? 'Ошибка авторизации',
+              type: ToastType.error,
+            );
+          }
         }
-      } catch (e) {
+      } catch (e, stack) {
+        Logger.error('LoginScreen', 'Unexpected error during login process', e, stack);
         setState(() {
           _isLoading = false;
         });
         
         if (mounted) {
-           CustomToast.show(
-             context,
-             'Ошибка подключения к серверу',
-             type: ToastType.error,
-           );
-         }
+          CustomToast.show(
+            context,
+            'Ошибка подключения к серверу',
+            type: ToastType.error,
+          );
+        }
       }
+    } else {
+      Logger.warning('LoginScreen', 'Form validation failed.');
     }
   }
 

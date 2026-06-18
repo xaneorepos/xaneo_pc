@@ -6,6 +6,7 @@ import 'package:pointycastle/digests/blake2b.dart';
 import 'package:x25519/x25519.dart' as x25519;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:argon2/argon2.dart';
+import 'logger_service.dart';
 
 /// XSEC-2 Crypto Service for Xaneo PC
 ///
@@ -163,7 +164,7 @@ class CryptoService {
       final bool isPbkdf2 = (kdf == 'pbkdf2') || (algorithm == 'pbkdf2-aes-gcm');
 
       if (!isArgon2id && !isPbkdf2) {
-        print("Unsupported KDF algorithm: ${kdf ?? algorithm}");
+        Logger.warning('CryptoService', 'Unsupported KDF algorithm: ${kdf ?? algorithm}');
         return false;
       }
 
@@ -311,7 +312,7 @@ class CryptoService {
 
       return true;
     } catch (e) {
-      print("Error unlocking key bundle: $e");
+      Logger.error('CryptoService', 'Error unlocking key bundle from blob', e);
       return false;
     }
   }
@@ -348,7 +349,7 @@ class CryptoService {
 
       return true;
     } catch (e) {
-      print("Error loading keys from local storage: $e");
+      Logger.error('CryptoService', 'Error loading keys from local storage', e);
       return false;
     }
   }

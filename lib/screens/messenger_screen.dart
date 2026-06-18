@@ -1,10 +1,12 @@
 import 'dart:ui';
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:lottie/lottie.dart';
 import '../providers/theme_provider.dart';
 import '../providers/scale_provider.dart';
 import '../widgets/advanced_background.dart';
@@ -13,6 +15,7 @@ import '../services/api_service.dart';
 import '../services/crypto_service.dart';
 import '../services/account_service.dart';
 import '../services/websocket_service.dart';
+import '../services/logger_service.dart';
 import '../widgets/custom_toast.dart';
 
 class MessengerScreen extends StatefulWidget {
@@ -64,9 +67,17 @@ class _MessengerScreenState extends State<MessengerScreen> {
   final Map<String, String> _sentPlaintexts = {};
   double _chatListWidth = 320.0;
 
+  // Typing status variables
+  final Map<String, _TypingState> _activeTypingUsers = {};
+  Timer? _typingExpiryTimer;
+  Timer? _typingTimer;
+  bool _isMeTyping = false;
+
   @override
   void initState() {
     super.initState();
+    _messageController.addListener(_onMessageTextChanged);
+    _startTypingExpiryTimer();
     _loadPreferences();
     _initMessenger();
   }
@@ -83,8 +94,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
   @override
   void dispose() {
+    _messageController.removeListener(_onMessageTextChanged);
     _webSocketService?.dispose();
     _pollingTimer?.cancel();
+    _typingExpiryTimer?.cancel();
+    _typingTimer?.cancel();
     _searchController.dispose();
     _messageController.dispose();
     _scrollController.dispose();
@@ -110,7 +124,8 @@ class _MessengerScreenState extends State<MessengerScreen> {
       if (mounted) {
         setState(() {
           _myProfile = profileRes.data;
-          _myId = profileRes.data!['id'] as int?;
+          final dynamic rawMyId = profileRes.data!['id'];
+          _myId = rawMyId is int ? rawMyId : int.tryParse(rawMyId.toString());
           _myUsername = profileRes.data!['username'] as String?;
         });
       }
@@ -187,17 +202,28 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
   Future<void> _handleWebSocketMessage(Map<String, dynamic> data, String activeChatId) async {
     final type = data['type'] as String?;
-    if (type == 'encrypted_message') {
+    if (type == 'encrypted_message' || type == 'todo_list_message' || type == 'poll_message') {
       final msgChatId = data['chat_id'] as String?;
       if (msgChatId != activeChatId) return;
       
-      final msgId = data['id'] as int?;
+      final dynamic rawMsgId = data['id'];
+      final msgId = rawMsgId is int ? rawMsgId : int.tryParse(rawMsgId.toString());
       if (msgId == null) return;
       
       final exists = _messages.any((m) => m['id'] == msgId);
       if (exists) return;
+
+      if (type == 'todo_list_message') {
+        data['message_type'] = 'todo_list';
+        data['author_id'] = data['creator_id'];
+      } else if (type == 'poll_message') {
+        data['message_type'] = 'poll';
+        data['author_id'] = data['creator_id'];
+      } else {
+        data['message_type'] ??= 'regular';
+      }
       
-      final encryptedText = data['encrypted_text'] as String?;
+      final encryptedText = (data['encrypted_text'] ?? data['encrypted_content']) as String?;
       final otherUser = _selectedChat?['other_user'] as Map<String, dynamic>?;
       
       String decryptedText = "";
@@ -222,8 +248,126 @@ class _MessengerScreenState extends State<MessengerScreen> {
         _scrollToBottom();
       }
       _loadChats(silent: true);
+      
+      final isMe = data['author_id']?.toString() == _myId?.toString();
+      if (!isMe) {
+        _markChatAsRead(activeChatId);
+      }
+    } else if (type == 'todo_completion_update') {
+      final todoMsgId = data['todo_message_id']?.toString();
+      final itemIndex = data['item_index'];
+      final isCompleted = data['is_completed'] as bool?;
+      if (todoMsgId != null && itemIndex != null && isCompleted != null) {
+        _updateTodoLocalCompletion(todoMsgId, itemIndex, isCompleted);
+      }
+    } else if (type == 'poll_vote_update' || type == 'poll_vote') {
+      final pollMsgId = data['poll_message_id']?.toString();
+      final optionId = data['option_id']?.toString();
+      final removeVote = data['remove_vote'] == true;
+      final userId = data['user_id']?.toString() ?? data['sender_id']?.toString();
+      if (pollMsgId != null && optionId != null) {
+        _updatePollLocalVote(pollMsgId, optionId, removeVote, userId ?? '');
+      }
     } else if (type == 'chat_list_update' || type == 'new_chat') {
       _loadChats(silent: true);
+    } else if (type == 'typing') {
+      final userId = data['user_id']?.toString();
+      final isTyping = data['is_typing'] == true;
+      final action = data['action']?.toString() ?? 'typing';
+      final username = data['username']?.toString() ?? '';
+      final firstName = data['first_name']?.toString() ?? username;
+      
+      if (userId != null && userId != _myId?.toString()) {
+        setState(() {
+          if (isTyping) {
+            _activeTypingUsers[userId] = _TypingState(
+              username: username,
+              firstName: firstName,
+              action: action,
+              timestamp: DateTime.now(),
+            );
+          } else {
+            _activeTypingUsers.remove(userId);
+          }
+        });
+      }
+    }
+  }
+
+  void _onMessageTextChanged() {
+    final text = _messageController.text;
+    if (text.isNotEmpty && !_isMeTyping) {
+      _sendTypingStatus(true, 'typing');
+    } else if (text.isEmpty && _isMeTyping) {
+      _sendTypingStatus(false, 'typing');
+    }
+    
+    if (text.isNotEmpty) {
+      _typingTimer?.cancel();
+      _typingTimer = Timer(const Duration(seconds: 3), () {
+        if (mounted && _isMeTyping) {
+          _sendTypingStatus(false, 'typing');
+        }
+      });
+    }
+  }
+
+  void _sendTypingStatus(bool isTyping, String action) {
+    if (_webSocketService != null && _webSocketService!.isConnected) {
+      _isMeTyping = isTyping;
+      _webSocketService!.sendMessage({
+        'type': 'typing',
+        'is_typing': isTyping,
+        'action': action,
+      });
+    }
+  }
+
+  void _startTypingExpiryTimer() {
+    _typingExpiryTimer?.cancel();
+    _typingExpiryTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) return;
+      final now = DateTime.now();
+      bool changed = false;
+      _activeTypingUsers.removeWhere((userId, state) {
+        final expired = now.difference(state.timestamp).inSeconds > 5;
+        if (expired) changed = true;
+        return expired;
+      });
+      if (changed) {
+        setState(() {});
+      }
+    });
+  }
+
+  String? _getTypingStatusText({Map<String, dynamic>? chat}) {
+    final targetChat = chat ?? _selectedChat;
+    if (targetChat == null) return null;
+    if (_selectedChat == null || targetChat['chat_id'] != _selectedChat!['chat_id']) return null;
+    
+    if (_activeTypingUsers.isEmpty) return null;
+    
+    final chatType = targetChat['chat_type'] as String?;
+    if (chatType == 'personal') {
+      final state = _activeTypingUsers.values.first;
+      if (state.action == 'recording_voice') {
+        return 'записывает голосовое...';
+      }
+      return 'печатает...';
+    } else {
+      if (_activeTypingUsers.length == 1) {
+        final state = _activeTypingUsers.values.first;
+        final name = state.firstName.isNotEmpty ? state.firstName : state.username;
+        if (state.action == 'recording_voice') {
+          return '$name записывает голосовое...';
+        }
+        return '$name печатает...';
+      } else {
+        final names = _activeTypingUsers.values
+            .map((s) => s.firstName.isNotEmpty ? s.firstName : s.username)
+            .join(', ');
+        return '$names печатают...';
+      }
     }
   }
 
@@ -245,6 +389,17 @@ class _MessengerScreenState extends State<MessengerScreen> {
           _chats = chatList;
           _archivedChats = archivedList;
           _isChatsLoading = false;
+          
+          if (_selectedChat != null) {
+            final allChats = [...chatList, ...archivedList];
+            final updatedChat = allChats.cast<Map<String, dynamic>?>().firstWhere(
+                  (c) => c != null && c['chat_id'] == _selectedChat!['chat_id'],
+                  orElse: () => null,
+                );
+            if (updatedChat != null) {
+              _selectedChat = updatedChat;
+            }
+          }
         });
         
         // Decrypt latest message preview in each chat
@@ -265,7 +420,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
   int _getArchivedUnreadCount() {
     int count = 0;
     for (var chat in _archivedChats) {
-      count += (chat['unread_count'] as int? ?? 0);
+      final dynamic rawUnread = chat['unread_count'];
+      final unreadCount = rawUnread is int ? rawUnread : int.tryParse(rawUnread.toString()) ?? 0;
+      count += unreadCount;
     }
     return count;
   }
@@ -480,7 +637,8 @@ class _MessengerScreenState extends State<MessengerScreen> {
   }
 
   Future<void> _decryptSingleMessage(dynamic msg, String chatId, Map<String, dynamic>? otherUser) async {
-    final id = msg['id'] as int?;
+    final dynamic rawId = msg['id'];
+    final id = rawId is int ? rawId : int.tryParse(rawId.toString());
     if (id == null || _decryptedMessages.containsKey(id)) return;
 
     final encryptedText = msg['encrypted_text'] as String?;
@@ -505,7 +663,8 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
   Future<void> _decryptAllMessages(List<dynamic> messages, String chatId, Map<String, dynamic>? otherUser) async {
     for (var msg in messages) {
-      final id = msg['id'] as int?;
+      final dynamic rawId = msg['id'];
+      final id = rawId is int ? rawId : int.tryParse(rawId.toString());
       if (id == null || _decryptedMessages.containsKey(id)) continue;
 
       final encryptedText = msg['encrypted_text'] as String?;
@@ -532,6 +691,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
   Future<void> _sendMessage() async {
     final text = _messageController.text.trim();
     if (text.isEmpty || _selectedChat == null) return;
+
+    if (_isMeTyping) {
+      _sendTypingStatus(false, 'typing');
+    }
+    _typingTimer?.cancel();
 
     final chatId = _selectedChat!['chat_id'] as String;
     final myUserId = _myId?.toString();
@@ -590,7 +754,8 @@ class _MessengerScreenState extends State<MessengerScreen> {
       final res = await _apiService.sendMessage(chatId, encryptedText);
       if (res.success && res.data != null) {
         final newMsg = res.data!;
-        final id = newMsg['id'] as int;
+        final dynamic rawId = newMsg['id'];
+        final id = rawId is int ? rawId : (int.tryParse(rawId.toString()) ?? 0);
         _decryptedMessages[id] = text;
 
         if (mounted) {
@@ -616,18 +781,50 @@ class _MessengerScreenState extends State<MessengerScreen> {
     });
   }
 
+  Future<void> _markChatAsRead(String chatId) async {
+    final res = await _apiService.markMessagesAsRead(chatId);
+    if (res.success) {
+      if (mounted) {
+        setState(() {
+          for (var i = 0; i < _chats.length; i++) {
+            if (_chats[i]['chat_id'] == chatId) {
+              final updated = Map<String, dynamic>.from(_chats[i]);
+              updated['unread_count'] = 0;
+              _chats[i] = updated;
+              break;
+            }
+          }
+          for (var i = 0; i < _archivedChats.length; i++) {
+            if (_archivedChats[i]['chat_id'] == chatId) {
+              final updated = Map<String, dynamic>.from(_archivedChats[i]);
+              updated['unread_count'] = 0;
+              _archivedChats[i] = updated;
+              break;
+            }
+          }
+        });
+      }
+    }
+  }
+
   void _selectChat(Map<String, dynamic> chat) {
     if (_selectedChat != null && _selectedChat!['chat_id'] == chat['chat_id']) {
       return;
     }
+    
+    _typingTimer?.cancel();
+    _isMeTyping = false;
+    _activeTypingUsers.clear();
     
     setState(() {
       _selectedChat = chat;
       _messages = [];
       _isMessagesLoading = true;
     });
-    _loadMessages(chat['chat_id'] as String);
-    _connectWebSocket(chat['chat_id'] as String);
+    final chatId = chat['chat_id'] as String;
+    _loadMessages(chatId);
+    _connectWebSocket(chatId);
+    _markChatAsRead(chatId);
     _scrollToBottom();
   }
 
@@ -646,9 +843,14 @@ class _MessengerScreenState extends State<MessengerScreen> {
   }
 
   void _startChatWithUser(Map<String, dynamic> user) {
-    final targetId = user['id'] as int;
+    final dynamic rawTargetId = user['id'];
+    final targetId = rawTargetId is int ? rawTargetId : (int.tryParse(rawTargetId.toString()) ?? 0);
     final targetUsername = user['username'] as String;
     if (_myId == null) return;
+
+    _typingTimer?.cancel();
+    _isMeTyping = false;
+    _activeTypingUsers.clear();
 
     // Create unique personal chat ID
     final chatId = "personal_${_myId! < targetId ? '${_myId!}_$targetId' : '${targetId}_$_myId!'}";
@@ -685,6 +887,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
     
     _loadMessages(chatId);
     _connectWebSocket(chatId);
+    _markChatAsRead(chatId);
   }
 
   Future<void> _logout() async {
@@ -1432,25 +1635,64 @@ class _MessengerScreenState extends State<MessengerScreen> {
   Widget _buildChatItem(Map<String, dynamic> chat, bool isSelected, bool isDark, double scale) {
     final chatType = chat['chat_type'] as String?;
     final displayName = _getChatName(chat);
-    final unreadCount = chat['unread_count'] as int? ?? 0;
+    final dynamic rawUnread = chat['unread_count'];
+    final unreadCount = rawUnread is int ? rawUnread : int.tryParse(rawUnread.toString()) ?? 0;
     final lastMsg = chat['last_message'];
     
     String lastMsgText = "Нет сообщений";
     String lastMsgTime = "";
     if (lastMsg != null) {
-      final msgId = lastMsg['id'] as int?;
-      if (msgId != null) {
+      final dynamic rawMsgId = lastMsg['id'];
+      final msgId = rawMsgId is int ? rawMsgId : int.tryParse(rawMsgId.toString());
+      final msgType = lastMsg['message_type'] as String?;
+
+      if (msgType == 'todo_list') {
+        lastMsgText = "📋 To-Do лист";
+      } else if (msgType == 'poll') {
+        lastMsgText = "🗳️ Опрос";
+      } else if (msgId != null) {
         lastMsgText = _decryptedMessages[msgId] ?? "[Зашифрованное сообщение]";
         if (lastMsgText.isEmpty) {
           lastMsgText = "📎 Файл";
         }
+      } else if (lastMsg['files'] != null && (lastMsg['files'] as List).isNotEmpty) {
+        final List files = lastMsg['files'] as List;
+        final firstFile = files.first;
+        final fileType = firstFile['file_type'] as String? ?? '';
+        if (fileType == 'image') {
+          lastMsgText = "📷 Фотография";
+        } else {
+          lastMsgText = "📎 Файл";
+        }
       }
+
+      if (lastMsgText.startsWith('{')) {
+        try {
+          final Map<String, dynamic> parsed = jsonDecode(lastMsgText);
+          if (parsed['type'] == 'voice') {
+            lastMsgText = "🎤 Голосовое сообщение";
+          } else if (parsed['type'] == 'file') {
+            lastMsgText = "📎 Файл";
+          } else if (parsed['type'] == 'todo_list') {
+            lastMsgText = "📋 To-Do лист";
+          } else if (parsed['type'] == 'poll') {
+            lastMsgText = "🗳️ Опрос";
+          }
+        } catch (_) {}
+      }
+
       lastMsgTime = _formatMessageTime(lastMsg['created_at'] as String?);
     }
     
     final otherUser = chat['other_user'] as Map<String, dynamic>?;
     final isOnline = otherUser != null && (otherUser['is_online'] as bool? ?? false);
     
+    final typingText = _getTypingStatusText(chat: chat);
+    String? typingAction;
+    if (typingText != null && _activeTypingUsers.isNotEmpty) {
+      typingAction = _activeTypingUsers.values.first.action;
+    }
+
     Widget avatarWithStatus = Stack(
       children: [
         if (chatType == 'favorites')
@@ -1567,15 +1809,47 @@ class _MessengerScreenState extends State<MessengerScreen> {
                     Row(
                       children: [
                         Expanded(
-                          child: Text(
-                            lastMsgText,
-                            style: TextStyle(
-                              fontSize: 13 * scale,
-                              color: isDark ? Colors.white38 : Colors.black45,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
+                          child: typingText != null && typingAction != null
+                              ? Row(
+                                  children: [
+                                    Lottie.asset(
+                                      typingAction == 'recording_voice' 
+                                          ? 'assets/animations/recording-voice.json'
+                                          : 'assets/animations/loading.json',
+                                      width: 16 * scale,
+                                      height: 16 * scale,
+                                      delegates: LottieDelegates(
+                                        values: [
+                                          ValueDelegate.colorFilter(
+                                            const ['**'],
+                                            value: const ColorFilter.mode(Color(0xFF2563EB), BlendMode.srcATop),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Expanded(
+                                      child: Text(
+                                        typingText,
+                                        style: TextStyle(
+                                          fontSize: 13 * scale,
+                                          color: const Color(0xFF2563EB),
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                )
+                              : Text(
+                                  lastMsgText,
+                                  style: TextStyle(
+                                    fontSize: 13 * scale,
+                                    color: isDark ? Colors.white38 : Colors.black45,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                         ),
                         if (unreadCount > 0)
                           Container(
@@ -1863,6 +2137,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
       statusText = "канал";
     }
 
+    String? typingAction;
+    if (_activeTypingUsers.isNotEmpty) {
+      typingAction = _activeTypingUsers.values.first.action;
+    }
+
     return Column(
       children: [
         // Chat Header
@@ -1895,15 +2174,46 @@ class _MessengerScreenState extends State<MessengerScreen> {
                       ),
                     ),
                     const SizedBox(height: 2),
-                    Text(
-                      statusText,
-                      style: TextStyle(
-                        fontSize: 11 * scale,
-                        color: chatType == 'personal' && isOnline
-                            ? Colors.green
-                            : (isDark ? Colors.white38 : Colors.black38),
+                    if (typingAction != null)
+                      Row(
+                        children: [
+                          Lottie.asset(
+                            typingAction == 'recording_voice' 
+                                ? 'assets/animations/recording-voice.json'
+                                : 'assets/animations/loading.json',
+                            width: 14 * scale,
+                            height: 14 * scale,
+                            delegates: LottieDelegates(
+                              values: [
+                                ValueDelegate.colorFilter(
+                                  const ['**'],
+                                  value: const ColorFilter.mode(Color(0xFF2563EB), BlendMode.srcATop),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            _getTypingStatusText() ?? 'печатает...',
+                            style: TextStyle(
+                              fontSize: 11 * scale,
+                              color: const Color(0xFF2563EB),
+                              fontFamily: 'Inter',
+                            ),
+                          ),
+                        ],
+                      )
+                    else
+                      Text(
+                        statusText,
+                        style: TextStyle(
+                          fontSize: 11 * scale,
+                          color: chatType == 'personal' && isOnline
+                              ? Colors.green
+                              : (isDark ? Colors.white38 : Colors.black38),
+                          fontFamily: 'Inter',
+                        ),
                       ),
-                    ),
                   ],
                 ),
               ),
@@ -1969,8 +2279,18 @@ class _MessengerScreenState extends State<MessengerScreen> {
   }
 
   Widget _buildMessageBubble(Map<String, dynamic> msg, bool isMe, bool isDark, double scale) {
-    final id = msg['id'] as int;
+    final dynamic rawId = msg['id'];
+    final id = rawId is int ? rawId : (int.tryParse(rawId.toString()) ?? 0);
     final decryptedText = _decryptedMessages[id] ?? "[Расшифровка...]";
+    Map<String, dynamic>? customPayload;
+    if (decryptedText.trim().startsWith('{')) {
+      try {
+        final parsed = jsonDecode(decryptedText);
+        if (parsed is Map<String, dynamic>) {
+          customPayload = parsed;
+        }
+      } catch (_) {}
+    }
     final authorUsername = msg['author_username'] as String? ?? "Пользователь";
     final timeStr = msg['created_at'] != null 
         ? DateTime.parse(msg['created_at'] as String).toLocal().toString().substring(11, 16)
@@ -2026,13 +2346,29 @@ class _MessengerScreenState extends State<MessengerScreen> {
               ),
 
             // Decrypted Plaintext
-            Text(
-              decryptedText,
-              style: TextStyle(
-                color: isMe ? Colors.white : (isDark ? Colors.white.withOpacity(0.9) : Colors.black87),
-                fontSize: 15 * scale,
+            if (customPayload != null && customPayload['type'] == 'voice')
+              _VoiceMessageBubblePlayer(
+                payload: customPayload,
+                isMe: isMe,
+                isDark: isDark,
+                scale: scale,
+              )
+            else if (customPayload != null && 
+                     (msg['message_type'] == 'todo_list' || msg['message_type'] == 'todo_list_message' || customPayload['is_native'] == true) &&
+                     (customPayload['type'] == 'todo_list' || (customPayload['items'] != null && customPayload['title'] != null)))
+              _buildTodoWidget(msg, customPayload, isMe, isDark, scale)
+            else if (customPayload != null && 
+                     (msg['message_type'] == 'poll' || msg['message_type'] == 'poll_message' || customPayload['is_native'] == true) &&
+                     (customPayload['type'] == 'poll' || (customPayload['options'] != null && customPayload['question'] != null)))
+              _buildPollWidget(msg, customPayload, isMe, isDark, scale)
+            else
+              Text(
+                decryptedText,
+                style: TextStyle(
+                  color: isMe ? Colors.white : (isDark ? Colors.white.withOpacity(0.9) : Colors.black87),
+                  fontSize: 15 * scale,
+                ),
               ),
-            ),
             
             const SizedBox(height: 4),
             // Timestamp and Lock icon
@@ -2073,6 +2409,25 @@ class _MessengerScreenState extends State<MessengerScreen> {
       ),
       child: Row(
         children: [
+          // Voice Message Button
+          IconButton(
+            icon: Icon(Icons.mic_none_rounded, color: isDark ? Colors.white70 : Colors.black54),
+            tooltip: 'Голосовое сообщение',
+            onPressed: _showVoiceSendDialog,
+          ),
+          // Todo List Button
+          IconButton(
+            icon: Icon(Icons.playlist_add_check_rounded, color: isDark ? Colors.white70 : Colors.black54),
+            tooltip: 'Список задач (TODO)',
+            onPressed: _showTodoSendDialog,
+          ),
+          // Poll Button
+          IconButton(
+            icon: Icon(Icons.bar_chart_rounded, color: isDark ? Colors.white70 : Colors.black54),
+            tooltip: 'Создать опрос',
+            onPressed: _showPollSendDialog,
+          ),
+          const SizedBox(width: 4),
           // Text field
           Expanded(
             child: TextField(
@@ -2233,6 +2588,1061 @@ class _MessengerScreenState extends State<MessengerScreen> {
       ),
     );
   }
+
+  void _updateTodoLocalCompletion(String todoMsgId, int itemIndex, bool isCompleted) {
+    setState(() {
+      for (var m in _messages) {
+        if (m['message_id']?.toString() == todoMsgId) {
+          final currentStatus = Map<String, dynamic>.from(m['completion_status'] ?? {});
+          currentStatus[itemIndex.toString()] = isCompleted;
+          m['completion_status'] = currentStatus;
+          break;
+        }
+      }
+    });
+  }
+
+  void _updatePollLocalVote(String pollMsgId, String optionId, bool removeVote, String userId) {
+    setState(() {
+      for (var m in _messages) {
+        if (m['message_id']?.toString() == pollMsgId) {
+          final List<String> userVotes = List<String>.from(m['user_votes'] ?? []);
+          final isCurrentUser = userId == _myId?.toString();
+
+          if (isCurrentUser) {
+            if (removeVote) {
+              if (!userVotes.contains(optionId)) {
+                // Vote already removed locally, skip duplicate increment/decrement
+                break;
+              }
+              userVotes.remove(optionId);
+            } else {
+              if (userVotes.contains(optionId)) {
+                // Vote already added locally, skip duplicate increment/decrement
+                break;
+              }
+              userVotes.add(optionId);
+            }
+            m['user_votes'] = userVotes;
+          }
+
+          // Update votes_by_option
+          final votesByOption = Map<String, dynamic>.from(m['votes_by_option'] ?? {});
+          final currentVotes = votesByOption[optionId] is num 
+              ? (votesByOption[optionId] as num).toInt() 
+              : (int.tryParse(votesByOption[optionId]?.toString() ?? '') ?? 0);
+          
+          if (removeVote) {
+            votesByOption[optionId] = (currentVotes - 1).clamp(0, 999999);
+          } else {
+            votesByOption[optionId] = currentVotes + 1;
+          }
+          m['votes_by_option'] = votesByOption;
+          break;
+        }
+      }
+    });
+  }
+
+  Widget _buildTodoWidget(Map<String, dynamic> msg, Map<String, dynamic> payload, bool isMe, bool isDark, double scale) {
+    final title = payload['title']?.toString() ?? 'Список задач';
+    final items = payload['items'] as List? ?? [];
+    final todoMsgId = msg['message_id']?.toString() ?? '';
+
+    // Handle completion status map
+    final completionStatus = msg['completion_status'] is Map 
+        ? msg['completion_status'] as Map 
+        : (msg['completion_status'] is String && (msg['completion_status'] as String).isNotEmpty 
+            ? jsonDecode(msg['completion_status'] as String) as Map 
+            : {});
+
+    return Container(
+      width: 260 * scale,
+      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.assignment_turned_in_rounded,
+                size: 18 * scale,
+                color: isMe ? Colors.white : (isDark ? Colors.blue.shade400 : Colors.blue.shade600),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    color: isMe ? Colors.white : (isDark ? Colors.white : Colors.black87),
+                    fontSize: 15 * scale,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ...List.generate(items.length, (index) {
+            final item = items[index];
+            final itemText = (item is Map ? item['text'] : item.toString()) ?? '';
+            final isCompleted = completionStatus[index.toString()] == true;
+
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4.0),
+              child: GestureDetector(
+                onTap: () {
+                  final nextVal = !isCompleted;
+                  _updateTodoLocalCompletion(todoMsgId, index, nextVal);
+                  // Send WebSocket update
+                  _webSocketService?.sendMessage({
+                    'type': 'todo_completion_update',
+                    'todo_message_id': todoMsgId,
+                    'item_index': index,
+                    'is_completed': nextVal,
+                  });
+                },
+                behavior: HitTestBehavior.opaque,
+                child: Row(
+                  children: [
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      width: 18 * scale,
+                      height: 18 * scale,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: isCompleted 
+                            ? (isMe ? Colors.white : Colors.blue) 
+                            : Colors.transparent,
+                        border: Border.all(
+                          color: isCompleted 
+                              ? (isMe ? Colors.white : Colors.blue) 
+                              : (isMe ? Colors.white60 : (isDark ? Colors.white38 : Colors.black38)),
+                          width: 1.5,
+                        ),
+                      ),
+                      child: Center(
+                        child: Icon(
+                          Icons.check,
+                          color: isCompleted 
+                              ? (isMe ? Colors.blue.shade700 : Colors.white) 
+                              : Colors.transparent,
+                          size: 12 * scale,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        itemText,
+                        style: TextStyle(
+                          color: isCompleted 
+                              ? (isMe ? Colors.white60 : (isDark ? Colors.white38 : Colors.black38)) 
+                              : (isMe ? Colors.white : (isDark ? Colors.white70 : Colors.black87)),
+                          fontSize: 13.5 * scale,
+                          decoration: isCompleted ? TextDecoration.lineThrough : null,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPollWidget(Map<String, dynamic> msg, Map<String, dynamic> payload, bool isMe, bool isDark, double scale) {
+    final question = payload['question']?.toString() ?? 'Опрос';
+    final options = payload['options'] as List? ?? [];
+    final isMultipleChoice = payload['is_multiple_choice'] == true;
+    final pollMsgId = msg['message_id']?.toString() ?? '';
+
+    // Handle votes map
+    final votesByOption = msg['votes_by_option'] is Map
+        ? msg['votes_by_option'] as Map
+        : (msg['votes_by_option'] is String && (msg['votes_by_option'] as String).isNotEmpty
+            ? jsonDecode(msg['votes_by_option'] as String) as Map
+            : {});
+
+    // Handle user votes
+    final List<String> userVotes = msg['user_votes'] is List
+        ? List<String>.from(msg['user_votes'] as List)
+        : (msg['user_votes'] is String && (msg['user_votes'] as String).isNotEmpty
+            ? List<String>.from(jsonDecode(msg['user_votes'] as String) as List)
+            : []);
+
+    // Calculate total votes
+    int totalVotes = 0;
+    votesByOption.values.forEach((v) {
+      if (v is num) {
+        totalVotes += v.toInt();
+      } else {
+        totalVotes += int.tryParse(v.toString()) ?? 0;
+      }
+    });
+
+    final hasVoted = userVotes.isNotEmpty;
+
+    return Container(
+      width: 260 * scale,
+      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            question,
+            style: TextStyle(
+              color: isMe ? Colors.white : (isDark ? Colors.white : Colors.black87),
+              fontSize: 15.5 * scale,
+              fontWeight: FontWeight.w600,
+              fontFamily: 'Inter',
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            isMultipleChoice ? 'Множественный выбор' : 'Одиночный выбор',
+            style: TextStyle(
+              color: isMe ? Colors.white54 : (isDark ? Colors.white38 : Colors.black45),
+              fontSize: 10.5 * scale,
+              fontFamily: 'Inter',
+            ),
+          ),
+          const SizedBox(height: 12),
+          ...List.generate(options.length, (index) {
+            final option = options[index];
+            final optionId = option['id']?.toString() ?? '';
+            final optionText = option['text']?.toString() ?? '';
+
+            final rawVotes = votesByOption[optionId];
+            final optionVotes = rawVotes is num ? rawVotes.toInt() : (int.tryParse(rawVotes?.toString() ?? '') ?? 0);
+            final double percent = totalVotes > 0 ? (optionVotes / totalVotes) : 0.0;
+            final percentText = '${(percent * 100).round()}%';
+            final isSelected = userVotes.contains(optionId);
+
+            return Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4.0),
+              child: GestureDetector(
+                onTap: () {
+                  final nextSelected = !isSelected;
+                  _updatePollLocalVote(pollMsgId, optionId, !nextSelected, _myId?.toString() ?? '');
+                  // Send WebSocket update
+                  _webSocketService?.sendMessage({
+                    'type': 'poll_vote',
+                    'poll_message_id': pollMsgId,
+                    'option_id': optionId,
+                  });
+                },
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Stack(
+                    children: [
+                      // Progress background
+                      Positioned.fill(
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: AnimatedFractionallySizedBox(
+                            duration: const Duration(milliseconds: 300),
+                            curve: Curves.easeOutCubic,
+                            widthFactor: percent,
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 300),
+                              curve: Curves.easeOutCubic,
+                              color: isMe 
+                                  ? Colors.white.withOpacity(isSelected ? 0.2 : 0.08)
+                                  : (isDark 
+                                      ? Colors.white.withOpacity(isSelected ? 0.16 : 0.06)
+                                      : Colors.blue.withOpacity(isSelected ? 0.15 : 0.05)),
+                            ),
+                          ),
+                        ),
+                      ),
+                      // Text & percentage row
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 300),
+                        curve: Curves.easeOutCubic,
+                        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: isSelected 
+                                ? (isMe ? Colors.white.withOpacity(0.4) : Colors.blue.withOpacity(0.5)) 
+                                : Colors.transparent,
+                            width: 1,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            AnimatedSize(
+                              duration: const Duration(milliseconds: 250),
+                              curve: Curves.easeOutCubic,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (isSelected) ...[
+                                    Icon(
+                                      Icons.check_circle_rounded,
+                                      color: isMe ? Colors.white : (isDark ? Colors.blue.shade400 : Colors.blue.shade600),
+                                      size: 14 * scale,
+                                    ),
+                                    const SizedBox(width: 6),
+                                  ],
+                                ],
+                              ),
+                            ),
+                            Expanded(
+                              child: AnimatedDefaultTextStyle(
+                                duration: const Duration(milliseconds: 250),
+                                curve: Curves.easeOutCubic,
+                                style: TextStyle(
+                                  color: isMe ? Colors.white : (isDark ? Colors.white : Colors.black87),
+                                  fontSize: 13.5 * scale,
+                                  fontWeight: isSelected ? FontWeight.w500 : FontWeight.w400,
+                                  fontFamily: 'Inter',
+                                ),
+                                child: Text(optionText),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            AnimatedDefaultTextStyle(
+                              duration: const Duration(milliseconds: 250),
+                              curve: Curves.easeOutCubic,
+                              style: TextStyle(
+                                color: isMe ? Colors.white70 : (isDark ? Colors.white60 : Colors.black54),
+                                fontSize: 12 * scale,
+                                fontWeight: FontWeight.w500,
+                                fontFamily: 'Inter',
+                              ),
+                              child: Text(percentText),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }),
+          const SizedBox(height: 8),
+          Text(
+            totalVotes == 0
+                ? 'Нет голосов'
+                : '$totalVotes ${_formatVotesCountText(totalVotes)}',
+            style: TextStyle(
+              color: isMe ? Colors.white54 : (isDark ? Colors.white38 : Colors.black45),
+              fontSize: 11 * scale,
+              fontFamily: 'Inter',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _formatVotesCountText(int count) {
+    if (count % 10 == 1 && count % 100 != 11) {
+      return 'голос';
+    } else if ((count % 10 >= 2 && count % 10 <= 4) && (count % 100 < 10 || count % 100 >= 20)) {
+      return 'голоса';
+    } else {
+      return 'голосов';
+    }
+  }
+
+  Future<void> _sendCustomMessage(String text) async {
+    if (_selectedChat == null) return;
+
+    final chatId = _selectedChat!['chat_id'] as String;
+    final myUserId = _myId?.toString();
+    final otherUser = _selectedChat!['other_user'] as Map<String, dynamic>?;
+
+    String encryptedText = "";
+    try {
+      if (chatId.startsWith('favorites_') || chatId == 'favorites') {
+        if (myUserId == null) return;
+        encryptedText = await _cryptoService.encryptFavoritesMessage(text, myUserId);
+      } else if (chatId.startsWith('personal_')) {
+        final peerPubKey = await _getPeerPublicKey(otherUser);
+        if (peerPubKey == null) return;
+        encryptedText = await _cryptoService.encryptPersonalMessage(text, peerPubKey, chatId);
+      } else if (chatId.startsWith('group_') || chatId.startsWith('channel_')) {
+        final chatKeyHex = await _getGroupChatKey(chatId);
+        if (chatKeyHex == null) return;
+        encryptedText = await _cryptoService.encryptGroupMessage(text, chatKeyHex);
+      }
+    } catch (e) {
+      Logger.error('MessengerScreen', 'Encryption failed for custom message', e);
+      return;
+    }
+
+    if (encryptedText.isEmpty) return;
+
+    // Helper to encrypt additional plaintext (like titles or questions) using the same logic
+    Future<String> encryptString(String plaintext) async {
+      try {
+        if (chatId.startsWith('favorites_') || chatId == 'favorites') {
+          if (myUserId == null) return "";
+          return await _cryptoService.encryptFavoritesMessage(plaintext, myUserId);
+        } else if (chatId.startsWith('personal_')) {
+          final peerPubKey = await _getPeerPublicKey(otherUser);
+          if (peerPubKey == null) return "";
+          return await _cryptoService.encryptPersonalMessage(plaintext, peerPubKey, chatId);
+        } else if (chatId.startsWith('group_') || chatId.startsWith('channel_')) {
+          final chatKeyHex = await _getGroupChatKey(chatId);
+          if (chatKeyHex == null) return "";
+          return await _cryptoService.encryptGroupMessage(plaintext, chatKeyHex);
+        }
+      } catch (_) {}
+      return "";
+    }
+
+    // Save locally
+    _sentPlaintexts[encryptedText] = text;
+
+    bool sentViaWs = false;
+    if (_webSocketService != null && _webSocketService!.isConnected) {
+      Map<String, dynamic>? parsedJson;
+      try {
+        parsedJson = jsonDecode(text) as Map<String, dynamic>?;
+      } catch (_) {}
+
+      if (parsedJson != null && parsedJson['type'] == 'todo_list') {
+        final title = parsedJson['title'] as String? ?? 'Без названия';
+        final encryptedTitle = await encryptString(title);
+        sentViaWs = _webSocketService!.sendMessage({
+          'type': 'todo_list_message',
+          'encrypted_content': encryptedText,
+          'encrypted_title': encryptedTitle,
+          'title': title,
+          'chat_id': chatId,
+        });
+      } else if (parsedJson != null && parsedJson['type'] == 'poll') {
+        final question = parsedJson['question'] as String? ?? 'Без вопроса';
+        final encryptedQuestion = await encryptString(question);
+        sentViaWs = _webSocketService!.sendMessage({
+          'type': 'poll_message',
+          'encrypted_content': encryptedText,
+          'encrypted_question': encryptedQuestion,
+          'question': question,
+          'chat_id': chatId,
+        });
+      } else {
+        sentViaWs = _webSocketService!.sendMessage({
+          'type': 'encrypted_message',
+          'encrypted_text': encryptedText,
+        });
+      }
+    }
+
+    if (!sentViaWs) {
+      _sentPlaintexts.remove(encryptedText);
+      final res = await _apiService.sendMessage(chatId, encryptedText);
+      if (res.success && res.data != null) {
+        final newMsg = res.data!;
+        final dynamic rawId = newMsg['id'];
+        final id = rawId is int ? rawId : (int.tryParse(rawId.toString()) ?? 0);
+        _decryptedMessages[id] = text;
+
+        if (mounted) {
+          setState(() {
+            _messages.insert(0, newMsg);
+          });
+          _scrollToBottom();
+        }
+        _loadChats(silent: true);
+      }
+    }
+  }
+
+  void _showVoiceSendDialog() {
+    int duration = 5;
+    _sendTypingStatus(true, 'recording_voice');
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Отправить голосовое сообщение'),
+        content: StatefulBuilder(
+          builder: (context, setDialogState) => Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Имитация записи голосового сообщения.'),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.mic_rounded, color: Colors.red, size: 28),
+                  const SizedBox(width: 12),
+                  Text(
+                    '0:${duration.toString().padLeft(2, '0')}',
+                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+              Slider(
+                value: duration.toDouble(),
+                min: 1,
+                max: 60,
+                onChanged: (val) {
+                  setDialogState(() {
+                    duration = val.toInt();
+                  });
+                },
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Отмена'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              final payload = jsonEncode({
+                'type': 'voice',
+                'file_id': 'voice_${DateTime.now().millisecondsSinceEpoch}',
+                'file_name': 'voice_note.m4a',
+                'file_size': 1200 * duration,
+                'duration': duration,
+              });
+              _sendCustomMessage(payload);
+            },
+            child: const Text('Отправить'),
+          ),
+        ],
+      ),
+    ).then((_) {
+      _sendTypingStatus(false, 'recording_voice');
+    });
+  }
+
+  void _showTodoSendDialog() {
+    final titleController = TextEditingController();
+    final List<TextEditingController> itemsControllers = [
+      TextEditingController(),
+    ];
+
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final scaleProvider = Provider.of<ScaleProvider>(context, listen: false);
+    final scale = scaleProvider.scale;
+    final activeBrandColor = const Color(0xFF2563EB);
+
+    showGeneralDialog(
+      context: context,
+      barrierLabel: "TodoDialog",
+      barrierDismissible: true,
+      barrierColor: isDark ? Colors.black.withOpacity(0.85) : Colors.black.withOpacity(0.3),
+      transitionDuration: const Duration(milliseconds: 200),
+      transitionBuilder: (context, anim1, anim2, child) {
+        return FadeTransition(
+          opacity: anim1,
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.98, end: 1.0).animate(
+              CurvedAnimation(parent: anim1, curve: Curves.easeOut),
+            ),
+            child: child,
+          ),
+        );
+      },
+      pageBuilder: (context, anim1, anim2) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final screenSize = MediaQuery.of(context).size;
+            final bgColor = isDark ? const Color(0xFF0C0C0C) : Colors.white;
+            final borderColor = isDark ? const Color(0xFF1E1E1E) : const Color(0xFFEBEBEB);
+
+            return Material(
+              type: MaterialType.transparency,
+              child: Center(
+                child: Container(
+                  width: 380 * scale,
+                  constraints: BoxConstraints(maxHeight: screenSize.height * 0.8),
+                  margin: EdgeInsets.all(20 * scale),
+                  decoration: BoxDecoration(
+                    color: bgColor,
+                    borderRadius: BorderRadius.circular(12 * scale),
+                    border: Border.all(color: borderColor, width: 1),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(isDark ? 0.6 : 0.06),
+                        blurRadius: 24 * scale,
+                        offset: Offset(0, 8 * scale),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Header
+                      Padding(
+                        padding: EdgeInsets.fromLTRB(20 * scale, 20 * scale, 20 * scale, 12 * scale),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'СОЗДАТЬ TO-DO',
+                              style: TextStyle(
+                                fontSize: 10 * scale,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: 1.5 * scale,
+                                color: isDark ? Colors.white38 : Colors.black38,
+                                fontFamily: 'Inter',
+                              ),
+                            ),
+                            GestureDetector(
+                              onTap: () => Navigator.of(context).pop(),
+                              child: MouseRegion(
+                                cursor: SystemMouseCursors.click,
+                                child: Icon(
+                                  Icons.close_rounded,
+                                  size: 16 * scale,
+                                  color: isDark ? Colors.white38 : Colors.black38,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      
+                      Flexible(
+                        child: SingleChildScrollView(
+                          padding: EdgeInsets.symmetric(horizontal: 20 * scale),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const SizedBox(height: 12),
+                              TextField(
+                                controller: titleController,
+                                style: TextStyle(fontSize: 14 * scale),
+                                decoration: InputDecoration(
+                                  labelText: 'Название списка',
+                                  labelStyle: TextStyle(fontSize: 12 * scale),
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8 * scale),
+                                    borderSide: BorderSide(color: borderColor),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8 * scale),
+                                    borderSide: BorderSide(color: activeBrandColor),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                'Пункты:',
+                                style: TextStyle(
+                                  fontSize: 12 * scale,
+                                  fontWeight: FontWeight.w600,
+                                  color: isDark ? Colors.white54 : Colors.black54,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              ...itemsControllers.asMap().entries.map((e) {
+                                final i = e.key;
+                                final controller = e.value;
+                                return Padding(
+                                  padding: EdgeInsets.only(bottom: 8 * scale),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: TextField(
+                                          controller: controller,
+                                          style: TextStyle(fontSize: 14 * scale),
+                                          decoration: InputDecoration(
+                                            hintText: 'Пункт ${i + 1}',
+                                            contentPadding: EdgeInsets.symmetric(horizontal: 12 * scale, vertical: 10 * scale),
+                                            border: OutlineInputBorder(
+                                              borderRadius: BorderRadius.circular(8 * scale),
+                                              borderSide: BorderSide(color: borderColor),
+                                            ),
+                                            focusedBorder: OutlineInputBorder(
+                                              borderRadius: BorderRadius.circular(8 * scale),
+                                              borderSide: BorderSide(color: activeBrandColor),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      if (itemsControllers.length > 1) ...[
+                                        const SizedBox(width: 8),
+                                        IconButton(
+                                          icon: const Icon(Icons.close),
+                                          iconSize: 18 * scale,
+                                          color: isDark ? Colors.white38 : Colors.black38,
+                                          onPressed: () {
+                                            setModalState(() {
+                                              itemsControllers.removeAt(i);
+                                            });
+                                          },
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                );
+                              }).toList(),
+                              const SizedBox(height: 8),
+                              TextButton.icon(
+                                onPressed: () {
+                                  setModalState(() {
+                                    itemsControllers.add(TextEditingController());
+                                  });
+                                },
+                                icon: Icon(Icons.add, size: 18 * scale),
+                                label: Text('Добавить пункт', style: TextStyle(fontSize: 13 * scale)),
+                                style: TextButton.styleFrom(
+                                  foregroundColor: activeBrandColor,
+                                  padding: EdgeInsets.symmetric(vertical: 8 * scale, horizontal: 12 * scale),
+                                ),
+                              ),
+                              const SizedBox(height: 20),
+                            ],
+                          ),
+                        ),
+                      ),
+
+                      // Footer Actions
+                      Container(
+                        padding: EdgeInsets.all(20 * scale),
+                        decoration: BoxDecoration(
+                          border: Border(top: BorderSide(color: borderColor)),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(context),
+                              style: TextButton.styleFrom(
+                                foregroundColor: isDark ? Colors.white70 : Colors.black87,
+                                padding: EdgeInsets.symmetric(horizontal: 16 * scale, vertical: 12 * scale),
+                              ),
+                              child: Text('Отмена', style: TextStyle(fontSize: 13 * scale)),
+                            ),
+                            const SizedBox(width: 8),
+                            ElevatedButton(
+                              onPressed: () {
+                                final title = titleController.text.trim();
+                                final lines = itemsControllers
+                                    .map((c) => c.text.trim())
+                                    .where((l) => l.isNotEmpty)
+                                    .toList();
+                                if (title.isEmpty || lines.isEmpty) return;
+
+                                Navigator.pop(context);
+                                final itemsList = lines.map((l) => {
+                                  'text': l,
+                                  'completed': false,
+                                }).toList();
+                                final payload = jsonEncode({
+                                  'type': 'todo_list',
+                                  'title': title,
+                                  'items': itemsList,
+                                  'is_native': true,
+                                });
+                                _sendCustomMessage(payload);
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: activeBrandColor,
+                                foregroundColor: Colors.white,
+                                elevation: 0,
+                                padding: EdgeInsets.symmetric(horizontal: 20 * scale, vertical: 12 * scale),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8 * scale),
+                                ),
+                              ),
+                              child: Text('Создать', style: TextStyle(fontSize: 13 * scale, fontWeight: FontWeight.w600)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showPollSendDialog() {
+    final questionController = TextEditingController();
+    final List<TextEditingController> optionsControllers = [
+      TextEditingController(),
+      TextEditingController(),
+    ];
+    bool isMultipleChoice = false;
+
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final scaleProvider = Provider.of<ScaleProvider>(context, listen: false);
+    final scale = scaleProvider.scale;
+    final activeBrandColor = const Color(0xFF2563EB);
+
+    showGeneralDialog(
+      context: context,
+      barrierLabel: "PollDialog",
+      barrierDismissible: true,
+      barrierColor: isDark ? Colors.black.withOpacity(0.85) : Colors.black.withOpacity(0.3),
+      transitionDuration: const Duration(milliseconds: 200),
+      transitionBuilder: (context, anim1, anim2, child) {
+        return FadeTransition(
+          opacity: anim1,
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.98, end: 1.0).animate(
+              CurvedAnimation(parent: anim1, curve: Curves.easeOut),
+            ),
+            child: child,
+          ),
+        );
+      },
+      pageBuilder: (context, anim1, anim2) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final screenSize = MediaQuery.of(context).size;
+            final bgColor = isDark ? const Color(0xFF0C0C0C) : Colors.white;
+            final borderColor = isDark ? const Color(0xFF1E1E1E) : const Color(0xFFEBEBEB);
+
+            return Material(
+              type: MaterialType.transparency,
+              child: Center(
+                child: Container(
+                  width: 380 * scale,
+                  constraints: BoxConstraints(maxHeight: screenSize.height * 0.8),
+                  margin: EdgeInsets.all(20 * scale),
+                  decoration: BoxDecoration(
+                    color: bgColor,
+                    borderRadius: BorderRadius.circular(12 * scale),
+                    border: Border.all(color: borderColor, width: 1),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(isDark ? 0.6 : 0.06),
+                        blurRadius: 24 * scale,
+                        offset: Offset(0, 8 * scale),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Header
+                      Padding(
+                        padding: EdgeInsets.fromLTRB(20 * scale, 20 * scale, 20 * scale, 12 * scale),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'СОЗДАТЬ ОПРОС',
+                              style: TextStyle(
+                                fontSize: 10 * scale,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: 1.5 * scale,
+                                color: isDark ? Colors.white38 : Colors.black38,
+                                fontFamily: 'Inter',
+                              ),
+                            ),
+                            GestureDetector(
+                              onTap: () => Navigator.of(context).pop(),
+                              child: MouseRegion(
+                                cursor: SystemMouseCursors.click,
+                                child: Icon(
+                                  Icons.close_rounded,
+                                  size: 16 * scale,
+                                  color: isDark ? Colors.white38 : Colors.black38,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      
+                      Flexible(
+                        child: SingleChildScrollView(
+                          padding: EdgeInsets.symmetric(horizontal: 20 * scale),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const SizedBox(height: 12),
+                              TextField(
+                                controller: questionController,
+                                style: TextStyle(fontSize: 14 * scale),
+                                decoration: InputDecoration(
+                                  labelText: 'Вопрос',
+                                  labelStyle: TextStyle(fontSize: 12 * scale),
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8 * scale),
+                                    borderSide: BorderSide(color: borderColor),
+                                  ),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8 * scale),
+                                    borderSide: BorderSide(color: activeBrandColor),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                'Варианты ответа:',
+                                style: TextStyle(
+                                  fontSize: 12 * scale,
+                                  fontWeight: FontWeight.w600,
+                                  color: isDark ? Colors.white54 : Colors.black54,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              ...optionsControllers.asMap().entries.map((e) {
+                                final i = e.key;
+                                final controller = e.value;
+                                return Padding(
+                                  padding: EdgeInsets.only(bottom: 8 * scale),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: TextField(
+                                          controller: controller,
+                                          style: TextStyle(fontSize: 14 * scale),
+                                          decoration: InputDecoration(
+                                            hintText: 'Вариант ${i + 1}',
+                                            contentPadding: EdgeInsets.symmetric(horizontal: 12 * scale, vertical: 10 * scale),
+                                            border: OutlineInputBorder(
+                                              borderRadius: BorderRadius.circular(8 * scale),
+                                              borderSide: BorderSide(color: borderColor),
+                                            ),
+                                            focusedBorder: OutlineInputBorder(
+                                              borderRadius: BorderRadius.circular(8 * scale),
+                                              borderSide: BorderSide(color: activeBrandColor),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      if (optionsControllers.length > 1) ...[
+                                        const SizedBox(width: 8),
+                                        IconButton(
+                                          icon: const Icon(Icons.close),
+                                          iconSize: 18 * scale,
+                                          color: isDark ? Colors.white38 : Colors.black38,
+                                          onPressed: () {
+                                            setModalState(() {
+                                              optionsControllers.removeAt(i);
+                                            });
+                                          },
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                );
+                              }).toList(),
+                              const SizedBox(height: 8),
+                              TextButton.icon(
+                                onPressed: () {
+                                  setModalState(() {
+                                    optionsControllers.add(TextEditingController());
+                                  });
+                                },
+                                icon: Icon(Icons.add, size: 18 * scale),
+                                label: Text('Добавить вариант', style: TextStyle(fontSize: 13 * scale)),
+                                style: TextButton.styleFrom(
+                                  foregroundColor: activeBrandColor,
+                                  padding: EdgeInsets.symmetric(vertical: 8 * scale, horizontal: 12 * scale),
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              Theme(
+                                data: ThemeData(
+                                  unselectedWidgetColor: isDark ? Colors.white54 : Colors.black54,
+                                ),
+                                child: CheckboxListTile(
+                                  title: Text('Множественный выбор', style: TextStyle(fontSize: 13 * scale)),
+                                  value: isMultipleChoice,
+                                  activeColor: activeBrandColor,
+                                  contentPadding: EdgeInsets.zero,
+                                  controlAffinity: ListTileControlAffinity.leading,
+                                  onChanged: (val) {
+                                    setModalState(() {
+                                      isMultipleChoice = val ?? false;
+                                    });
+                                  },
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                            ],
+                          ),
+                        ),
+                      ),
+
+                      // Footer Actions
+                      Container(
+                        padding: EdgeInsets.all(20 * scale),
+                        decoration: BoxDecoration(
+                          border: Border(top: BorderSide(color: borderColor)),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(context),
+                              style: TextButton.styleFrom(
+                                foregroundColor: isDark ? Colors.white70 : Colors.black87,
+                                padding: EdgeInsets.symmetric(horizontal: 16 * scale, vertical: 12 * scale),
+                              ),
+                              child: Text('Отмена', style: TextStyle(fontSize: 13 * scale)),
+                            ),
+                            const SizedBox(width: 8),
+                            ElevatedButton(
+                              onPressed: () {
+                                final question = questionController.text.trim();
+                                final lines = optionsControllers
+                                    .map((c) => c.text.trim())
+                                    .where((l) => l.isNotEmpty)
+                                    .toList();
+                                if (question.isEmpty || lines.isEmpty) return;
+
+                                Navigator.pop(context);
+                                final List<Map<String, String>> optionsList = lines
+                                    .asMap()
+                                    .entries
+                                    .map((e) => {'id': 'opt_${e.key}', 'text': e.value})
+                                    .toList();
+                                final payload = jsonEncode({
+                                  'type': 'poll',
+                                  'question': question,
+                                  'options': optionsList,
+                                  'is_multiple_choice': isMultipleChoice,
+                                  'is_native': true,
+                                });
+                                _sendCustomMessage(payload);
+                              },
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: activeBrandColor,
+                                foregroundColor: Colors.white,
+                                elevation: 0,
+                                padding: EdgeInsets.symmetric(horizontal: 20 * scale, vertical: 12 * scale),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8 * scale),
+                                ),
+                              ),
+                              child: Text('Создать', style: TextStyle(fontSize: 13 * scale, fontWeight: FontWeight.w600)),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
 }
 
 /// CustomPainter для точного центрирования буквы инициала в аватарке.
@@ -2284,3 +3694,166 @@ class _InitialsPainter extends CustomPainter {
   bool shouldRepaint(_InitialsPainter old) =>
       old.initial != initial || old.color != color || old.fontSize != fontSize;
 }
+
+class _VoiceMessageBubblePlayer extends StatefulWidget {
+  final Map<String, dynamic> payload;
+  final bool isMe;
+  final bool isDark;
+  final double scale;
+
+  const _VoiceMessageBubblePlayer({
+    required this.payload,
+    required this.isMe,
+    required this.isDark,
+    required this.scale,
+  });
+
+  @override
+  State<_VoiceMessageBubblePlayer> createState() => _VoiceMessageBubblePlayerState();
+}
+
+class _VoiceMessageBubblePlayerState extends State<_VoiceMessageBubblePlayer> {
+  bool _isPlaying = false;
+  double _progress = 0.0;
+  Timer? _mockPlaybackTimer;
+  int _elapsedMs = 0;
+
+  @override
+  void dispose() {
+    _mockPlaybackTimer?.cancel();
+    super.dispose();
+  }
+
+  void _togglePlayback() {
+    final durationSeconds = widget.payload['duration'] is num 
+        ? (widget.payload['duration'] as num).toInt() 
+        : (int.tryParse(widget.payload['duration']?.toString() ?? '') ?? 10);
+    
+    final totalMs = durationSeconds * 1000;
+
+    if (_isPlaying) {
+      _mockPlaybackTimer?.cancel();
+      setState(() {
+        _isPlaying = false;
+      });
+    } else {
+      setState(() {
+        _isPlaying = true;
+        if (_progress >= 1.0) {
+          _progress = 0.0;
+          _elapsedMs = 0;
+        }
+      });
+
+      _mockPlaybackTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
+        setState(() {
+          _elapsedMs += 100;
+          _progress = (_elapsedMs / totalMs).clamp(0.0, 1.0);
+          if (_progress >= 1.0) {
+            _isPlaying = false;
+            _mockPlaybackTimer?.cancel();
+          }
+        });
+      });
+    }
+  }
+
+  String _formatDuration(int seconds) {
+    final m = seconds ~/ 60;
+    final s = seconds % 60;
+    return '$m:${s.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final durationSeconds = widget.payload['duration'] is num 
+        ? (widget.payload['duration'] as num).toInt() 
+        : (int.tryParse(widget.payload['duration']?.toString() ?? '') ?? 10);
+
+    final currentSeconds = (_progress * durationSeconds).round();
+
+    return Container(
+      width: 240 * widget.scale,
+      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+      child: Row(
+        children: [
+          // Play/Pause button
+          GestureDetector(
+            onTap: _togglePlayback,
+            child: Container(
+              width: 38 * widget.scale,
+              height: 38 * widget.scale,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: widget.isMe 
+                    ? Colors.white.withOpacity(0.2) 
+                    : (widget.isDark ? Colors.white12 : Colors.black.withOpacity(0.06)),
+              ),
+              child: Icon(
+                _isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                color: widget.isMe ? Colors.white : (widget.isDark ? Colors.white : Colors.black87),
+                size: 24 * widget.scale,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          // Waveform & Duration Column
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Waveform mock
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: List.generate(18, (index) {
+                    final height = 4.0 + (math.sin(index * 0.8) * 12.0).abs() * widget.scale;
+                    final isActive = (index / 18.0) <= _progress;
+
+                    return Container(
+                      width: 3 * widget.scale,
+                      height: height,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(2),
+                        color: isActive 
+                            ? (widget.isMe ? Colors.white : Colors.blue)
+                            : (widget.isMe ? Colors.white30 : (widget.isDark ? Colors.white24 : Colors.black12)),
+                      ),
+                    );
+                  }),
+                ),
+                const SizedBox(height: 6),
+                // Duration text
+                Text(
+                  _isPlaying 
+                      ? '${_formatDuration(currentSeconds)} / ${_formatDuration(durationSeconds)}'
+                      : 'Голосовое сообщение • ${_formatDuration(durationSeconds)}',
+                  style: TextStyle(
+                    color: widget.isMe ? Colors.white60 : (widget.isDark ? Colors.white38 : Colors.black45),
+                    fontSize: 11 * widget.scale,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TypingState {
+  final String username;
+  final String firstName;
+  final String action;
+  final DateTime timestamp;
+
+  _TypingState({
+    required this.username,
+    required this.firstName,
+    required this.action,
+    required this.timestamp,
+  });
+}
+
+

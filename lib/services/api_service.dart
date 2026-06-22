@@ -723,12 +723,32 @@ class ApiService {
         '$_baseUrl/user/profile/',
         options: options,
       );
-      
+
       return _handleDioResponse(response);
     } catch (e) {
       return ApiResponse(
         success: false,
         error: 'Ошибка получения профиля: $e',
+      );
+    }
+  }
+
+  /// Получить публичный профиль пользователя по ID.
+  /// Сервер применяет настройки приватности: birth_date/age приходят null,
+  /// если день рождения скрыт; bio может быть пустым.
+  Future<ApiResponse> getUserById(int userId) async {
+    try {
+      final options = await _getAuthOptions();
+      final response = await _dio.get(
+        '$_baseUrl/user/$userId/',
+        options: options,
+      );
+
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(
+        success: false,
+        error: 'Ошибка получения профиля пользователя: $e',
       );
     }
   }

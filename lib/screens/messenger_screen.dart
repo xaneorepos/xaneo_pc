@@ -1,15 +1,17 @@
 import 'dart:ui';
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:lottie/lottie.dart';
 import '../providers/theme_provider.dart';
 import '../providers/scale_provider.dart';
+import '../providers/playback_provider.dart';
 import '../widgets/advanced_background.dart';
+import '../widgets/voice_waveform_slider.dart';
 import '../widgets/settings_modal.dart';
 import '../services/api_service.dart';
 import '../services/crypto_service.dart';
@@ -50,6 +52,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
   int? _myId;
   String? _myUsername;
   List<AccountInfo> _accounts = [];
+
+  // Предзагруженные профили собеседников (userId -> данные с применённой приватностью)
+  final Map<int, Map<String, dynamic>> _userProfileCache = {};
 
   // Search dialog state
   bool _isSearching = false;
@@ -202,14 +207,14 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
   Future<void> _handleWebSocketMessage(Map<String, dynamic> data, String activeChatId) async {
     final type = data['type'] as String?;
-    if (type == 'encrypted_message' || type == 'todo_list_message' || type == 'poll_message') {
+    if (type == 'encrypted_message' || type == 'todo_list_message' || type == 'poll_message' || type == 'voice_message') {
       final msgChatId = data['chat_id'] as String?;
       if (msgChatId != activeChatId) return;
-      
+
       final dynamic rawMsgId = data['id'];
       final msgId = rawMsgId is int ? rawMsgId : int.tryParse(rawMsgId.toString());
       if (msgId == null) return;
-      
+
       final exists = _messages.any((m) => m['id'] == msgId);
       if (exists) return;
 
@@ -219,6 +224,8 @@ class _MessengerScreenState extends State<MessengerScreen> {
       } else if (type == 'poll_message') {
         data['message_type'] = 'poll';
         data['author_id'] = data['creator_id'];
+      } else if (type == 'voice_message') {
+        data['message_type'] = 'voice';
       } else {
         data['message_type'] ??= 'regular';
       }
@@ -826,6 +833,23 @@ class _MessengerScreenState extends State<MessengerScreen> {
     _connectWebSocket(chatId);
     _markChatAsRead(chatId);
     _scrollToBottom();
+    _prefetchUserProfile(chat);
+  }
+
+  /// Заранее подгружает профиль собеседника (для личных чатов), чтобы модалка
+  /// открывалась мгновенно без спиннера. Результат кладём в [_userProfileCache].
+  Future<void> _prefetchUserProfile(Map<String, dynamic> chat) async {
+    if (chat['chat_type'] != 'personal') return;
+    final otherUser = chat['other_user'] as Map<String, dynamic>?;
+    if (otherUser == null) return;
+    final dynamic rawId = otherUser['id'];
+    final int? userId = rawId is int ? rawId : int.tryParse(rawId?.toString() ?? '');
+    if (userId == null) return;
+
+    final res = await _apiService.getUserById(userId);
+    if (res.success && res.data != null) {
+      _userProfileCache[userId] = {...otherUser, ...res.data!};
+    }
   }
 
   Future<void> _handleSearch(String query) async {
@@ -888,6 +912,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
     _loadMessages(chatId);
     _connectWebSocket(chatId);
     _markChatAsRead(chatId);
+    _prefetchUserProfile(newChat);
   }
 
   Future<void> _logout() async {
@@ -958,6 +983,414 @@ class _MessengerScreenState extends State<MessengerScreen> {
         });
       }
     }
+  }
+
+  String _formatBirthday(String? iso) {
+    if (iso == null || iso.isEmpty) return '';
+    try {
+      final d = DateTime.parse(iso);
+      const months = [
+        'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
+        'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря',
+      ];
+      return '${d.day} ${months[d.month - 1]} ${d.year}';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  /// Модалка с информацией о пользователе. Данные подгружаются с сервера,
+  /// который уже применяет настройки приватности (скрытые поля приходят null).
+  void _showUserProfileDialog(
+    BuildContext context,
+    Map<String, dynamic> otherUser,
+    String fallbackName,
+  ) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final scaleProvider = Provider.of<ScaleProvider>(context, listen: false);
+    final scale = scaleProvider.scale;
+
+    final dynamic rawId = otherUser['id'];
+    final int? userId = rawId is int ? rawId : int.tryParse(rawId?.toString() ?? '');
+
+    final mockTabs = <Map<String, dynamic>>[
+      {'title': 'Медиа', 'icon': Icons.image_rounded},
+      {'title': 'Файлы', 'icon': Icons.description_rounded},
+      {'title': 'Голос', 'icon': Icons.mic_rounded},
+      {'title': 'Ссылки', 'icon': Icons.link_rounded},
+    ];
+
+    showGeneralDialog(
+      context: context,
+      barrierLabel: 'UserProfile',
+      barrierDismissible: true,
+      barrierColor: isDark ? Colors.black.withOpacity(0.85) : Colors.black.withOpacity(0.3),
+      transitionDuration: const Duration(milliseconds: 200),
+      transitionBuilder: (context, anim1, anim2, child) {
+        return FadeTransition(
+          opacity: anim1,
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.98, end: 1.0).animate(
+              CurvedAnimation(parent: anim1, curve: Curves.easeOut),
+            ),
+            child: child,
+          ),
+        );
+      },
+      pageBuilder: (context, anim1, anim2) {
+        final screenSize = MediaQuery.of(context).size;
+        final bgColor = isDark ? const Color(0xFF0C0C0C) : Colors.white;
+        final borderColor = isDark ? const Color(0xFF1E1E1E) : const Color(0xFFEBEBEB);
+
+        return Material(
+          type: MaterialType.transparency,
+          child: Center(
+            child: Container(
+              width: 360 * scale,
+              constraints: BoxConstraints(
+                maxHeight: screenSize.height * 0.85,
+              ),
+              margin: EdgeInsets.all(20 * scale),
+              decoration: BoxDecoration(
+                color: bgColor,
+                borderRadius: BorderRadius.circular(12 * scale),
+                border: Border.all(color: borderColor, width: 1),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(isDark ? 0.6 : 0.06),
+                    blurRadius: 24 * scale,
+                    offset: Offset(0, 8 * scale),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Header
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(20 * scale, 20 * scale, 20 * scale, 4 * scale),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'ПРОФИЛЬ',
+                          style: TextStyle(
+                            fontSize: 10 * scale,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 1.5 * scale,
+                            color: isDark ? Colors.white38 : Colors.black38,
+                            fontFamily: 'Inter',
+                          ),
+                        ),
+                        GestureDetector(
+                          onTap: () => Navigator.of(context).pop(),
+                          child: MouseRegion(
+                            cursor: SystemMouseCursors.click,
+                            child: Icon(
+                              Icons.close_rounded,
+                              size: 16 * scale,
+                              color: isDark ? Colors.white38 : Colors.black38,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // Body
+                  Flexible(
+                    child: SingleChildScrollView(
+                      padding: EdgeInsets.fromLTRB(20 * scale, 8 * scale, 20 * scale, 20 * scale),
+                      child: Builder(
+                        builder: (context) {
+                          // Профиль предзагружен при открытии чата → берём из кэша,
+                          // иначе фолбэк на то, что уже есть в чате.
+                          final Map<String, dynamic> data = {
+                            ...otherUser,
+                            if (userId != null && _userProfileCache.containsKey(userId))
+                              ..._userProfileCache[userId]!,
+                          };
+
+                          final name = (data['first_name']?.toString().trim().isNotEmpty ?? false)
+                              ? data['first_name'].toString()
+                              : ((data['username']?.toString().trim().isNotEmpty ?? false)
+                                  ? data['username'].toString()
+                                  : fallbackName);
+                          final username = data['username']?.toString() ?? '';
+                          final avatarUrl = (data['avatar_url'] ?? data['avatar'])?.toString();
+                          final gradient = data['avatar_gradient']?.toString();
+                          final bio = data['bio']?.toString() ?? '';
+                          final birthday = _formatBirthday(data['birth_date']?.toString());
+                          final age = data['age'];
+
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              // Avatar + name + username
+                              Center(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    _buildAvatar(
+                                      avatarUrl,
+                                      name,
+                                      40 * scale,
+                                      scale,
+                                      isDark,
+                                      avatarGradient: gradient,
+                                    ),
+                                    SizedBox(height: 14 * scale),
+                                    Text(
+                                      name,
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        fontSize: 19 * scale,
+                                        fontWeight: FontWeight.w700,
+                                        color: isDark ? Colors.white : Colors.black87,
+                                        fontFamily: 'Inter',
+                                      ),
+                                    ),
+                                    if (username.isNotEmpty) ...[
+                                      SizedBox(height: 3 * scale),
+                                      Text(
+                                        '@$username',
+                                        style: TextStyle(
+                                          fontSize: 12.5 * scale,
+                                          color: isDark ? Colors.white38 : Colors.black45,
+                                          fontFamily: 'Inter',
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                              SizedBox(height: 20 * scale),
+
+                              // Details
+                              _buildProfileDetails(
+                                isDark,
+                                scale,
+                                bio: bio,
+                                username: username,
+                                birthday: birthday,
+                                age: age is int ? age : (age is num ? age.toInt() : null),
+                              ),
+
+                              SizedBox(height: 20 * scale),
+
+                              // Mock shared-media tabs
+                              _buildProfileMockTabs(isDark, scale, mockTabs),
+                            ],
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildProfileDetails(
+    bool isDark,
+    double scale, {
+    required String bio,
+    required String username,
+    required String birthday,
+    required int? age,
+  }) {
+    final tiles = <Widget>[];
+
+    void addTile(IconData icon, String value, String label, {bool copyable = true}) {
+      if (tiles.isNotEmpty) {
+        tiles.add(Divider(
+          color: isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.05),
+          height: 1,
+          indent: 48 * scale,
+        ));
+      }
+      tiles.add(_buildProfileInfoTile(isDark, scale, icon, value, label, copyable: copyable));
+    }
+
+    if (bio.isNotEmpty) addTile(Icons.info_outline_rounded, bio, 'О себе', copyable: false);
+    if (username.isNotEmpty) {
+      addTile(Icons.alternate_email_rounded, '@$username', 'Имя пользователя');
+    }
+    if (birthday.isNotEmpty) {
+      final ageStr = age != null ? ' • $age ${_pluralizeYears(age)}' : '';
+      addTile(Icons.cake_outlined, '$birthday$ageStr', 'День рождения', copyable: false);
+    }
+
+    if (tiles.isEmpty) {
+      return Padding(
+        padding: EdgeInsets.symmetric(vertical: 8 * scale),
+        child: Center(
+          child: Text(
+            'Пользователь скрыл информацию о себе',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 12 * scale,
+              color: isDark ? Colors.white38 : Colors.black38,
+              fontFamily: 'Inter',
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? Colors.white.withOpacity(0.03) : Colors.black.withOpacity(0.02),
+        borderRadius: BorderRadius.circular(12 * scale),
+        border: Border.all(
+          color: isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.04),
+        ),
+      ),
+      padding: EdgeInsets.all(4 * scale),
+      child: Column(children: tiles),
+    );
+  }
+
+  String _pluralizeYears(int n) {
+    if (n % 10 == 1 && n % 100 != 11) return 'год';
+    if ([2, 3, 4].contains(n % 10) && ![12, 13, 14].contains(n % 100)) return 'года';
+    return 'лет';
+  }
+
+  Widget _buildProfileInfoTile(
+    bool isDark,
+    double scale,
+    IconData icon,
+    String value,
+    String label, {
+    bool copyable = true,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: copyable
+            ? () {
+                Clipboard.setData(ClipboardData(text: value));
+                CustomToast.show(context, 'Скопировано', type: ToastType.success);
+              }
+            : null,
+        borderRadius: BorderRadius.circular(8 * scale),
+        hoverColor: copyable
+            ? (isDark ? Colors.white.withOpacity(0.04) : Colors.black.withOpacity(0.03))
+            : Colors.transparent,
+        child: Padding(
+          padding: EdgeInsets.symmetric(horizontal: 10 * scale, vertical: 10 * scale),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: EdgeInsets.all(8 * scale),
+                decoration: BoxDecoration(
+                  color: isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.04),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  icon,
+                  size: 16 * scale,
+                  color: isDark ? Colors.white60 : Colors.black54,
+                ),
+              ),
+              SizedBox(width: 12 * scale),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      value,
+                      style: TextStyle(
+                        fontSize: 13.5 * scale,
+                        fontWeight: FontWeight.w500,
+                        height: 1.35,
+                        color: isDark ? Colors.white : Colors.black87,
+                        fontFamily: 'Inter',
+                      ),
+                    ),
+                    SizedBox(height: 2 * scale),
+                    Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 10.5 * scale,
+                        color: isDark ? Colors.white38 : Colors.black38,
+                        fontFamily: 'Inter',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (copyable)
+                Padding(
+                  padding: EdgeInsets.only(top: 6 * scale),
+                  child: Icon(
+                    Icons.copy_rounded,
+                    size: 14 * scale,
+                    color: isDark ? Colors.white24 : Colors.black26,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProfileMockTabs(
+    bool isDark,
+    double scale,
+    List<Map<String, dynamic>> tabs,
+  ) {
+    return Row(
+      children: tabs.map((tab) {
+        return Expanded(
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: 3 * scale),
+            child: Container(
+              height: 42 * scale,
+              decoration: BoxDecoration(
+                color: isDark ? Colors.white.withOpacity(0.03) : Colors.black.withOpacity(0.02),
+                borderRadius: BorderRadius.circular(10 * scale),
+                border: Border.all(
+                  color: isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.04),
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    tab['icon'] as IconData,
+                    size: 14 * scale,
+                    color: isDark ? Colors.white38 : Colors.black38,
+                  ),
+                  SizedBox(width: 5 * scale),
+                  Flexible(
+                    child: Text(
+                      tab['title'] as String,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 9.5 * scale,
+                        color: isDark ? Colors.white38 : Colors.black38,
+                        fontFamily: 'Inter',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      }).toList(),
+    );
   }
 
   void _showAccountSwitcherDialog(BuildContext context) {
@@ -2165,14 +2598,30 @@ class _MessengerScreenState extends State<MessengerScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text(
-                      displayName,
-                      style: TextStyle(
-                        fontSize: 16 * scale,
-                        fontWeight: FontWeight.bold,
-                        color: isDark ? Colors.white : Colors.black87,
+                    if (chatType == 'personal' && otherUser != null)
+                      MouseRegion(
+                        cursor: SystemMouseCursors.click,
+                        child: GestureDetector(
+                          onTap: () => _showUserProfileDialog(context, otherUser, displayName),
+                          child: Text(
+                            displayName,
+                            style: TextStyle(
+                              fontSize: 16 * scale,
+                              fontWeight: FontWeight.bold,
+                              color: isDark ? Colors.white : Colors.black87,
+                            ),
+                          ),
+                        ),
+                      )
+                    else
+                      Text(
+                        displayName,
+                        style: TextStyle(
+                          fontSize: 16 * scale,
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? Colors.white : Colors.black87,
+                        ),
                       ),
-                    ),
                     const SizedBox(height: 2),
                     if (typingAction != null)
                       Row(
@@ -2250,31 +2699,177 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
         // Message List
         Expanded(
-          child: _isMessagesLoading
-              ? const Center(child: CircularProgressIndicator())
-              : _messages.isEmpty
-                  ? Center(
-                      child: Text(
-                        'Нет сообщений. Напишите что-нибудь!',
-                        style: TextStyle(color: isDark ? Colors.white38 : Colors.black38),
-                      ),
-                    )
-                  : ListView.builder(
-                      controller: _scrollController,
-                      reverse: true,
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                      itemCount: _messages.length,
-                      itemBuilder: (context, index) {
-                        final msg = _messages[index];
-                        final isMe = msg['author_id']?.toString() == _myId?.toString();
-                        return _buildMessageBubble(msg, isMe, isDark, scale);
-                      },
-                    ),
+          child: Stack(
+            children: [
+              _isMessagesLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _messages.isEmpty
+                      ? Center(
+                          child: Text(
+                            'Нет сообщений. Напишите что-нибудь!',
+                            style: TextStyle(color: isDark ? Colors.white38 : Colors.black38),
+                          ),
+                        )
+                      : ListView.builder(
+                          controller: _scrollController,
+                          reverse: true,
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          itemCount: _messages.length,
+                          itemBuilder: (context, index) {
+                            final msg = _messages[index];
+                            final isMe = msg['author_id']?.toString() == _myId?.toString();
+                            return _buildMessageBubble(msg, isMe, isDark, scale);
+                          },
+                        ),
+
+              // Floating voice-playback bar (только в пределах контента чата)
+              Positioned(
+                top: 12,
+                left: 16,
+                right: 16,
+                child: _buildVoicePlaybackBar(isDark, scale),
+              ),
+            ],
+          ),
         ),
 
         // Message Input
         _buildMessageInput(isDark, scale),
       ],
+    );
+  }
+
+  Widget _buildVoicePlaybackBar(bool isDark, double scale) {
+    return Consumer<PlaybackProvider>(
+      builder: (context, playback, child) {
+        final isVisible = playback.currentAudioUrl != null;
+        final isPlaying = playback.isPlaying;
+        final title = playback.title;
+        final subtitle = playback.subtitle;
+
+        return AnimatedSwitcher(
+          duration: const Duration(milliseconds: 280),
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeInCubic,
+          transitionBuilder: (widget, animation) {
+            return FadeTransition(
+              opacity: animation,
+              child: SlideTransition(
+                position: Tween<Offset>(
+                  begin: const Offset(0, -0.6),
+                  end: Offset.zero,
+                ).animate(CurvedAnimation(parent: animation, curve: Curves.easeOutCubic)),
+                child: widget,
+              ),
+            );
+          },
+          child: !isVisible
+              ? const SizedBox.shrink(key: ValueKey('voice_bar_hidden'))
+              : Align(
+                  key: const ValueKey('voice_bar_visible'),
+                  alignment: Alignment.topCenter,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 460),
+                    child: Container(
+                      height: 42 * scale,
+                      padding: EdgeInsets.symmetric(horizontal: 8 * scale),
+                      decoration: BoxDecoration(
+                        color: isDark ? const Color(0xE61C1C20) : const Color(0xF2FFFFFF),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: isDark
+                              ? Colors.white.withOpacity(0.08)
+                              : Colors.black.withOpacity(0.06),
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(isDark ? 0.4 : 0.12),
+                            blurRadius: 14,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          SizedBox(width: 6 * scale),
+                          // Play / Pause
+                          GestureDetector(
+                            onTap: () {
+                              if (isPlaying) {
+                                playback.pause();
+                              } else {
+                                playback.resume();
+                              }
+                            },
+                            child: Container(
+                              width: 30 * scale,
+                              height: 30 * scale,
+                              decoration: BoxDecoration(
+                                color: isDark
+                                    ? Colors.white.withOpacity(0.12)
+                                    : Colors.black.withOpacity(0.06),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                                color: isDark ? Colors.white : Colors.black87,
+                                size: 18 * scale,
+                              ),
+                            ),
+                          ),
+                          SizedBox(width: 12 * scale),
+                          // Title + subtitle
+                          Expanded(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  title.isEmpty ? 'Голосовое сообщение' : title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: isDark ? Colors.white : Colors.black87,
+                                    fontSize: 13 * scale,
+                                    fontWeight: FontWeight.w600,
+                                    fontFamily: 'Inter',
+                                  ),
+                                ),
+                                if (subtitle.isNotEmpty) ...[
+                                  SizedBox(height: 1 * scale),
+                                  Text(
+                                    subtitle,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: isDark ? Colors.white38 : Colors.black45,
+                                      fontSize: 11 * scale,
+                                      fontFamily: 'Inter',
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          // Close
+                          GestureDetector(
+                            onTap: () => playback.stop(),
+                            child: Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 10 * scale, vertical: 8 * scale),
+                              child: Icon(
+                                Icons.close_rounded,
+                                color: isDark ? Colors.white38 : Colors.black38,
+                                size: 18 * scale,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+        );
+      },
     );
   }
 
@@ -2352,6 +2947,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
                 isMe: isMe,
                 isDark: isDark,
                 scale: scale,
+                senderName: isMe
+                    ? 'Вы'
+                    : (_selectedChat?['chat_type'] == 'personal'
+                        ? _getChatName(_selectedChat!)
+                        : authorUsername),
               )
             else if (customPayload != null && 
                      (msg['message_type'] == 'todo_list' || msg['message_type'] == 'todo_list_message' || customPayload['is_native'] == true) &&
@@ -3695,149 +4295,218 @@ class _InitialsPainter extends CustomPainter {
       old.initial != initial || old.color != color || old.fontSize != fontSize;
 }
 
-class _VoiceMessageBubblePlayer extends StatefulWidget {
+/// Снимок состояния плеера для конкретного ГС — чтобы Selector ребилдил
+/// бабл только при значимых изменениях именно его трека.
+class _VoicePlaybackState {
+  final String? currentAudioUrl;
+  final bool isPlaying;
+  final bool isInitialized;
+  final bool isLoading;
+  final Duration position;
+  final Duration duration;
+
+  const _VoicePlaybackState({
+    required this.currentAudioUrl,
+    required this.isPlaying,
+    required this.isInitialized,
+    required this.isLoading,
+    required this.position,
+    required this.duration,
+  });
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is _VoicePlaybackState &&
+          currentAudioUrl == other.currentAudioUrl &&
+          isPlaying == other.isPlaying &&
+          isInitialized == other.isInitialized &&
+          isLoading == other.isLoading &&
+          position == other.position &&
+          duration == other.duration;
+
+  @override
+  int get hashCode =>
+      currentAudioUrl.hashCode ^
+      isPlaying.hashCode ^
+      isInitialized.hashCode ^
+      isLoading.hashCode ^
+      position.hashCode ^
+      duration.hashCode;
+}
+
+class _VoiceMessageBubblePlayer extends StatelessWidget {
   final Map<String, dynamic> payload;
   final bool isMe;
   final bool isDark;
   final double scale;
+  final String senderName;
 
   const _VoiceMessageBubblePlayer({
     required this.payload,
     required this.isMe,
     required this.isDark,
     required this.scale,
+    required this.senderName,
   });
 
-  @override
-  State<_VoiceMessageBubblePlayer> createState() => _VoiceMessageBubblePlayerState();
-}
-
-class _VoiceMessageBubblePlayerState extends State<_VoiceMessageBubblePlayer> {
-  bool _isPlaying = false;
-  double _progress = 0.0;
-  Timer? _mockPlaybackTimer;
-  int _elapsedMs = 0;
-
-  @override
-  void dispose() {
-    _mockPlaybackTimer?.cancel();
-    super.dispose();
+  /// Абсолютная ссылка на скачивание ГС: host из ApiService.baseUrl
+  /// (без суффикса /api/v1) + /api/files/download/<file_id>/.
+  String _buildAudioUrl() {
+    final fileId = payload['file_id']?.toString() ?? '';
+    final uri = Uri.parse(ApiService.baseUrl);
+    final port = uri.hasPort ? ':${uri.port}' : '';
+    final host = '${uri.scheme}://${uri.host}$port';
+    final suffix = payload['file_url']?.toString() ?? '/api/files/download/$fileId/';
+    if (suffix.startsWith('http')) return suffix;
+    final prefix = suffix.startsWith('/') ? '' : '/';
+    return '$host$prefix$suffix';
   }
 
-  void _togglePlayback() {
-    final durationSeconds = widget.payload['duration'] is num 
-        ? (widget.payload['duration'] as num).toInt() 
-        : (int.tryParse(widget.payload['duration']?.toString() ?? '') ?? 10);
-    
-    final totalMs = durationSeconds * 1000;
-
-    if (_isPlaying) {
-      _mockPlaybackTimer?.cancel();
-      setState(() {
-        _isPlaying = false;
-      });
-    } else {
-      setState(() {
-        _isPlaying = true;
-        if (_progress >= 1.0) {
-          _progress = 0.0;
-          _elapsedMs = 0;
-        }
-      });
-
-      _mockPlaybackTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
-        setState(() {
-          _elapsedMs += 100;
-          _progress = (_elapsedMs / totalMs).clamp(0.0, 1.0);
-          if (_progress >= 1.0) {
-            _isPlaying = false;
-            _mockPlaybackTimer?.cancel();
-          }
-        });
-      });
-    }
-  }
-
-  String _formatDuration(int seconds) {
-    final m = seconds ~/ 60;
-    final s = seconds % 60;
+  String _formatDuration(Duration d) {
+    final m = d.inMinutes;
+    final s = d.inSeconds % 60;
     return '$m:${s.toString().padLeft(2, '0')}';
   }
 
   @override
   Widget build(BuildContext context) {
-    final durationSeconds = widget.payload['duration'] is num 
-        ? (widget.payload['duration'] as num).toInt() 
-        : (int.tryParse(widget.payload['duration']?.toString() ?? '') ?? 10);
+    final durationSeconds = payload['duration'] is num
+        ? (payload['duration'] as num).toInt()
+        : (int.tryParse(payload['duration']?.toString() ?? '') ?? 10);
+    final fallbackDuration = Duration(seconds: durationSeconds);
+    final mimeType = payload['mime_type']?.toString();
+    final audioUrl = _buildAudioUrl();
 
-    final currentSeconds = (_progress * durationSeconds).round();
+    final activeWaveColor = isMe ? Colors.white : Colors.blue;
+    final inactiveWaveColor =
+        isMe ? Colors.white30 : (isDark ? Colors.white24 : Colors.black12);
 
-    return Container(
-      width: 240 * widget.scale,
-      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
-      child: Row(
-        children: [
-          // Play/Pause button
-          GestureDetector(
-            onTap: _togglePlayback,
-            child: Container(
-              width: 38 * widget.scale,
-              height: 38 * widget.scale,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: widget.isMe 
-                    ? Colors.white.withOpacity(0.2) 
-                    : (widget.isDark ? Colors.white12 : Colors.black.withOpacity(0.06)),
-              ),
-              child: Icon(
-                _isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                color: widget.isMe ? Colors.white : (widget.isDark ? Colors.white : Colors.black87),
-                size: 24 * widget.scale,
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          // Waveform & Duration Column
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                // Waveform mock
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: List.generate(18, (index) {
-                    final height = 4.0 + (math.sin(index * 0.8) * 12.0).abs() * widget.scale;
-                    final isActive = (index / 18.0) <= _progress;
-
-                    return Container(
-                      width: 3 * widget.scale,
-                      height: height,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(2),
-                        color: isActive 
-                            ? (widget.isMe ? Colors.white : Colors.blue)
-                            : (widget.isMe ? Colors.white30 : (widget.isDark ? Colors.white24 : Colors.black12)),
-                      ),
-                    );
-                  }),
-                ),
-                const SizedBox(height: 6),
-                // Duration text
-                Text(
-                  _isPlaying 
-                      ? '${_formatDuration(currentSeconds)} / ${_formatDuration(durationSeconds)}'
-                      : 'Голосовое сообщение • ${_formatDuration(durationSeconds)}',
-                  style: TextStyle(
-                    color: widget.isMe ? Colors.white60 : (widget.isDark ? Colors.white38 : Colors.black45),
-                    fontSize: 11 * widget.scale,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+    return Selector<PlaybackProvider, _VoicePlaybackState>(
+      selector: (_, provider) => _VoicePlaybackState(
+        currentAudioUrl: provider.currentAudioUrl,
+        isPlaying: provider.isPlaying,
+        isInitialized: provider.isInitialized,
+        isLoading: provider.isLoading,
+        position: provider.position,
+        duration: provider.duration,
       ),
+      shouldRebuild: (prev, next) {
+        final isCurrent = next.currentAudioUrl == audioUrl;
+        final wasCurrent = prev.currentAudioUrl == audioUrl;
+        if (!isCurrent && !wasCurrent) return false;
+        return prev != next;
+      },
+      builder: (context, state, child) {
+        final isCurrent = state.currentAudioUrl == audioUrl;
+        final isPlaying = isCurrent && state.isPlaying;
+        final isInitialized = isCurrent && state.isInitialized;
+        final isLoading = isCurrent && state.isLoading;
+
+        final position = isCurrent ? state.position : Duration.zero;
+        final duration =
+            isCurrent && state.isInitialized && state.duration > Duration.zero
+                ? state.duration
+                : fallbackDuration;
+
+        final displayDuration =
+            isPlaying || (isCurrent && position > Duration.zero)
+                ? position
+                : duration;
+
+        return Container(
+          width: 240 * scale,
+          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+          child: Row(
+            children: [
+              // Play/Pause button
+              GestureDetector(
+                onTap: () {
+                  if (isLoading) return;
+                  context.read<PlaybackProvider>().play(
+                        audioUrl,
+                        'Голосовое сообщение',
+                        senderName,
+                        mimeType: mimeType,
+                        duration: fallbackDuration,
+                      );
+                },
+                child: Container(
+                  width: 38 * scale,
+                  height: 38 * scale,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: isMe
+                        ? Colors.white.withOpacity(0.2)
+                        : (isDark
+                            ? Colors.white12
+                            : Colors.black.withOpacity(0.06)),
+                  ),
+                  child: isLoading
+                      ? Padding(
+                          padding: EdgeInsets.all(10 * scale),
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              isMe
+                                  ? Colors.white
+                                  : (isDark ? Colors.white : Colors.black87),
+                            ),
+                          ),
+                        )
+                      : Icon(
+                          isPlaying
+                              ? Icons.pause_rounded
+                              : Icons.play_arrow_rounded,
+                          color: isMe
+                              ? Colors.white
+                              : (isDark ? Colors.white : Colors.black87),
+                          size: 24 * scale,
+                        ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              // Waveform & Duration Column
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    VoiceWaveformSlider(
+                      position: position,
+                      duration: duration,
+                      isActive: isCurrent && isInitialized,
+                      barsCount: 18,
+                      activeColor: activeWaveColor,
+                      inactiveColor: inactiveWaveColor,
+                      onSeek: isCurrent && isInitialized
+                          ? (pos) => context.read<PlaybackProvider>().seek(pos)
+                          : null,
+                      onSeekPreview: isCurrent && isInitialized
+                          ? (pos) =>
+                              context.read<PlaybackProvider>().seekPreview(pos)
+                          : null,
+                    ),
+                    const SizedBox(height: 6),
+                    // Duration text
+                    Text(
+                      isPlaying || (isCurrent && position > Duration.zero)
+                          ? '${_formatDuration(displayDuration)} / ${_formatDuration(duration)}'
+                          : 'Голосовое сообщение • ${_formatDuration(duration)}',
+                      style: TextStyle(
+                        color: isMe
+                            ? Colors.white60
+                            : (isDark ? Colors.white38 : Colors.black45),
+                        fontSize: 11 * scale,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

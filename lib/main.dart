@@ -5,10 +5,12 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
+import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 import 'l10n/app_localizations.dart';
 import 'providers/theme_provider.dart';
 import 'providers/locale_provider.dart';
 import 'providers/scale_provider.dart';
+import 'providers/playback_provider.dart';
 import 'screens/onboarding_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/register_screen.dart';
@@ -27,7 +29,12 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Logger.init();
   Logger.info('Main', 'App main() entry point reached.');
-  
+
+  // just_audio не имеет нативного бэкенда на Linux/Windows — поднимаем libmpv.
+  if (!kIsWeb && (Platform.isLinux || Platform.isWindows)) {
+    JustAudioMediaKit.ensureInitialized();
+  }
+
   HttpOverrides.global = MyHttpOverrides();
   
   // Initialize window manager
@@ -69,6 +76,7 @@ void main() async {
         ChangeNotifierProvider(create: (context) => LocaleProvider()),
         ChangeNotifierProvider(create: (context) => ThemeProvider()),
         ChangeNotifierProvider(create: (context) => ScaleProvider()),
+        ChangeNotifierProvider(create: (context) => PlaybackProvider()),
       ],
       child: const MyApp(),
     ),

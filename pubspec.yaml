@@ -52,6 +52,11 @@ dependencies:
   x25519: ^0.1.1
   argon2: ^1.0.1
 
+  # Voice message playback (just_audio + media_kit backend for desktop)
+  just_audio: ^0.10.5
+  just_audio_media_kit: ^2.0.6
+  media_kit_libs_audio: ^1.0.5
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

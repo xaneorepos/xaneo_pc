@@ -150,7 +150,7 @@ class _ZoomToastWidgetState extends State<_ZoomToastWidget>
   @override
   Widget build(BuildContext context) {
     return Positioned(
-      bottom: 50,
+      bottom: 24,
       left: 0,
       right: 0,
       child: Center(

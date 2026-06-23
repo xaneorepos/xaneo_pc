@@ -187,7 +187,7 @@ class _ToastWidgetState extends State<_ToastWidget>
     final double scale = widget.scale;
 
     return Positioned(
-      bottom: 50 * scale,
+      bottom: 24 * scale,
       left: 20 * scale,
       right: 20 * scale,
       child: Center(

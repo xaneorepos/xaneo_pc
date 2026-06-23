@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:lottie/lottie.dart';
 import '../providers/theme_provider.dart';
@@ -19,6 +20,7 @@ import '../services/account_service.dart';
 import '../services/websocket_service.dart';
 import '../services/logger_service.dart';
 import '../widgets/custom_toast.dart';
+import '../widgets/custom_context_menu.dart';
 
 class MessengerScreen extends StatefulWidget {
   const MessengerScreen({super.key});
@@ -31,6 +33,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
   final ApiService _apiService = ApiService();
   final CryptoService _cryptoService = CryptoService();
   final GlobalKey<SettingsButtonState> _settingsKey = GlobalKey<SettingsButtonState>();
+  final GlobalKey _attachmentKey = GlobalKey();
 
   List<dynamic> _chats = [];
   List<dynamic> _archivedChats = [];
@@ -42,6 +45,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
   
   // Decrypted messages store: message_id -> plaintext
   final Map<int, String> _decryptedMessages = {};
+  final Set<int> _messagesToAnimate = {};
 
   // Keys cache
   final Map<String, String> _peerPublicKeys = {};
@@ -77,6 +81,26 @@ class _MessengerScreenState extends State<MessengerScreen> {
   Timer? _typingExpiryTimer;
   Timer? _typingTimer;
   bool _isMeTyping = false;
+  bool _showSendButton = false;
+
+  late final FocusNode _messageFocusNode = FocusNode(
+    onKeyEvent: (node, event) {
+      if (event is KeyDownEvent) {
+        if (event.logicalKey == LogicalKeyboardKey.enter || event.logicalKey == LogicalKeyboardKey.numpadEnter) {
+          final isShiftPressed = HardwareKeyboard.instance.isShiftPressed;
+          if (isShiftPressed) {
+            return KeyEventResult.ignored;
+          } else {
+            if (_messageController.text.trim().isNotEmpty) {
+              _sendMessage();
+            }
+            return KeyEventResult.handled;
+          }
+        }
+      }
+      return KeyEventResult.ignored;
+    },
+  );
 
   @override
   void initState() {
@@ -106,6 +130,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
     _typingTimer?.cancel();
     _searchController.dispose();
     _messageController.dispose();
+    _messageFocusNode.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -251,6 +276,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
         setState(() {
           _decryptedMessages[msgId] = decryptedText;
           _messages.insert(0, data);
+          _messagesToAnimate.add(msgId);
         });
         _scrollToBottom();
       }
@@ -303,6 +329,14 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
   void _onMessageTextChanged() {
     final text = _messageController.text;
+    
+    final bool hasText = text.trim().isNotEmpty;
+    if (hasText != _showSendButton) {
+      setState(() {
+        _showSendButton = hasText;
+      });
+    }
+
     if (text.isNotEmpty && !_isMeTyping) {
       _sendTypingStatus(true, 'typing');
     } else if (text.isEmpty && _isMeTyping) {
@@ -768,6 +802,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
         if (mounted) {
           setState(() {
             _messages.insert(0, newMsg);
+            _messagesToAnimate.add(id);
           });
           _scrollToBottom();
         }
@@ -826,6 +861,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
     setState(() {
       _selectedChat = chat;
       _messages = [];
+      _messagesToAnimate.clear();
       _isMessagesLoading = true;
     });
     final chatId = chat['chat_id'] as String;
@@ -907,6 +943,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
         _chats.insert(0, newChat);
       }
       _messages = [];
+      _messagesToAnimate.clear();
     });
     
     _loadMessages(chatId);
@@ -2167,26 +2204,20 @@ class _MessengerScreenState extends State<MessengerScreen> {
         onTap: () => _selectChat(chat),
         onSecondaryTapDown: (details) {
           final isArchived = chat['is_archived'] as bool? ?? false;
-          showMenu(
+          CustomContextMenu.show(
             context: context,
-            position: RelativeRect.fromLTRB(
-              details.globalPosition.dx,
-              details.globalPosition.dy,
-              details.globalPosition.dx,
-              details.globalPosition.dy,
-            ),
+            position: details.globalPosition,
             items: [
-              PopupMenuItem(
-                value: 'archive_toggle',
-                child: Text(isArchived ? 'Разархивировать' : 'В архив'),
+              CustomContextMenuItem(
+                icon: FaIcon(
+                  isArchived ? FontAwesomeIcons.boxOpen : FontAwesomeIcons.boxArchive,
+                  size: 16 * scale,
+                ),
+                label: isArchived ? 'Разархивировать' : 'В архив',
+                onTap: () => _toggleArchive(chat),
               ),
             ],
-            elevation: 8,
-          ).then((value) {
-            if (value == 'archive_toggle') {
-              _toggleArchive(chat);
-            }
-          });
+          );
         },
         child: Container(
           margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -2718,7 +2749,22 @@ class _MessengerScreenState extends State<MessengerScreen> {
                           itemBuilder: (context, index) {
                             final msg = _messages[index];
                             final isMe = msg['author_id']?.toString() == _myId?.toString();
-                            return _buildMessageBubble(msg, isMe, isDark, scale);
+                            final rawId = msg['id'];
+                            final msgId = rawId is int ? rawId : int.tryParse(rawId.toString());
+                            final isNewMessage = msgId != null && _messagesToAnimate.contains(msgId);
+
+                            return NewMessageAnimator(
+                              key: ValueKey('anim_${msgId ?? index}'),
+                              animate: isNewMessage,
+                              onStartAnimating: isNewMessage
+                                  ? () {
+                                      if (msgId != null) {
+                                        _messagesToAnimate.remove(msgId);
+                                      }
+                                    }
+                                  : null,
+                              child: _buildMessageBubble(msg, isMe, isDark, scale),
+                            );
                           },
                         ),
 
@@ -2810,10 +2856,12 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                     : Colors.black.withOpacity(0.06),
                                 shape: BoxShape.circle,
                               ),
-                              child: Icon(
-                                isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                                color: isDark ? Colors.white : Colors.black87,
-                                size: 18 * scale,
+                              child: Center(
+                                child: FaIcon(
+                                  isPlaying ? FontAwesomeIcons.pause : FontAwesomeIcons.play,
+                                  color: isDark ? Colors.white : Colors.black87,
+                                  size: 14 * scale,
+                                ),
                               ),
                             ),
                           ),
@@ -2983,9 +3031,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
                   ),
                 ),
                 const SizedBox(width: 4),
-                Icon(
-                  Icons.lock_rounded, 
-                  size: 10, 
+                FaIcon(
+                  FontAwesomeIcons.lock, 
+                  size: 9, 
                   color: isMe ? Colors.white60 : Colors.grey
                 ),
               ],
@@ -2997,72 +3045,179 @@ class _MessengerScreenState extends State<MessengerScreen> {
   }
 
   Widget _buildMessageInput(bool isDark, double scale) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: isDark ? Colors.black.withOpacity(0.2) : Colors.white.withOpacity(0.2),
-        border: Border(
-          top: BorderSide(
-            color: isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.05),
+    return Center(
+      child: Container(
+        constraints: BoxConstraints(maxWidth: 600 * scale),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: const BoxDecoration(
+          color: Colors.transparent,
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(28),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: isDark ? Colors.white.withOpacity(0.06) : Colors.black.withOpacity(0.03),
+                borderRadius: BorderRadius.circular(28),
+                border: Border.all(
+                  color: isDark ? Colors.white.withOpacity(0.12) : Colors.black.withOpacity(0.08),
+                  width: 1.2,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.04),
+                    blurRadius: 10,
+                    spreadRadius: -2,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  // Emoji button on the left
+                  IconButton(
+                    icon: FaIcon(
+                      FontAwesomeIcons.faceSmile,
+                      color: isDark ? Colors.white70 : Colors.black54,
+                      size: 20,
+                    ),
+                    tooltip: 'Эмодзи',
+                    onPressed: () {
+                      CustomToast.show(
+                        context,
+                        'Панель эмодзи в разработке',
+                        type: ToastType.info,
+                      );
+                    },
+                  ),
+                  // Text Field
+                  Expanded(
+                    child: TextField(
+                      controller: _messageController,
+                      focusNode: _messageFocusNode,
+                      minLines: 1,
+                      maxLines: 3,
+                      keyboardType: TextInputType.multiline,
+                      decoration: InputDecoration(
+                        hintText: 'Написать сообщение...',
+                        hintStyle: TextStyle(
+                          color: isDark ? Colors.white.withOpacity(0.35) : Colors.black.withOpacity(0.35),
+                          fontSize: 13.5 * scale,
+                        ),
+                        border: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        contentPadding: const EdgeInsets.only(left: 4, right: 8, top: 12, bottom: 12),
+                        filled: true,
+                        fillColor: Colors.transparent,
+                      ),
+                      style: TextStyle(
+                        color: isDark ? Colors.white : Colors.black,
+                        fontSize: 13.5 * scale,
+                      ),
+                      onSubmitted: (_) {
+                        if (_messageController.text.trim().isNotEmpty) {
+                          _sendMessage();
+                        }
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  // Attach button with dropdown menu (TODO and POLL options), positioned next to send button
+                  Tooltip(
+                    message: 'Добавить вложение',
+                    child: GestureDetector(
+                      key: _attachmentKey,
+                      onTap: () {
+                        final renderBox = _attachmentKey.currentContext?.findRenderObject() as RenderBox?;
+                        if (renderBox != null) {
+                          final position = renderBox.localToGlobal(Offset.zero);
+                          final size = renderBox.size;
+                          final menuLeft = position.dx + (size.width / 2) - (100.0 * scale);
+                          final menuTop = position.dy - (88.0 * scale) - 8;
+
+                          CustomContextMenu.show(
+                            context: context,
+                            position: Offset(menuLeft, menuTop),
+                            items: [
+                              CustomContextMenuItem(
+                                icon: FaIcon(FontAwesomeIcons.listCheck, size: 14 * scale),
+                                label: 'Список задач',
+                                onTap: _showTodoSendDialog,
+                              ),
+                              CustomContextMenuItem(
+                                icon: FaIcon(FontAwesomeIcons.squarePollVertical, size: 14 * scale),
+                                label: 'Опрос',
+                                onTap: _showPollSendDialog,
+                              ),
+                            ],
+                          );
+                        }
+                      },
+                      child: Container(
+                        width: 30 * scale,
+                        height: 30 * scale,
+                        decoration: const BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.transparent,
+                        ),
+                        child: Center(
+                          child: FaIcon(
+                            FontAwesomeIcons.paperclip,
+                            color: isDark ? Colors.white70 : Colors.black54,
+                            size: 14 * scale,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  // Integrated Send / Voice button (pure white styled, using FA icons)
+                  GestureDetector(
+                    onTap: () {
+                      if (_showSendButton) {
+                        _sendMessage();
+                      } else {
+                        _showVoiceSendDialog();
+                      }
+                    },
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      width: 30 * scale,
+                      height: 30 * scale,
+                      margin: const EdgeInsets.only(right: 4),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.white,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.15),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Center(
+                        child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 200),
+                          transitionBuilder: (child, animation) => ScaleTransition(scale: animation, child: child),
+                          child: FaIcon(
+                            _showSendButton ? FontAwesomeIcons.solidPaperPlane : FontAwesomeIcons.microphone,
+                            key: ValueKey<bool>(_showSendButton),
+                            color: _showSendButton ? const Color(0xFF2563EB) : const Color(0xFF10B981),
+                            size: 13 * scale,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
-      ),
-      child: Row(
-        children: [
-          // Voice Message Button
-          IconButton(
-            icon: Icon(Icons.mic_none_rounded, color: isDark ? Colors.white70 : Colors.black54),
-            tooltip: 'Голосовое сообщение',
-            onPressed: _showVoiceSendDialog,
-          ),
-          // Todo List Button
-          IconButton(
-            icon: Icon(Icons.playlist_add_check_rounded, color: isDark ? Colors.white70 : Colors.black54),
-            tooltip: 'Список задач (TODO)',
-            onPressed: _showTodoSendDialog,
-          ),
-          // Poll Button
-          IconButton(
-            icon: Icon(Icons.bar_chart_rounded, color: isDark ? Colors.white70 : Colors.black54),
-            tooltip: 'Создать опрос',
-            onPressed: _showPollSendDialog,
-          ),
-          const SizedBox(width: 4),
-          // Text field
-          Expanded(
-            child: TextField(
-              controller: _messageController,
-              decoration: InputDecoration(
-                hintText: 'Написать сообщение...',
-                hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.black38),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(24),
-                  borderSide: BorderSide(
-                    color: isDark ? Colors.white12 : Colors.black12,
-                  ),
-                ),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                filled: true,
-                fillColor: isDark ? Colors.white.withOpacity(0.04) : Colors.black.withOpacity(0.02),
-              ),
-              style: TextStyle(color: isDark ? Colors.white : Colors.black),
-              onSubmitted: (_) => _sendMessage(),
-            ),
-          ),
-          const SizedBox(width: 12),
-          // Send Button
-          GestureDetector(
-            onTap: _sendMessage,
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: const BoxDecoration(
-                shape: BoxShape.circle,
-                color: Color(0xFF2563EB),
-              ),
-              child: const Icon(Icons.send_rounded, color: Colors.white, size: 20),
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -3653,6 +3808,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
         if (mounted) {
           setState(() {
             _messages.insert(0, newMsg);
+            _messagesToAnimate.add(id);
           });
           _scrollToBottom();
         }
@@ -4523,6 +4679,89 @@ class _TypingState {
     required this.action,
     required this.timestamp,
   });
+}
+
+class NewMessageAnimator extends StatefulWidget {
+  final Widget child;
+  final bool animate;
+  final VoidCallback? onStartAnimating;
+
+  const NewMessageAnimator({
+    super.key,
+    required this.child,
+    required this.animate,
+    this.onStartAnimating,
+  });
+
+  @override
+  State<NewMessageAnimator> createState() => _NewMessageAnimatorState();
+}
+
+class _NewMessageAnimatorState extends State<NewMessageAnimator> with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  late final Animation<double> _fadeAnimation;
+  late final Animation<double> _sizeAnimation;
+  late final Animation<Offset> _slideAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 350),
+    );
+
+    _fadeAnimation = CurvedAnimation(
+      parent: _controller,
+      curve: const Interval(0.0, 0.8, curve: Curves.easeOut),
+    );
+
+    _sizeAnimation = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeOutCubic,
+    );
+
+    _slideAnimation = Tween<Offset>(
+      begin: const Offset(0.0, 0.3),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeOutBack,
+    ));
+
+    if (widget.animate) {
+      _controller.forward();
+      if (widget.onStartAnimating != null) {
+        // Run after current frame layout pass is finished to avoid triggering setState warnings
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          widget.onStartAnimating!();
+        });
+      }
+    } else {
+      _controller.value = 1.0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizeTransition(
+      sizeFactor: _sizeAnimation,
+      alignment: Alignment.bottomCenter,
+      child: FadeTransition(
+        opacity: _fadeAnimation,
+        child: SlideTransition(
+          position: _slideAnimation,
+          child: widget.child,
+        ),
+      ),
+    );
+  }
 }
 
 

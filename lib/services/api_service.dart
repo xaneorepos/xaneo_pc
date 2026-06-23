@@ -12,7 +12,7 @@ import 'logger_service.dart';
 /// API сервис для Xaneo PC с поддержкой автоматического сохранения сессионных кук (через Dio)
 class ApiService {
   // Базовый URL сервера (настраивается)
-  static String _baseUrl = 'https://192.168.3.65/api/v1';
+  static String _baseUrl = 'https://10.58.33.31/api/v1';
   
   // User-Agent для идентификации приложения
   static const String _userAgent = 'XaneoPC/1.0 xaneo-app';

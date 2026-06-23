@@ -4752,7 +4752,7 @@ class _NewMessageAnimatorState extends State<NewMessageAnimator> with SingleTick
   Widget build(BuildContext context) {
     return SizeTransition(
       sizeFactor: _sizeAnimation,
-      alignment: Alignment.bottomCenter,
+      axisAlignment: 1.0,
       child: FadeTransition(
         opacity: _fadeAnimation,
         child: SlideTransition(

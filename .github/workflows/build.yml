@@ -33,6 +33,7 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: ${{ env.FLUTTER_CHANNEL }}
           cache: true
+          cache-key: 'flutter-:os:-:channel:-:version:-:arch:-:hash:-v2'
 
       - name: Run Flutter Doctor
         run: flutter doctor -v

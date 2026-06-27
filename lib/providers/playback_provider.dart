@@ -29,6 +29,9 @@ class PlaybackProvider extends ChangeNotifier {
   Duration _duration = Duration.zero;
   bool _isLoading = false;
   bool _isSeeking = false;
+  bool _isSimulated = false;
+  bool _isVideo = false;
+  Timer? _simulatedTimer;
 
   String? get currentAudioUrl => _currentAudioUrl;
   String get title => _title;
@@ -38,6 +41,7 @@ class PlaybackProvider extends ChangeNotifier {
   Duration get position => _position;
   Duration get duration => _duration;
   bool get isLoading => _isLoading;
+  bool get isVideo => _isVideo;
 
   PlaybackProvider() {
     _playerStateSub = _player.playerStateStream.listen((state) {
@@ -64,6 +68,23 @@ class PlaybackProvider extends ChangeNotifier {
     });
   }
 
+  void _startSimulatedTimer() {
+    _simulatedTimer?.cancel();
+    _simulatedTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
+      if (_isPlaying && !_isSeeking) {
+        final nextPos = _position + const Duration(milliseconds: 100);
+        if (nextPos >= _duration) {
+          _position = Duration.zero;
+          _isPlaying = false;
+          _simulatedTimer?.cancel();
+        } else {
+          _position = nextPos;
+        }
+        notifyListeners();
+      }
+    });
+  }
+
   /// Запускает воспроизведение [url]. Если это уже текущий трек — переключает play/pause.
   Future<void> play(
     String url,
@@ -72,18 +93,33 @@ class PlaybackProvider extends ChangeNotifier {
     String? mimeType,
     Duration? duration,
   }) async {
-    if (_currentAudioUrl == url) {
+    if (_currentAudioUrl == url && !_isVideo) {
       _togglePlay();
       return;
     }
 
     await stop();
 
+    _isVideo = false;
     _currentAudioUrl = url;
     _title = title;
     _subtitle = subtitle;
-    _isLoading = true;
     _duration = duration ?? Duration.zero;
+
+    final isSimulated = url.contains('voice_') || url.contains('video_');
+    if (isSimulated) {
+      _isLoading = false;
+      _isInitialized = true;
+      _isPlaying = true;
+      _isSimulated = true;
+      _position = Duration.zero;
+      _duration = duration ?? const Duration(seconds: 10);
+      notifyListeners();
+      _startSimulatedTimer();
+      return;
+    }
+
+    _isLoading = true;
     notifyListeners();
 
     try {
@@ -156,6 +192,26 @@ class PlaybackProvider extends ChangeNotifier {
   }
 
   void _togglePlay() {
+    if (_isVideo) {
+      _isPlaying = !_isPlaying;
+      notifyListeners();
+      return;
+    }
+
+    if (_isSimulated) {
+      if (_isPlaying) {
+        _isPlaying = false;
+      } else {
+        if (_position >= _duration && _duration > Duration.zero) {
+          _position = Duration.zero;
+        }
+        _isPlaying = true;
+        _startSimulatedTimer();
+      }
+      notifyListeners();
+      return;
+    }
+
     if (!_isInitialized || _isSeeking) return;
 
     if (_isPlaying) {
@@ -170,12 +226,44 @@ class PlaybackProvider extends ChangeNotifier {
   }
 
   void pause() {
+    if (_isSimulated) {
+      if (_isPlaying) {
+        _isPlaying = false;
+        notifyListeners();
+      }
+      return;
+    }
+    if (_isVideo) {
+      if (_isPlaying) {
+        _isPlaying = false;
+        notifyListeners();
+      }
+      return;
+    }
     if (_isPlaying) {
       _player.pause();
     }
   }
 
   void resume() {
+    if (_isSimulated) {
+      if (!_isPlaying && _isInitialized && !_isSeeking) {
+        if (_position >= _duration && _duration > Duration.zero) {
+          _position = Duration.zero;
+        }
+        _isPlaying = true;
+        _startSimulatedTimer();
+        notifyListeners();
+      }
+      return;
+    }
+    if (_isVideo) {
+      if (!_isPlaying) {
+        _isPlaying = true;
+        notifyListeners();
+      }
+      return;
+    }
     if (!_isPlaying && _isInitialized && !_isSeeking) {
       if (_position >= _duration && _duration > Duration.zero) {
         _restartFrom(Duration.zero);
@@ -199,6 +287,16 @@ class PlaybackProvider extends ChangeNotifier {
 
   /// Финальный seek по отпусканию пальца. На десктопе seek работает нативно.
   Future<void> seek(Duration pos) async {
+    if (_isSimulated) {
+      if (!_isInitialized) return;
+      if (_duration == Duration.zero) return;
+      if (pos > _duration) pos = _duration;
+      if (pos < Duration.zero) pos = Duration.zero;
+      _position = pos;
+      _isSeeking = false;
+      notifyListeners();
+      return;
+    }
     if (!_isInitialized) return;
     if (_duration == Duration.zero) return;
     if (pos > _duration) pos = _duration;
@@ -226,8 +324,11 @@ class PlaybackProvider extends ChangeNotifier {
   }
 
   Future<void> stop() async {
+    _simulatedTimer?.cancel();
+    _isSimulated = false;
     await _player.stop();
 
+    _isVideo = false;
     _currentAudioUrl = null;
     _title = '';
     _subtitle = '';
@@ -240,8 +341,39 @@ class PlaybackProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> playVideo(
+    String url,
+    String title,
+    String subtitle, {
+    Duration? duration,
+  }) async {
+    if (_currentAudioUrl == url && _isVideo) {
+      _togglePlay();
+      return;
+    }
+
+    await stop();
+
+    _isVideo = true;
+    _currentAudioUrl = url;
+    _title = title;
+    _subtitle = subtitle;
+    _isPlaying = true;
+    _isInitialized = true;
+    _duration = duration ?? Duration.zero;
+    notifyListeners();
+  }
+
+  void setPlaying(bool playing) {
+    if (_isPlaying != playing) {
+      _isPlaying = playing;
+      notifyListeners();
+    }
+  }
+
   @override
   void dispose() {
+    _simulatedTimer?.cancel();
     _playerStateSub?.cancel();
     _positionSub?.cancel();
     _durationSub?.cancel();

@@ -12,7 +12,7 @@ import 'logger_service.dart';
 /// API сервис для Xaneo PC с поддержкой автоматического сохранения сессионных кук (через Dio)
 class ApiService {
   // Базовый URL сервера (настраивается)
-  static String _baseUrl = 'https://10.58.33.31/api/v1';
+  static String _baseUrl = 'https://192.168.3.65/api/v1';
   
   // User-Agent для идентификации приложения
   static const String _userAgent = 'XaneoPC/1.0 xaneo-app';
@@ -678,6 +678,38 @@ class ApiService {
       return ApiResponse(
         success: false,
         error: 'Ошибка отправки сообщения: $e',
+      );
+    }
+  }
+
+  /// Загрузить файл на сервер
+  Future<ApiResponse> uploadFile(File file, String fileType, String chatId, {String? description}) async {
+    try {
+      final options = await _getAuthOptions();
+      options.contentType = 'multipart/form-data';
+      
+      String fileName = file.path.split('/').last;
+      if (Platform.isWindows) {
+        fileName = file.path.split('\\').last;
+      }
+      
+      FormData formData = FormData.fromMap({
+        'file_type': fileType,
+        'chat_id': chatId,
+        if (description != null) 'description': description,
+        'file': await MultipartFile.fromFile(file.path, filename: fileName),
+      });
+
+      final response = await _dio.post(
+        '$_baseUrl/files/upload/',
+        options: options,
+        data: formData,
+      );
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(
+        success: false,
+        error: 'Ошибка загрузки файла: $e',
       );
     }
   }

@@ -6,6 +6,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
+import 'package:media_kit/media_kit.dart';
 import 'l10n/app_localizations.dart';
 import 'providers/theme_provider.dart';
 import 'providers/locale_provider.dart';
@@ -19,6 +20,7 @@ import 'widgets/zoom_toast.dart';
 import 'widgets/custom_title_bar.dart';
 import 'widgets/settings_modal.dart';
 import 'services/logger_service.dart';
+import 'utils/local_proxy.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -30,10 +32,14 @@ void main() async {
   await Logger.init();
   Logger.info('Main', 'App main() entry point reached.');
 
-  // just_audio не имеет нативного бэкенда на Linux/Windows — поднимаем libmpv.
-  if (!kIsWeb && (Platform.isLinux || Platform.isWindows)) {
+  // Initialize media_kit & just_audio_media_kit backends for Linux/Windows/macOS
+  if (!kIsWeb && (Platform.isLinux || Platform.isWindows || Platform.isMacOS)) {
+    MediaKit.ensureInitialized();
     JustAudioMediaKit.ensureInitialized();
   }
+
+  // Start the local HTTP proxy for streaming media
+  await LocalProxy.start();
 
   HttpOverrides.global = MyHttpOverrides();
   

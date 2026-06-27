@@ -754,6 +754,9 @@ class CryptoService {
     String otherUserPublicKeyHex,
     String chatId,
   ) async {
+    if (otherUserPublicKeyHex == 'bot' || otherUserPublicKeyHex.isEmpty) {
+      return base64Message;
+    }
     if (!hasKeys) {
       throw Exception("Crypto keys not loaded");
     }
@@ -794,6 +797,9 @@ class CryptoService {
     String otherUserPublicKeyHex,
     String chatId,
   ) async {
+    if (otherUserPublicKeyHex == 'bot' || otherUserPublicKeyHex.isEmpty) {
+      return plaintext;
+    }
     if (!hasKeys) {
       throw Exception("Crypto keys not loaded");
     }

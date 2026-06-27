@@ -1,6 +1,10 @@
 import 'dart:ui';
+import 'dart:io';
 import 'dart:async';
 import 'dart:convert';
+import 'package:record/record.dart';
+import 'package:camera/camera.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -8,6 +12,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:lottie/lottie.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../providers/theme_provider.dart';
 import '../providers/scale_provider.dart';
 import '../providers/playback_provider.dart';
@@ -19,8 +24,11 @@ import '../services/crypto_service.dart';
 import '../services/account_service.dart';
 import '../services/websocket_service.dart';
 import '../services/logger_service.dart';
+import 'package:media_kit/media_kit.dart';
+import 'package:media_kit_video/media_kit_video.dart';
 import '../widgets/custom_toast.dart';
 import '../widgets/custom_context_menu.dart';
+import '../utils/local_proxy.dart';
 
 class MessengerScreen extends StatefulWidget {
   const MessengerScreen({super.key});
@@ -74,6 +82,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
   Timer? _pollingTimer;
   WebSocketService? _webSocketService;
   final Map<String, String> _sentPlaintexts = {};
+  final Map<String, String> _localVideoPaths = {};
   double _chatListWidth = 320.0;
 
   // Typing status variables
@@ -82,6 +91,18 @@ class _MessengerScreenState extends State<MessengerScreen> {
   Timer? _typingTimer;
   bool _isMeTyping = false;
   bool _showSendButton = false;
+  bool _isVoiceMode = true;
+  bool _isRecording = false;
+  int _recordingDuration = 0;
+  Timer? _recordingTimer;
+  bool _isHoveringRecordButton = false;
+  String? _recordingPath;
+  // На Linux используем Process напрямую (arecord), т.к. record_linux крашится.
+  // На других платформах используем пакет record.
+  Process? _arecordProcess;
+  Process? _ffmpegProcess;
+  CameraController? _cameraController;
+  AudioRecorder? _audioRecorder;
 
   late final FocusNode _messageFocusNode = FocusNode(
     onKeyEvent: (node, event) {
@@ -123,6 +144,14 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
   @override
   void dispose() {
+    // На Linux не трогаем AudioRecorder — он не используется.
+    // Убиваем arecord если вдруг запущен.
+    if (Platform.isLinux) {
+      _arecordProcess?.kill();
+      _ffmpegProcess?.kill();
+    } else {
+      _audioRecorder?.dispose();
+    }
     _messageController.removeListener(_onMessageTextChanged);
     _webSocketService?.dispose();
     _pollingTimer?.cancel();
@@ -132,6 +161,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
     _messageController.dispose();
     _messageFocusNode.dispose();
     _scrollController.dispose();
+    _cameraController?.dispose();
     super.dispose();
   }
 
@@ -232,7 +262,12 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
   Future<void> _handleWebSocketMessage(Map<String, dynamic> data, String activeChatId) async {
     final type = data['type'] as String?;
-    if (type == 'encrypted_message' || type == 'todo_list_message' || type == 'poll_message' || type == 'voice_message') {
+
+    if (type == 'encrypted_message' ||
+        type == 'todo_list_message' ||
+        type == 'poll_message' ||
+        type == 'voice_message' ||
+        type == 'video_message') {
       final msgChatId = data['chat_id'] as String?;
       if (msgChatId != activeChatId) return;
 
@@ -259,7 +294,25 @@ class _MessengerScreenState extends State<MessengerScreen> {
       final otherUser = _selectedChat?['other_user'] as Map<String, dynamic>?;
       
       String decryptedText = "";
-      if (encryptedText != null && encryptedText.isNotEmpty) {
+      if (type == 'voice_message') {
+        decryptedText = jsonEncode({
+          'type': 'voice',
+          'file_id': data['file_id'],
+          'duration': data['duration'],
+          'mime_type': data['mime_type'] ?? 'audio/wav',
+        });
+      } else if (type == 'video_message') {
+        final fileId = data['file_id']?.toString() ?? '';
+        final localPath = _localVideoPaths[fileId];
+        decryptedText = jsonEncode({
+          'type': 'video_message',
+          'file_id': fileId,
+          'file_url': data['file_url'],
+          'duration': data['duration'],
+          'mime_type': data['mime_type'] ?? 'video/mp4',
+          if (localPath != null) 'local_path': localPath,
+        });
+      } else if (encryptedText != null && encryptedText.isNotEmpty) {
         if (_sentPlaintexts.containsKey(encryptedText)) {
           decryptedText = _sentPlaintexts[encryptedText]!;
           _sentPlaintexts.remove(encryptedText);
@@ -616,6 +669,14 @@ class _MessengerScreenState extends State<MessengerScreen> {
   /// Get the peer's public key hex for personal chats
   Future<String?> _getPeerPublicKey(Map<String, dynamic>? otherUser) async {
     if (otherUser == null) return null;
+
+    final isBot = otherUser['is_bot'] == true ||
+        otherUser['bot'] == true ||
+        (otherUser['username']?.toString().toLowerCase().endsWith('bot') ?? false);
+    if (isBot) {
+      return 'bot';
+    }
+
     final userId = otherUser['id'];
     if (userId == null) return null;
     final userIdStr = userId.toString();
@@ -627,6 +688,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
     // The web client uses userId in the URL: /xsec2/keys/{userId}/
     final res = await _apiService.getUserPublicKey(userIdStr);
     if (res.success && res.data != null) {
+      if (res.data!['is_bot'] == true) {
+        _peerPublicKeys[userIdStr] = 'bot';
+        return 'bot';
+      }
       final key = res.data!['x25519_public_key'] as String?;
       if (key != null) {
         _peerPublicKeys[userIdStr] = key;
@@ -682,6 +747,36 @@ class _MessengerScreenState extends State<MessengerScreen> {
     final id = rawId is int ? rawId : int.tryParse(rawId.toString());
     if (id == null || _decryptedMessages.containsKey(id)) return;
 
+    final type = msg['type'] as String?;
+    final messageType = msg['message_type'] as String?;
+    
+    if (type == 'voice_message' || messageType == 'voice') {
+      if (mounted) {
+        setState(() {
+          _decryptedMessages[id] = jsonEncode({
+            'type': 'voice',
+            'file_id': msg['file_id'],
+            'duration': msg['duration'],
+            'mime_type': msg['mime_type'] ?? 'audio/wav',
+          });
+        });
+      }
+      return;
+    } else if (type == 'video_message' || messageType == 'video' || messageType == 'video_message') {
+      if (mounted) {
+        setState(() {
+          _decryptedMessages[id] = jsonEncode({
+            'type': 'video_message',
+            'file_id': msg['file_id'] ?? msg['attached_file_id'],
+            'file_url': msg['file_url'] ?? msg['attached_file_url'],
+            'duration': msg['duration'] ?? msg['attached_file_duration'],
+            'mime_type': msg['mime_type'] ?? msg['attached_file_type'] ?? 'video/mp4',
+          });
+        });
+      }
+      return;
+    }
+
     final encryptedText = msg['encrypted_text'] as String?;
     if (encryptedText == null || encryptedText.isEmpty) {
       _decryptedMessages[id] = "";
@@ -707,6 +802,36 @@ class _MessengerScreenState extends State<MessengerScreen> {
       final dynamic rawId = msg['id'];
       final id = rawId is int ? rawId : int.tryParse(rawId.toString());
       if (id == null || _decryptedMessages.containsKey(id)) continue;
+
+      final type = msg['type'] as String?;
+      final messageType = msg['message_type'] as String?;
+
+      if (type == 'voice_message' || messageType == 'voice') {
+        if (mounted) {
+          setState(() {
+            _decryptedMessages[id] = jsonEncode({
+              'type': 'voice',
+              'file_id': msg['file_id'],
+              'duration': msg['duration'],
+              'mime_type': msg['mime_type'] ?? 'audio/wav',
+            });
+          });
+        }
+        continue;
+      } else if (type == 'video_message' || messageType == 'video' || messageType == 'video_message') {
+        if (mounted) {
+          setState(() {
+            _decryptedMessages[id] = jsonEncode({
+              'type': 'video_message',
+              'file_id': msg['file_id'] ?? msg['attached_file_id'],
+              'file_url': msg['file_url'] ?? msg['attached_file_url'],
+              'duration': msg['duration'] ?? msg['attached_file_duration'],
+              'mime_type': msg['mime_type'] ?? msg['attached_file_type'] ?? 'video/mp4',
+            });
+          });
+        }
+        continue;
+      }
 
       final encryptedText = msg['encrypted_text'] as String?;
       if (encryptedText == null || encryptedText.isEmpty) {
@@ -2589,12 +2714,13 @@ class _MessengerScreenState extends State<MessengerScreen> {
     final chatType = _selectedChat!['chat_type'] as String?;
     final otherUser = _selectedChat!['other_user'] as Map<String, dynamic>?;
     final isOnline = otherUser != null && (otherUser['is_online'] as bool? ?? false);
+    final isBot = otherUser != null && (otherUser['is_bot'] == true || otherUser['bot'] == true || (otherUser['username']?.toString().toLowerCase().endsWith('bot') ?? false));
 
     String statusText = "";
     if (chatType == 'favorites') {
       statusText = "Избранные сообщения";
     } else if (chatType == 'personal') {
-      statusText = isOnline ? "в сети" : "не в сети";
+      statusText = isBot ? "бот" : (isOnline ? "в сети" : "не в сети");
     } else if (chatType == 'group') {
       statusText = "группа";
     } else if (chatType == 'channel') {
@@ -2688,7 +2814,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                         statusText,
                         style: TextStyle(
                           fontSize: 11 * scale,
-                          color: chatType == 'personal' && isOnline
+                          color: chatType == 'personal' && isOnline && !isBot
                               ? Colors.green
                               : (isDark ? Colors.white38 : Colors.black38),
                           fontFamily: 'Inter',
@@ -2699,7 +2825,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
               ),
 
               // Action buttons: Call, Settings
-              if (chatType == 'personal' || chatType == 'group')
+              if ((chatType == 'personal' && !isBot) || chatType == 'group')
                 IconButton(
                   icon: Icon(Icons.phone_rounded, size: 20 * scale),
                   tooltip: 'Позвонить',
@@ -2746,6 +2872,14 @@ class _MessengerScreenState extends State<MessengerScreen> {
                           reverse: true,
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                           itemCount: _messages.length,
+                          findChildIndexCallback: (Key key) {
+                            if (key is ValueKey<String> && key.value.startsWith('anim_')) {
+                              final idStr = key.value.substring(5); // remove 'anim_'
+                              final index = _messages.indexWhere((m) => m['id']?.toString() == idStr);
+                              return index >= 0 ? index : null;
+                            }
+                            return null;
+                          },
                           itemBuilder: (context, index) {
                             final msg = _messages[index];
                             final isMe = msg['author_id']?.toString() == _myId?.toString();
@@ -2767,6 +2901,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
                             );
                           },
                         ),
+              
+              if (_isRecording && !_isVoiceMode)
+                _VideoRecordingPreview(scale: scale, cameraController: _cameraController),
 
               // Floating voice-playback bar (только в пределах контента чата)
               Positioned(
@@ -2935,6 +3072,36 @@ class _MessengerScreenState extends State<MessengerScreen> {
       } catch (_) {}
     }
     final authorUsername = msg['author_username'] as String? ?? "Пользователь";
+
+    if (customPayload != null && customPayload['type'] == 'video_message') {
+      return Align(
+        alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+        child: Column(
+          crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          children: [
+            if (!isMe && (_selectedChat!['chat_type'] == 'group' || _selectedChat!['chat_type'] == 'channel'))
+              Padding(
+                padding: const EdgeInsets.only(left: 4, bottom: 4),
+                child: Text(
+                  authorUsername,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                    color: Color(0xFF2563EB),
+                  ),
+                ),
+              ),
+            _VideoMessageMockBubble(
+              key: ValueKey(customPayload['file_id'] ?? id),
+              payload: customPayload,
+              isMe: isMe,
+              isDark: isDark,
+              scale: scale,
+            ),
+          ],
+        ),
+      );
+    }
     final timeStr = msg['created_at'] != null 
         ? DateTime.parse(msg['created_at'] as String).toLocal().toString().substring(11, 16)
         : "";
@@ -3001,6 +3168,14 @@ class _MessengerScreenState extends State<MessengerScreen> {
                         ? _getChatName(_selectedChat!)
                         : authorUsername),
               )
+            else if (customPayload != null && customPayload['type'] == 'video_message')
+              _VideoMessageMockBubble(
+                key: ValueKey(customPayload['file_id'] ?? id),
+                payload: customPayload,
+                isMe: isMe,
+                isDark: isDark,
+                scale: scale,
+              )
             else if (customPayload != null && 
                      (msg['message_type'] == 'todo_list' || msg['message_type'] == 'todo_list_message' || customPayload['is_native'] == true) &&
                      (customPayload['type'] == 'todo_list' || (customPayload['items'] != null && customPayload['title'] != null)))
@@ -3045,6 +3220,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
   }
 
   Widget _buildMessageInput(bool isDark, double scale) {
+    final showRecordTooltip = _isHoveringRecordButton && !_showSendButton && !_isRecording;
     return Center(
       child: Container(
         constraints: BoxConstraints(maxWidth: 600 * scale),
@@ -3052,171 +3228,302 @@ class _MessengerScreenState extends State<MessengerScreen> {
         decoration: const BoxDecoration(
           color: Colors.transparent,
         ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(28),
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: isDark ? Colors.white.withOpacity(0.06) : Colors.black.withOpacity(0.03),
-                borderRadius: BorderRadius.circular(28),
-                border: Border.all(
-                  color: isDark ? Colors.white.withOpacity(0.12) : Colors.black.withOpacity(0.08),
-                  width: 1.2,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.04),
-                    blurRadius: 10,
-                    spreadRadius: -2,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Row(
-                children: [
-                  // Emoji button on the left
-                  IconButton(
-                    icon: FaIcon(
-                      FontAwesomeIcons.faceSmile,
-                      color: isDark ? Colors.white70 : Colors.black54,
-                      size: 20,
+        child: Stack(
+          clipBehavior: Clip.none,
+          alignment: Alignment.center,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(28),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.white.withOpacity(0.06) : Colors.black.withOpacity(0.03),
+                    borderRadius: BorderRadius.circular(28),
+                    border: Border.all(
+                      color: isDark ? Colors.white.withOpacity(0.12) : Colors.black.withOpacity(0.08),
+                      width: 1.2,
                     ),
-                    tooltip: 'Эмодзи',
-                    onPressed: () {
-                      CustomToast.show(
-                        context,
-                        'Панель эмодзи в разработке',
-                        type: ToastType.info,
-                      );
-                    },
-                  ),
-                  // Text Field
-                  Expanded(
-                    child: TextField(
-                      controller: _messageController,
-                      focusNode: _messageFocusNode,
-                      minLines: 1,
-                      maxLines: 3,
-                      keyboardType: TextInputType.multiline,
-                      decoration: InputDecoration(
-                        hintText: 'Написать сообщение...',
-                        hintStyle: TextStyle(
-                          color: isDark ? Colors.white.withOpacity(0.35) : Colors.black.withOpacity(0.35),
-                          fontSize: 13.5 * scale,
-                        ),
-                        border: InputBorder.none,
-                        focusedBorder: InputBorder.none,
-                        enabledBorder: InputBorder.none,
-                        contentPadding: const EdgeInsets.only(left: 4, right: 8, top: 12, bottom: 12),
-                        filled: true,
-                        fillColor: Colors.transparent,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.04),
+                        blurRadius: 10,
+                        spreadRadius: -2,
+                        offset: const Offset(0, 2),
                       ),
-                      style: TextStyle(
-                        color: isDark ? Colors.white : Colors.black,
-                        fontSize: 13.5 * scale,
-                      ),
-                      onSubmitted: (_) {
-                        if (_messageController.text.trim().isNotEmpty) {
-                          _sendMessage();
-                        }
-                      },
-                    ),
+                    ],
                   ),
-                  const SizedBox(width: 4),
-                  // Attach button with dropdown menu (TODO and POLL options), positioned next to send button
-                  Tooltip(
-                    message: 'Добавить вложение',
-                    child: GestureDetector(
-                      key: _attachmentKey,
-                      onTap: () {
-                        final renderBox = _attachmentKey.currentContext?.findRenderObject() as RenderBox?;
-                        if (renderBox != null) {
-                          final position = renderBox.localToGlobal(Offset.zero);
-                          final size = renderBox.size;
-                          final menuLeft = position.dx + (size.width / 2) - (100.0 * scale);
-                          final menuTop = position.dy - (88.0 * scale) - 8;
-
-                          CustomContextMenu.show(
-                            context: context,
-                            position: Offset(menuLeft, menuTop),
-                            items: [
-                              CustomContextMenuItem(
-                                icon: FaIcon(FontAwesomeIcons.listCheck, size: 14 * scale),
-                                label: 'Список задач',
-                                onTap: _showTodoSendDialog,
-                              ),
-                              CustomContextMenuItem(
-                                icon: FaIcon(FontAwesomeIcons.squarePollVertical, size: 14 * scale),
-                                label: 'Опрос',
-                                onTap: _showPollSendDialog,
-                              ),
-                            ],
-                          );
-                        }
-                      },
-                      child: Container(
-                        width: 30 * scale,
-                        height: 30 * scale,
-                        decoration: const BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: Colors.transparent,
+                  child: Row(
+                    children: [
+                      if (_isRecording) ...[
+                        const SizedBox(width: 8),
+                        const _BlinkingRedDot(),
+                        const SizedBox(width: 10),
+                        Text(
+                          _isVoiceMode ? 'Запись голосового...' : 'Запись видео...',
+                          style: TextStyle(
+                            color: isDark ? Colors.white70 : Colors.black87,
+                            fontSize: 13.5 * scale,
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
-                        child: Center(
-                          child: FaIcon(
-                            FontAwesomeIcons.paperclip,
+                        const SizedBox(width: 10),
+                        Text(
+                          '0:${_recordingDuration.toString().padLeft(2, '0')}',
+                          style: TextStyle(
+                            color: Colors.redAccent,
+                            fontSize: 13.5 * scale,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const Spacer(),
+                        Text(
+                          'Отпустите для отправки',
+                          style: TextStyle(
+                            color: isDark ? Colors.white30 : Colors.black38,
+                            fontSize: 12 * scale,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                      ] else ...[
+                        // Emoji button on the left
+                        IconButton(
+                          icon: FaIcon(
+                            FontAwesomeIcons.faceSmile,
                             color: isDark ? Colors.white70 : Colors.black54,
-                            size: 14 * scale,
+                            size: 20,
+                          ),
+                          tooltip: 'Эмодзи',
+                          onPressed: () {
+                            CustomToast.show(
+                              context,
+                              'Панель эмодзи в разработке',
+                              type: ToastType.info,
+                            );
+                          },
+                        ),
+                        // Text Field
+                        Expanded(
+                          child: TextField(
+                            controller: _messageController,
+                            focusNode: _messageFocusNode,
+                            minLines: 1,
+                            maxLines: 3,
+                            keyboardType: TextInputType.multiline,
+                            decoration: InputDecoration(
+                              hintText: 'Написать сообщение...',
+                              hintStyle: TextStyle(
+                                color: isDark ? Colors.white.withOpacity(0.35) : Colors.black.withOpacity(0.35),
+                                fontSize: 13.5 * scale,
+                              ),
+                              border: InputBorder.none,
+                              focusedBorder: InputBorder.none,
+                              enabledBorder: InputBorder.none,
+                              contentPadding: const EdgeInsets.only(left: 4, right: 8, top: 12, bottom: 12),
+                              filled: true,
+                              fillColor: Colors.transparent,
+                            ),
+                            style: TextStyle(
+                              color: isDark ? Colors.white : Colors.black,
+                              fontSize: 13.5 * scale,
+                            ),
+                            onSubmitted: (_) {
+                              if (_messageController.text.trim().isNotEmpty) {
+                                _sendMessage();
+                              }
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        // Attach button with dropdown menu (TODO and POLL options), positioned next to send button
+                        Tooltip(
+                          message: 'Добавить вложение',
+                          child: GestureDetector(
+                            key: _attachmentKey,
+                            onTap: () {
+                              final renderBox = _attachmentKey.currentContext?.findRenderObject() as RenderBox?;
+                              if (renderBox != null) {
+                                final position = renderBox.localToGlobal(Offset.zero);
+                                final size = renderBox.size;
+                                final menuLeft = position.dx + (size.width / 2) - (100.0 * scale);
+                                final menuTop = position.dy - (88.0 * scale) - 8;
+
+                                CustomContextMenu.show(
+                                  context: context,
+                                  position: Offset(menuLeft, menuTop),
+                                  items: [
+                                    CustomContextMenuItem(
+                                      icon: FaIcon(FontAwesomeIcons.listCheck, size: 14 * scale),
+                                      label: 'Список задач',
+                                      onTap: _showTodoSendDialog,
+                                    ),
+                                    CustomContextMenuItem(
+                                      icon: FaIcon(FontAwesomeIcons.squarePollVertical, size: 14 * scale),
+                                      label: 'Опрос',
+                                      onTap: _showPollSendDialog,
+                                    ),
+                                  ],
+                                );
+                              }
+                            },
+                            child: Container(
+                              width: 30 * scale,
+                              height: 30 * scale,
+                              decoration: const BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.transparent,
+                              ),
+                              child: Center(
+                                child: FaIcon(
+                                  FontAwesomeIcons.paperclip,
+                                  color: isDark ? Colors.white70 : Colors.black54,
+                                  size: 14 * scale,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(width: 4),
+                      // Integrated Send / Voice button (pure white styled, using FA icons)
+                      MouseRegion(
+                        onEnter: (_) {
+                          setState(() {
+                            _isHoveringRecordButton = true;
+                          });
+                        },
+                        onExit: (_) {
+                          setState(() {
+                            _isHoveringRecordButton = false;
+                          });
+                        },
+                        child: GestureDetector(
+                          onTap: () {
+                            if (_showSendButton) {
+                              _sendMessage();
+                            } else {
+                              setState(() {
+                                _isVoiceMode = !_isVoiceMode;
+                                if (!_isVoiceMode) {
+                                  _startCameraPreview();
+                                } else {
+                                  _stopCameraPreview();
+                                }
+                              });
+                            }
+                          },
+                          onLongPressStart: _showSendButton ? null : (_) => _startRecording(),
+                          onLongPressEnd: _showSendButton ? null : (_) => _stopAndSendRecording(),
+                          onLongPressCancel: _showSendButton ? null : () => _cancelRecording(),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 200),
+                            width: (_isRecording ? 34 : 30) * scale,
+                            height: (_isRecording ? 34 : 30) * scale,
+                            margin: const EdgeInsets.only(right: 4),
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: _isRecording
+                                  ? Colors.red
+                                  : (isDark ? Colors.white.withOpacity(0.9) : Colors.white),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.15),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ],
+                            ),
+                            child: Center(
+                              child: AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 200),
+                                transitionBuilder: (child, animation) => ScaleTransition(scale: animation, child: child),
+                                child: FaIcon(
+                                  _showSendButton
+                                      ? FontAwesomeIcons.solidPaperPlane
+                                      : (_isVoiceMode ? FontAwesomeIcons.microphone : FontAwesomeIcons.video),
+                                  key: ValueKey<String>(
+                                    _showSendButton
+                                        ? 'send'
+                                        : (_isVoiceMode ? 'mic' : 'video'),
+                                  ),
+                                  color: _isRecording
+                                      ? Colors.white
+                                      : (_showSendButton
+                                          ? const Color(0xFF2563EB)
+                                          : (_isVoiceMode ? const Color(0xFF10B981) : const Color(0xFF38BDF8))),
+                                  size: 13 * scale,
+                                ),
+                              ),
+                            ),
                           ),
                         ),
                       ),
-                    ),
+                    ],
                   ),
-                  const SizedBox(width: 4),
-                  // Integrated Send / Voice button (pure white styled, using FA icons)
-                  GestureDetector(
-                    onTap: () {
-                      if (_showSendButton) {
-                        _sendMessage();
-                      } else {
-                        _showVoiceSendDialog();
-                      }
-                    },
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      width: 30 * scale,
-                      height: 30 * scale,
-                      margin: const EdgeInsets.only(right: 4),
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.white,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.15),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: Center(
-                        child: AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 200),
-                          transitionBuilder: (child, animation) => ScaleTransition(scale: animation, child: child),
-                          child: FaIcon(
-                            _showSendButton ? FontAwesomeIcons.solidPaperPlane : FontAwesomeIcons.microphone,
-                            key: ValueKey<bool>(_showSendButton),
-                            color: _showSendButton ? const Color(0xFF2563EB) : const Color(0xFF10B981),
-                            size: 13 * scale,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+                ),
               ),
             ),
-          ),
+            // The floating hover info badge with smooth transition animations
+            AnimatedPositioned(
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeInOut,
+              bottom: showRecordTooltip ? (52 * scale) : (36 * scale),
+              right: 4 * scale,
+              child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeInOut,
+                opacity: showRecordTooltip ? 1.0 : 0.0,
+                child: IgnorePointer(
+                  ignoring: !showRecordTooltip,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    constraints: BoxConstraints(maxWidth: 240 * scale),
+                    decoration: BoxDecoration(
+                      color: isDark ? const Color(0xFF1E1E22) : Colors.white,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: isDark ? Colors.white.withOpacity(0.12) : Colors.black.withOpacity(0.08),
+                        width: 1.0,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.15),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          _isVoiceMode
+                              ? 'Запись голосового (ГС)'
+                              : 'Запись видео (ВС)',
+                          style: TextStyle(
+                            color: isDark ? Colors.white : Colors.black87,
+                            fontSize: 11.5 * scale,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          '• Удерживайте кнопку для записи\n• Нажмите для переключения режима',
+                          style: TextStyle(
+                            color: isDark ? Colors.white60 : Colors.black54,
+                            fontSize: 10.5 * scale,
+                            height: 1.3,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -3788,6 +4095,22 @@ class _MessengerScreenState extends State<MessengerScreen> {
           'question': question,
           'chat_id': chatId,
         });
+      } else if (parsedJson != null && parsedJson['type'] == 'voice') {
+        sentViaWs = _webSocketService!.sendMessage({
+          'type': 'voice_message',
+          'file_id': parsedJson['file_id'],
+          'duration': parsedJson['duration'],
+          'chat_id': chatId,
+          'encrypted_text': encryptedText,
+        });
+      } else if (parsedJson != null && parsedJson['type'] == 'video_message') {
+        sentViaWs = _webSocketService!.sendMessage({
+          'type': 'video_message',
+          'file_id': parsedJson['file_id'],
+          'duration': parsedJson['duration'],
+          'chat_id': chatId,
+          'encrypted_text': encryptedText,
+        });
       } else {
         sentViaWs = _webSocketService!.sendMessage({
           'type': 'encrypted_message',
@@ -3815,6 +4138,364 @@ class _MessengerScreenState extends State<MessengerScreen> {
         _loadChats(silent: true);
       }
     }
+  }
+
+  void _startRecording() async {
+    if (_showSendButton) return;
+    
+    setState(() {
+      _isRecording = true;
+      _recordingDuration = 0;
+    });
+
+    _sendTypingStatus(true, _isVoiceMode ? 'recording_voice' : 'recording_video');
+
+    if (_isVoiceMode) {
+      final dir = await getTemporaryDirectory();
+      _recordingPath = '${dir.path}/voice_record_${DateTime.now().millisecondsSinceEpoch}.wav';
+
+      if (Platform.isLinux) {
+        // Напрямую запускаем arecord — обходим сломанный record_linux
+        try {
+          print('🎙️ Запуск arecord напрямую: $_recordingPath');
+          _arecordProcess = await Process.start('arecord', [
+            '-f', 'S16_LE',   // PCM 16-bit little-endian
+            '-r', '24000',    // 24 kHz (достаточно для голоса)
+            '-c', '1',        // моно
+            '-t', 'wav',      // формат WAV
+            _recordingPath!,
+          ]);
+          print('🎙️ arecord запущен (pid: ${_arecordProcess!.pid})');
+        } catch (e) {
+          print('❌ Не удалось запустить arecord: $e');
+          CustomToast.show(context, 'Не удалось запустить запись: $e', type: ToastType.error);
+          setState(() { _isRecording = false; });
+          return;
+        }
+      } else {
+        // Другие платформы — используем пакет record
+        _audioRecorder ??= AudioRecorder();
+        if (await _audioRecorder!.hasPermission()) {
+          try {
+            await _audioRecorder!.start(
+              const RecordConfig(encoder: AudioEncoder.wav),
+              path: _recordingPath!,
+            );
+          } catch (e) {
+            print('❌ AudioRecorder start error: $e');
+          }
+        } else {
+          CustomToast.show(context, 'Нет доступа к микрофону', type: ToastType.warning);
+          setState(() { _isRecording = false; });
+          return;
+        }
+      }
+    } else {
+      final dir = await getTemporaryDirectory();
+      _recordingPath = '${dir.path}/video_record_${DateTime.now().millisecondsSinceEpoch}.mp4';
+
+      if (Platform.isLinux) {
+        try {
+          print('📹 Запуск записи ffmpeg напрямую: $_recordingPath');
+          _ffmpegProcess = await Process.start('ffmpeg', [
+            '-y',
+            '-use_wallclock_as_timestamps', '1',
+            '-thread_queue_size', '1024',
+            '-fflags', 'nobuffer',
+            '-f', 'v4l2',
+            '-framerate', '30',
+            '-video_size', '640x480',
+            '-i', '/dev/video0',
+            '-use_wallclock_as_timestamps', '1',
+            '-thread_queue_size', '1024',
+            '-f', 'pulse',
+            '-i', 'default',
+            '-c:v', 'libx264',
+            '-pix_fmt', 'yuv420p',
+            '-preset', 'ultrafast',
+            '-tune', 'zerolatency',
+            '-c:a', 'aac',
+            '-strict', '-2',
+            '-fflags', 'nobuffer',
+            '-flush_packets', '1',
+            '-f', 'tee',
+            '-map', '0:v',
+            '-map', '1:a',
+            '[f=mpegts]udp://127.0.0.1:44444?pkt_size=1316|[f=mp4]${_recordingPath!}',
+          ]);
+          print('📹 Запись ffmpeg запущена (pid: ${_ffmpegProcess!.pid})');
+        } catch (e) {
+          print('❌ Не удалось запустить ffmpeg: $e');
+          CustomToast.show(context, 'Не удалось запустить запись видео: $e', type: ToastType.error);
+          setState(() { _isRecording = false; });
+          return;
+        }
+      } else if (Platform.isWindows || Platform.isMacOS) {
+        if (_cameraController != null && _cameraController!.value.isInitialized) {
+          try {
+            await _cameraController!.startVideoRecording();
+            print('📹 Запись видео через плагин camera запущена');
+          } catch (e) {
+            print('Ошибка записи camera: $e');
+            CustomToast.show(context, 'Не удалось запустить камеру: $e', type: ToastType.error);
+            setState(() { _isRecording = false; });
+            return;
+          }
+        } else {
+          print('📹 Камера не инициализирована на этой платформе.');
+          CustomToast.show(context, 'Камера не готова', type: ToastType.error);
+          setState(() { _isRecording = false; });
+          return;
+        }
+      } else {
+        print('📹 Запись видеосообщения на этой платформе недоступна напрямую.');
+      }
+    }
+
+    _recordingTimer?.cancel();
+    _recordingTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (mounted) {
+        setState(() {
+          _recordingDuration++;
+        });
+      }
+    });
+  }
+
+  void _stopAndSendRecording() async {
+    if (!_isRecording) return;
+    
+    _recordingTimer?.cancel();
+    final duration = _recordingDuration;
+    
+    setState(() {
+      _isRecording = false;
+      _recordingDuration = 0;
+    });
+
+    _sendTypingStatus(false, _isVoiceMode ? 'recording_voice' : 'recording_video');
+
+    String? path;
+    if (_isVoiceMode) {
+      if (Platform.isLinux) {
+        // Просто убиваем процесс arecord — файл автоматически сохранится
+        if (_arecordProcess != null) {
+          _arecordProcess!.kill(ProcessSignal.sigint); // SIGINT для корректного завершения WAV
+          await _arecordProcess!.exitCode; // Ждём завершения
+          _arecordProcess = null;
+          print('🎙️ arecord остановлен');
+        }
+        path = _recordingPath;
+      } else {
+        try {
+          if (_audioRecorder != null && await _audioRecorder!.isRecording()) {
+            path = await _audioRecorder!.stop();
+          }
+        } catch (e) {
+          print('❌ AudioRecorder stop error: $e');
+          path = _recordingPath;
+        }
+      }
+    } else {
+      if (Platform.isLinux) {
+        if (_ffmpegProcess != null) {
+          _ffmpegProcess!.kill(ProcessSignal.sigint); // SIGINT для корректного завершения MP4
+          await _ffmpegProcess!.exitCode; // Ждём завершения
+          _ffmpegProcess = null;
+          print('📹 ffmpeg остановлен');
+        }
+        path = _recordingPath;
+      } else if (Platform.isWindows || Platform.isMacOS) {
+        if (_cameraController != null && _cameraController!.value.isRecordingVideo) {
+          try {
+            final file = await _cameraController!.stopVideoRecording();
+            path = file.path;
+            print('📹 Запись видео через плагин camera завершена: $path');
+          } catch (e) {
+            print('Ошибка остановки camera: $e');
+            path = _recordingPath;
+          }
+        } else {
+          path = _recordingPath;
+        }
+      } else {
+        path = _recordingPath;
+      }
+    }
+
+    if (duration < 1) {
+      if (mounted) {
+        CustomToast.show(
+          context,
+          'Запись слишком короткая',
+          type: ToastType.warning,
+        );
+      }
+      if (path != null) {
+        final file = File(path);
+        if (await file.exists()) await file.delete();
+      }
+      return;
+    }
+
+    if (_isVoiceMode && path != null) {
+      final file = File(path);
+      if (await file.exists() && await file.length() > 0) {
+        final uploadRes = await _apiService.uploadFile(file, 'audio', _selectedChat!['id'].toString());
+        
+        if (uploadRes.success && uploadRes.data != null) {
+          final fileId = uploadRes.data!['file_id'] ?? uploadRes.data!['id']?.toString() ?? 'voice_${DateTime.now().millisecondsSinceEpoch}';
+          final fileUrl = uploadRes.data!['file_url'] ?? '';
+          
+          final payload = jsonEncode({
+            'type': 'voice',
+            'file_id': fileId,
+            'file_url': fileUrl,
+            'file_name': 'voice_note.wav',
+            'mime_type': 'audio/wav',
+            'file_size': await file.length(),
+            'duration': duration,
+          });
+          _sendCustomMessage(payload);
+        } else {
+          if (mounted) {
+            CustomToast.show(context, 'Ошибка загрузки: ${uploadRes.error}', type: ToastType.error);
+          }
+        }
+      } else {
+        print('❌ Файл записи пуст или не существует: $path');
+        if (mounted) {
+          CustomToast.show(context, 'Ошибка записи: файл пуст', type: ToastType.error);
+        }
+      }
+    } else if (!_isVoiceMode) {
+      if (path != null) {
+        final file = File(path);
+        if (await file.exists() && await file.length() > 0) {
+          final uploadRes = await _apiService.uploadFile(file, 'video_message', _selectedChat!['id'].toString());
+          
+          if (uploadRes.success && uploadRes.data != null) {
+            final fileId = uploadRes.data!['file_id'] ?? uploadRes.data!['id']?.toString() ?? 'video_${DateTime.now().millisecondsSinceEpoch}';
+            final fileUrl = uploadRes.data!['file_url'] ?? '';
+            
+            _localVideoPaths[fileId] = path;
+
+            final payload = jsonEncode({
+              'type': 'video_message',
+              'file_id': fileId,
+              'file_url': fileUrl,
+              'file_name': 'video_note.mp4',
+              'mime_type': 'video/mp4',
+              'file_size': await file.length(),
+              'duration': duration,
+              'local_path': path,
+            });
+            _sendCustomMessage(payload);
+          } else {
+            if (mounted) {
+              CustomToast.show(context, 'Ошибка загрузки видео: ${uploadRes.error}', type: ToastType.error);
+            }
+          }
+        } else {
+          // Fallback, если файл не записался (например, на другой платформе или при отсутствии камеры)
+          final fileId = 'video_${DateTime.now().millisecondsSinceEpoch}';
+          _localVideoPaths[fileId] = path;
+
+          final payload = jsonEncode({
+            'type': 'video_message',
+            'file_id': fileId,
+            'file_name': 'video_note.mp4',
+            'mime_type': 'video/mp4',
+            'file_size': 8500 * duration,
+            'duration': duration,
+            'local_path': path,
+          });
+          _sendCustomMessage(payload);
+          if (mounted) {
+            CustomToast.show(
+              context,
+              'Видеосообщение отправлено (симуляция)',
+              type: ToastType.success,
+            );
+          }
+        }
+      }
+    }
+  }
+
+  void _cancelRecording() async {
+    if (!_isRecording) return;
+    
+    _recordingTimer?.cancel();
+    setState(() {
+      _isRecording = false;
+      _recordingDuration = 0;
+    });
+
+    _sendTypingStatus(false, _isVoiceMode ? 'recording_voice' : 'recording_video');
+    
+    if (_isVoiceMode) {
+      if (Platform.isLinux) {
+        _arecordProcess?.kill();
+        _arecordProcess = null;
+      } else {
+        try {
+          if (_audioRecorder != null && await _audioRecorder!.isRecording()) {
+            await _audioRecorder!.stop();
+          }
+        } catch (_) {}
+      }
+    } else {
+      if (Platform.isLinux) {
+        _ffmpegProcess?.kill();
+        _ffmpegProcess = null;
+      } else if (Platform.isWindows || Platform.isMacOS) {
+        if (_cameraController != null && _cameraController!.value.isRecordingVideo) {
+          try { await _cameraController!.stopVideoRecording(); } catch (_) {}
+        }
+      }
+    }
+
+    // Удаляем файл
+    if (_recordingPath != null) {
+      final file = File(_recordingPath!);
+      if (await file.exists()) await file.delete();
+    }
+
+    CustomToast.show(
+      context,
+      'Запись отменена',
+      type: ToastType.info,
+    );
+  }
+
+  void _startCameraPreview() async {
+    if (!Platform.isWindows && !Platform.isMacOS) return;
+    try {
+      final cameras = await availableCameras();
+      if (cameras.isEmpty) return;
+      
+      final frontCam = cameras.firstWhere(
+        (cam) => cam.lensDirection == CameraLensDirection.front,
+        orElse: () => cameras.first,
+      );
+
+      _cameraController = CameraController(
+        frontCam,
+        ResolutionPreset.medium,
+        enableAudio: true,
+      );
+      
+      await _cameraController!.initialize();
+      if (mounted) setState(() {});
+    } catch (e) {
+      print('Camera init error: $e');
+    }
+  }
+
+  void _stopCameraPreview() {
+    _cameraController?.dispose();
+    _cameraController = null;
   }
 
   void _showVoiceSendDialog() {
@@ -4513,10 +5194,24 @@ class _VoiceMessageBubblePlayer extends StatelessWidget {
     final uri = Uri.parse(ApiService.baseUrl);
     final port = uri.hasPort ? ':${uri.port}' : '';
     final host = '${uri.scheme}://${uri.host}$port';
-    final suffix = payload['file_url']?.toString() ?? '/api/files/download/$fileId/';
-    if (suffix.startsWith('http')) return suffix;
-    final prefix = suffix.startsWith('/') ? '' : '/';
-    return '$host$prefix$suffix';
+    
+    String? fileUrl = payload['file_url']?.toString();
+    if (fileUrl != null && fileUrl.trim().isEmpty) fileUrl = null;
+    
+    final suffix = fileUrl ?? '/api/files/download/$fileId/';
+    
+    String finalUrl = suffix.startsWith('http') 
+        ? suffix 
+        : '$host${suffix.startsWith('/') ? '' : '/'}$suffix';
+        
+    // MPV на Linux не может определить формат файла, если URL не заканчивается на известное расширение.
+    // Добавляем фиктивный query параметр с расширением.
+    if (!finalUrl.toLowerCase().contains('.wav') && !finalUrl.toLowerCase().contains('.m4a') && !finalUrl.contains('ext=')) {
+      final ext = payload['mime_type']?.toString().contains('mp4') == true ? '.m4a' : '.wav';
+      finalUrl += finalUrl.contains('?') ? '&ext=$ext' : '?ext=$ext';
+    }
+    
+    return finalUrl;
   }
 
   String _formatDuration(Duration d) {
@@ -4763,5 +5458,724 @@ class _NewMessageAnimatorState extends State<NewMessageAnimator> with SingleTick
     );
   }
 }
+
+class _BlinkingRedDot extends StatefulWidget {
+  const _BlinkingRedDot();
+
+  @override
+  State<_BlinkingRedDot> createState() => _BlinkingRedDotState();
+}
+
+class _BlinkingRedDotState extends State<_BlinkingRedDot> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _controller,
+      child: Container(
+        width: 10,
+        height: 10,
+        decoration: const BoxDecoration(
+          color: Colors.red,
+          shape: BoxShape.circle,
+        ),
+      ),
+    );
+  }
+}
+
+class _VideoRecordingPreview extends StatefulWidget {
+  final double scale;
+  final CameraController? cameraController;
+  const _VideoRecordingPreview({required this.scale, this.cameraController});
+
+  @override
+  State<_VideoRecordingPreview> createState() => _VideoRecordingPreviewState();
+}
+
+class _VideoRecordingPreviewState extends State<_VideoRecordingPreview> with SingleTickerProviderStateMixin {
+  late AnimationController _pulseController;
+  Player? _player;
+  VideoController? _videoController;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    )..repeat(reverse: true);
+
+    if (Platform.isLinux) {
+      _initPlayer();
+    }
+  }
+
+  Future<void> _initPlayer() async {
+    _player = Player(
+      configuration: const PlayerConfiguration(
+        bufferSize: 1024 * 1024,
+      ),
+    );
+    _videoController = VideoController(_player!);
+    await (_player!.platform as dynamic).setProperty('profile', 'low-latency');
+    await (_player!.platform as dynamic).setProperty('untimed', 'yes');
+    await (_player!.platform as dynamic).setProperty('cache', 'no');
+    await (_player!.platform as dynamic).setProperty('demuxer-lavf-o', 'fflags=nobuffer');
+    await (_player!.platform as dynamic).setProperty('cache-pause', 'no');
+    await (_player!.platform as dynamic).setProperty('stream-buffer-size', '4k');
+    await (_player!.platform as dynamic).setProperty('vd-lavc-threads', '1');
+    await (_player!.platform as dynamic).setProperty('load-unsafe-playlists', 'yes');
+    await _player!.setVolume(0.0);
+    
+    _player!.stream.error.listen((e) {
+      print('MEDIA_KIT_ERROR: $e');
+    });
+
+    try {
+      await _player!.open(Media('udp://127.0.0.1:44444'));
+      print('MEDIA_KIT: Opened UDP stream');
+    } catch (e) {
+      print('MEDIA_KIT_OPEN_ERROR: $e');
+    }
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    _player?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final size = 200 * widget.scale;
+    return Positioned.fill(
+      child: IgnorePointer(
+        ignoring: true,
+        child: Container(
+          color: Colors.black.withOpacity(0.55),
+          child: AnimatedBuilder(
+            animation: _pulseController,
+            builder: (context, child) {
+              final scaleValue = 1.0 + (_pulseController.value * 0.08);
+              return Center(
+                child: Container(
+                  width: size * scaleValue,
+                  height: size * scaleValue,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 3.5),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.redAccent.withOpacity(0.4),
+                        blurRadius: 15,
+                        spreadRadius: 2,
+                      )
+                    ],
+                  ),
+                  child: ClipOval(
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        if (_videoController != null)
+                          SizedBox.expand(
+                            child: FittedBox(
+                              fit: BoxFit.cover,
+                              child: SizedBox(
+                                width: 640,
+                                height: 480,
+                                child: Video(
+                                  controller: _videoController!,
+                                  controls: (state) => const SizedBox.shrink(),
+                                  fit: BoxFit.cover,
+                                ),
+                              ),
+                            ),
+                          )
+                        else
+                          Container(
+                            color: const Color(0xFF1E293B),
+                            child: const Center(
+                              child: CircularProgressIndicator(color: Colors.white),
+                            ),
+                          ),
+                        // REC indicator
+                        Positioned(
+                          top: 24,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 10,
+                                height: 10,
+                                decoration: const BoxDecoration(
+                                  color: Colors.redAccent,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                'REC',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12 * widget.scale,
+                                  shadows: const [Shadow(color: Colors.black, blurRadius: 4)],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _VideoMessageMockBubble extends StatefulWidget {
+  final Map<String, dynamic> payload;
+  final bool isMe;
+  final bool isDark;
+  final double scale;
+
+  const _VideoMessageMockBubble({
+    super.key,
+    required this.payload,
+    required this.isMe,
+    required this.isDark,
+    required this.scale,
+  });
+
+  @override
+  State<_VideoMessageMockBubble> createState() => _VideoMessageMockBubbleState();
+}
+
+class _VideoMessageMockBubbleState extends State<_VideoMessageMockBubble> {
+  Player? _player;
+  VideoController? _videoController;
+  bool _isInitialized = false;
+  bool _isPlaying = false;
+  bool _isLoading = false;
+  bool _isMuted = true;
+  bool _showMuteIndicator = true;
+  bool _isHovered = false;
+  Timer? _muteIndicatorTimer;
+
+  Duration _videoPosition = Duration.zero;
+  Duration _videoDuration = Duration.zero;
+  StreamSubscription? _posSub;
+  StreamSubscription? _durSub;
+  StreamSubscription? _playingSub;
+  StreamSubscription? _completedSub;
+
+  String _buildVideoUrl() {
+    final fileId = widget.payload['file_id']?.toString() ?? '';
+    final uri = Uri.parse(ApiService.baseUrl);
+    final port = uri.hasPort ? ':${uri.port}' : '';
+    final host = '${uri.scheme}://${uri.host}$port';
+    
+    String? fileUrl = widget.payload['file_url']?.toString();
+    if (fileUrl != null && fileUrl.trim().isEmpty) fileUrl = null;
+    
+    final suffix = fileUrl ?? '/api/files/download/$fileId/';
+    
+    return suffix.startsWith('http') 
+        ? suffix 
+        : '$host${suffix.startsWith('/') ? '' : '/'}$suffix';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    // Lazy initialize player with a short delay to prevent UI stutters when scrolling fast
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _initPlayer();
+      }
+    });
+  }
+
+  Future<void> _initPlayer() async {
+    if (_isLoading || _isInitialized) return;
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final videoUrl = _buildVideoUrl();
+      final localPath = widget.payload['local_path']?.toString();
+      String playUrl;
+      if (localPath != null && await File(localPath).exists()) {
+        playUrl = localPath;
+      } else {
+        playUrl = LocalProxy.getProxyUrl(videoUrl, ext: '.mp4');
+      }
+
+      final player = Player();
+      final controller = VideoController(player);
+
+      if (!mounted) {
+        player.dispose();
+        return;
+      }
+
+      _player = player;
+      _videoController = controller;
+
+      // Start muted for autoplay
+      await player.setVolume(0.0);
+      // Disable infinite loop playback for video notes
+      await player.setPlaylistMode(PlaylistMode.none);
+
+      _posSub = player.stream.position.listen((pos) {
+        if (mounted) {
+          setState(() {
+            _videoPosition = pos;
+          });
+        }
+      });
+
+      _durSub = player.stream.duration.listen((dur) {
+        if (dur != Duration.zero && mounted) {
+          setState(() {
+            _videoDuration = dur;
+          });
+        }
+      });
+
+      _playingSub = player.stream.playing.listen((playing) {
+        if (mounted) {
+          setState(() {
+            _isPlaying = playing;
+          });
+        }
+      });
+
+      _completedSub = player.stream.completed.listen((completed) {
+        if (completed && mounted) {
+          player.pause();
+          player.seek(Duration.zero);
+          final playback = Provider.of<PlaybackProvider>(context, listen: false);
+          if (playback.currentAudioUrl == videoUrl && playback.isVideo) {
+            playback.stop();
+          }
+          setState(() {
+            _isPlaying = false;
+            _videoPosition = Duration.zero;
+          });
+        }
+      });
+
+      await player.open(Media(playUrl), play: false);
+
+      if (mounted) {
+        setState(() {
+          _isInitialized = true;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('❌ Error auto-initializing video message: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _isInitialized = false;
+        });
+      }
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final playback = Provider.of<PlaybackProvider>(context);
+    final videoUrl = _buildVideoUrl();
+    final isCurrent = playback.currentAudioUrl == videoUrl && playback.isVideo;
+
+    if (_isInitialized) {
+      if (isCurrent) {
+        // Toggle video player state to match playback provider actions from panel
+        if (playback.isPlaying && !_isPlaying) {
+          _player?.play();
+          if (_isMuted) {
+            _player?.setVolume(100.0);
+            _updateMuteState(false);
+          }
+        } else if (!playback.isPlaying && _isPlaying) {
+          _player?.pause();
+        }
+      } else {
+        // We are not the current active playback.
+        // Check if playback is completely stopped (panel closed) or if another media is playing:
+        if (playback.currentAudioUrl == null) {
+          // Panel closed/stopped -> stop video completely and reset to start
+          _stopAndReset();
+        } else if (!_isMuted) {
+          // Another media is playing -> mute us back to autoplay
+          _muteBackToAutoplay();
+        }
+      }
+    }
+  }
+
+  Future<void> _stopAndReset() async {
+    final player = _player;
+    if (player != null && _isInitialized) {
+      await player.pause();
+      await player.seek(Duration.zero);
+      await player.setVolume(0.0);
+      _updateMuteState(true);
+      if (mounted) {
+        setState(() {
+          _isPlaying = false;
+          _videoPosition = Duration.zero;
+        });
+      }
+    }
+  }
+
+  Future<void> _muteBackToAutoplay() async {
+    final player = _player;
+    if (player != null && _isInitialized) {
+      await player.setVolume(0.0);
+      _updateMuteState(true);
+    }
+  }
+
+  void _updateMuteState(bool muted) {
+    if (muted) {
+      _muteIndicatorTimer?.cancel();
+      setState(() {
+        _isMuted = true;
+        _showMuteIndicator = true;
+      });
+    } else {
+      setState(() {
+        _isMuted = false;
+        _showMuteIndicator = true;
+      });
+      _muteIndicatorTimer?.cancel();
+      _muteIndicatorTimer = Timer(const Duration(milliseconds: 1500), () {
+        if (mounted) {
+          setState(() {
+            _showMuteIndicator = false;
+          });
+        }
+      });
+    }
+  }
+
+  Future<void> _handleTap() async {
+    final player = _player;
+    if (player == null || !_isInitialized) return;
+
+    final playbackProvider = Provider.of<PlaybackProvider>(context, listen: false);
+    final videoUrl = _buildVideoUrl();
+
+    if (_isPlaying) {
+      if (_isMuted) {
+        // Unmute and restart from 0 (Telegram style)
+        await playbackProvider.stop(); // Stops any other active audible sounds/voice messages
+        await player.setVolume(100.0);
+        await player.seek(Duration.zero);
+        _updateMuteState(false);
+
+        await playbackProvider.playVideo(
+          videoUrl,
+          'Видеосообщение',
+          'Видео',
+          duration: _videoDuration,
+        );
+      } else {
+        // Pause playback
+        await player.pause();
+        playbackProvider.pause();
+      }
+    } else {
+      // Play unmuted
+      await playbackProvider.stop();
+      await player.setVolume(100.0);
+      await player.play();
+      _updateMuteState(false);
+
+      await playbackProvider.playVideo(
+        videoUrl,
+        'Видеосообщение',
+        'Видео',
+        duration: _videoDuration,
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _muteIndicatorTimer?.cancel();
+    _posSub?.cancel();
+    _durSub?.cancel();
+    _playingSub?.cancel();
+    _completedSub?.cancel();
+    _player?.dispose();
+    super.dispose();
+  }
+
+  String _formatDuration(int seconds) {
+    final m = seconds ~/ 60;
+    final s = seconds % 60;
+    return '$m:${s.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final durationSeconds = widget.payload['duration'] is num
+        ? (widget.payload['duration'] as num).toInt()
+        : (int.tryParse(widget.payload['duration']?.toString() ?? '') ?? 5);
+
+    final size = 200.0 * widget.scale;
+
+    final totalMs = _videoDuration.inMilliseconds > 0 
+        ? _videoDuration.inMilliseconds 
+        : (durationSeconds * 1000);
+    final double progressVal = totalMs > 0 
+        ? (_videoPosition.inMilliseconds / totalMs).clamp(0.0, 1.0) 
+        : 0.0;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: widget.isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      children: [
+        MouseRegion(
+          onEnter: (_) => setState(() => _isHovered = true),
+          onExit: (_) => setState(() => _isHovered = false),
+          child: GestureDetector(
+            onTap: _handleTap,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                // 1. Circular Video Element Container
+                Container(
+                  width: size,
+                  height: size,
+                  margin: const EdgeInsets.symmetric(vertical: 4),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.black,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.25),
+                        blurRadius: 10,
+                        spreadRadius: 1,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: ClipOval(
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        // Video Player (BoxFit.cover)
+                        if (_isInitialized && _videoController != null)
+                          Positioned.fill(
+                            child: Video(
+                              controller: _videoController!,
+                              fit: BoxFit.cover,
+                              controls: (state) => const SizedBox.shrink(),
+                            ),
+                          )
+                        else
+                          // Black placeholder with a silent loader
+                          const SizedBox.expand(),
+
+                        // Loader when buffering / loading
+                        if (_isLoading)
+                          const CircularProgressIndicator(
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                            strokeWidth: 2,
+                          ),
+
+                        // Play icon when paused (Telegram / Web client style)
+                        if (!_isPlaying && !_isLoading)
+                          Container(
+                            width: 50 * widget.scale,
+                            height: 50 * widget.scale,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.black.withOpacity(0.55),
+                              border: Border.all(
+                                color: Colors.white.withOpacity(0.2),
+                                width: 1,
+                              ),
+                            ),
+                            child: Icon(
+                              Icons.play_arrow_rounded,
+                              color: Colors.white,
+                              size: 30 * widget.scale,
+                            ),
+                          ),
+
+                        // Pause icon when playing and hovered (matching web/Telegram)
+                        if (_isPlaying && _isHovered && !_isLoading)
+                          Container(
+                            width: 50 * widget.scale,
+                            height: 50 * widget.scale,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.black.withOpacity(0.55),
+                              border: Border.all(
+                                color: Colors.white.withOpacity(0.2),
+                                width: 1,
+                              ),
+                            ),
+                            child: Icon(
+                              Icons.pause_rounded,
+                              color: Colors.white,
+                              size: 30 * widget.scale,
+                            ),
+                          ),
+
+                        // Mute/Unmute Indicator Overlay
+                        if (_isPlaying && _showMuteIndicator)
+                          Positioned(
+                            top: 12 * widget.scale,
+                            right: 12 * widget.scale,
+                            child: Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.black.withOpacity(0.4),
+                              ),
+                              child: Icon(
+                                _isMuted ? Icons.volume_off_rounded : Icons.volume_up_rounded,
+                                color: Colors.white.withOpacity(0.9),
+                                size: 14 * widget.scale,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                // 2. Circular Progress Arc Overlay (painted outside ClipOval to prevent clipping)
+                SizedBox(
+                  width: size + 4.0,
+                  height: size + 4.0,
+                  child: IgnorePointer(
+                    child: CustomPaint(
+                      painter: _CircleProgressPainter(
+                        progress: progressVal,
+                        color: const Color(0xFF3B82F6), // Accent Blue from xaneomain
+                        backgroundColor: Colors.white.withOpacity(0.15), // Border ring
+                        strokeWidth: 2.0,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        // 3. Static duration label below the circle (matching web design)
+        Padding(
+          padding: const EdgeInsets.only(top: 4, bottom: 4),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.5),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(
+              _formatDuration(durationSeconds),
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.7),
+                fontSize: 11,
+                fontFamily: 'Inter',
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _CircleProgressPainter extends CustomPainter {
+  final double progress;
+  final Color color;
+  final Color backgroundColor;
+  final double strokeWidth;
+
+  _CircleProgressPainter({
+    required this.progress,
+    required this.color,
+    required this.backgroundColor,
+    required this.strokeWidth,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = (size.width - strokeWidth) / 2;
+
+    // Draw background ring
+    if (backgroundColor != Colors.transparent) {
+      final bgPaint = Paint()
+        ..color = backgroundColor
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = strokeWidth;
+      canvas.drawCircle(center, radius, bgPaint);
+    }
+
+    if (progress > 0) {
+      // Draw progress ring starting from top (-pi / 2)
+      final progressPaint = Paint()
+        ..color = color
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = strokeWidth
+        ..strokeCap = StrokeCap.round;
+      canvas.drawArc(
+        Rect.fromCircle(center: center, radius: radius),
+        -3.141592653589793 / 2,
+        2 * 3.141592653589793 * progress,
+        false,
+        progressPaint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _CircleProgressPainter oldDelegate) {
+    return oldDelegate.progress != progress ||
+        oldDelegate.color != color ||
+        oldDelegate.backgroundColor != backgroundColor ||
+        oldDelegate.strokeWidth != strokeWidth;
+  }
+}
+
 
 

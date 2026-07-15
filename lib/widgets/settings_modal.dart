@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../l10n/app_localizations.dart';
 import '../providers/theme_provider.dart';
 import '../providers/locale_provider.dart';
+import '../services/notification_service.dart';
 
 /// Глобальная кнопка настроек с модальным окном
 class SettingsButton extends StatefulWidget {
@@ -27,6 +28,7 @@ class SettingsButtonState extends State<SettingsButton>
 
   // Переменные настроек
   bool _notificationsEnabled = true;
+  bool _useCustomNotifications = true;
   double _fontSize = 16.0;
   int _selectedLanguageIndex = 1;
 
@@ -70,6 +72,7 @@ class SettingsButtonState extends State<SettingsButton>
     if (mounted) {
       setState(() {
         _notificationsEnabled = prefs.getBool('settings_notifications') ?? true;
+        _useCustomNotifications = prefs.getBool('use_custom_notifications') ?? true;
         _fontSize = prefs.getDouble('settings_font_size') ?? 16.0;
       });
     }
@@ -78,6 +81,7 @@ class SettingsButtonState extends State<SettingsButton>
   Future<void> _savePreferences() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('settings_notifications', _notificationsEnabled);
+    await prefs.setBool('use_custom_notifications', _useCustomNotifications);
     await prefs.setDouble('settings_font_size', _fontSize);
   }
 
@@ -867,6 +871,25 @@ class SettingsButtonState extends State<SettingsButton>
                                           },
                                         ),
                                       ),
+                                      if (_notificationsEnabled && NotificationService.isCustomOverlaySupported()) ...[
+                                        const SizedBox(height: 10),
+                                        _buildAnimatedSettingsTile(
+                                          icon: Icons.dashboard_customize_rounded,
+                                          title: 'Кастомный оверлей Xaneo',
+                                          subtitle: 'Анимированные уведомления с быстрым ответом',
+                                          isDark: isDark,
+                                          trailing: _buildAnimatedSwitch(
+                                            value: _useCustomNotifications,
+                                            isDark: isDark,
+                                            onChanged: (value) {
+                                              setState(() {
+                                                _useCustomNotifications = value;
+                                                _savePreferences();
+                                              });
+                                            },
+                                          ),
+                                        ),
+                                      ],
                                       const SizedBox(height: 24),
                                       _buildSectionHeader(l10n?.fontSize(_fontSize.round()) ?? 'Размер шрифта: ${_fontSize.round()}', isDark, Icons.text_fields_rounded),
                                       const SizedBox(height: 10),

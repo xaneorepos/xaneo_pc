@@ -268,67 +268,47 @@ class ZoomScope extends StatefulWidget {
 }
 
 class _ZoomScopeState extends State<ZoomScope> {
-  final FocusNode _focusNode = FocusNode();
+  @override
+  void initState() {
+    super.initState();
+    HardwareKeyboard.instance.addHandler(_handleKeyEvent);
+  }
 
   @override
   void dispose() {
-    _focusNode.dispose();
+    HardwareKeyboard.instance.removeHandler(_handleKeyEvent);
     super.dispose();
+  }
+
+  bool _handleKeyEvent(KeyEvent event) {
+    if (event is KeyDownEvent) {
+      final isControlPressed = HardwareKeyboard.instance.isControlPressed ||
+                               HardwareKeyboard.instance.isMetaPressed;
+      if (isControlPressed) {
+        final scaleProvider = context.read<ScaleProvider?>();
+        if (scaleProvider != null) {
+          if (event.logicalKey == LogicalKeyboardKey.equal || event.logicalKey == LogicalKeyboardKey.numpadAdd) {
+            scaleProvider.zoomIn();
+            ZoomToast.show(context, scaleProvider.scale);
+            return true;
+          } else if (event.logicalKey == LogicalKeyboardKey.minus || event.logicalKey == LogicalKeyboardKey.numpadSubtract) {
+            scaleProvider.zoomOut();
+            ZoomToast.show(context, scaleProvider.scale);
+            return true;
+          } else if (event.logicalKey == LogicalKeyboardKey.digit0 || event.logicalKey == LogicalKeyboardKey.numpad0) {
+            scaleProvider.resetZoom();
+            ZoomToast.show(context, scaleProvider.scale);
+            return true;
+          }
+        }
+      }
+    }
+    return false;
   }
 
   @override
   Widget build(BuildContext context) {
-    return CallbackShortcuts(
-      bindings: <ShortcutActivator, VoidCallback>{
-        const SingleActivator(LogicalKeyboardKey.equal, control: true): () {
-          final scaleProvider = context.read<ScaleProvider?>();
-          if (scaleProvider != null) {
-            scaleProvider.zoomIn();
-            ZoomToast.show(context, scaleProvider.scale);
-          }
-        },
-        const SingleActivator(LogicalKeyboardKey.numpadAdd, control: true): () {
-          final scaleProvider = context.read<ScaleProvider?>();
-          if (scaleProvider != null) {
-            scaleProvider.zoomIn();
-            ZoomToast.show(context, scaleProvider.scale);
-          }
-        },
-        const SingleActivator(LogicalKeyboardKey.minus, control: true): () {
-          final scaleProvider = context.read<ScaleProvider?>();
-          if (scaleProvider != null) {
-            scaleProvider.zoomOut();
-            ZoomToast.show(context, scaleProvider.scale);
-          }
-        },
-        const SingleActivator(LogicalKeyboardKey.numpadSubtract, control: true): () {
-          final scaleProvider = context.read<ScaleProvider?>();
-          if (scaleProvider != null) {
-            scaleProvider.zoomOut();
-            ZoomToast.show(context, scaleProvider.scale);
-          }
-        },
-        const SingleActivator(LogicalKeyboardKey.digit0, control: true): () {
-          final scaleProvider = context.read<ScaleProvider?>();
-          if (scaleProvider != null) {
-            scaleProvider.resetZoom();
-            ZoomToast.show(context, scaleProvider.scale);
-          }
-        },
-        const SingleActivator(LogicalKeyboardKey.numpad0, control: true): () {
-          final scaleProvider = context.read<ScaleProvider?>();
-          if (scaleProvider != null) {
-            scaleProvider.resetZoom();
-            ZoomToast.show(context, scaleProvider.scale);
-          }
-        },
-      },
-      child: Focus(
-        focusNode: _focusNode,
-        autofocus: true,
-        child: widget.child,
-      ),
-    );
+    return widget.child;
   }
 }
 

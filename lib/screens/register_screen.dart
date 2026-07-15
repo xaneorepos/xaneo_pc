@@ -2,7 +2,9 @@ import 'dart:io';
 import 'dart:ui';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:provider/provider.dart';
+import '../widgets/custom_text_form_field.dart';
 import 'package:image_picker/image_picker.dart';
 import '../l10n/app_localizations.dart';
 import '../providers/theme_provider.dart';
@@ -13,6 +15,7 @@ import '../widgets/advanced_background.dart';
 import '../services/api_service.dart';
 import '../services/crypto_service.dart';
 import '../widgets/custom_toast.dart';
+import '../services/notification_service.dart';
 
 /// Экран регистрации с 7 шагами (как в xaneo_mobile)
 class RegisterScreen extends StatefulWidget {
@@ -68,6 +71,7 @@ class _RegisterScreenState extends State<RegisterScreen>
   
   // Переменные настроек
   bool _notificationsEnabled = true;
+  bool _useCustomNotifications = true;
   double _fontSize = 16.0;
   int _selectedLanguageIndex = 1; // Индекс русского языка в списке
   bool _showSettings = false; // Показывать модальное окно настроек
@@ -515,101 +519,72 @@ class _RegisterScreenState extends State<RegisterScreen>
     final themeProvider = Provider.of<ThemeProvider>(context);
     final scaleProvider = Provider.of<ScaleProvider>(context);
     final isDark = themeProvider.isDarkMode;
+    final screenWidth = MediaQuery.of(context).size.width;
+    final showRightPanel = screenWidth > 750;
     
     return Scaffold(
-      backgroundColor: Colors.transparent,
+      backgroundColor: isDark ? const Color(0xFF070707) : const Color(0xFFFAF9FB),
       body: Stack(
         children: [
-          // Фон
-          AdvancedBackground(isDark: isDark),
-          
-          // Кнопка настроек (не масштабируется)
-          Positioned(
-            top: 50,
-            right: 20,
-            child: MouseRegion(
-              cursor: SystemMouseCursors.click,
-              child: GestureDetector(
-                onTap: () {
-                  setState(() => _showSettings = true);
-                  _settingsAnimationController.forward();
-                },
-                child: AnimatedBuilder(
-                  animation: _pulseController,
-                  builder: (context, child) {
-                    return Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: isDark 
-                            ? Colors.white.withOpacity(0.08)
-                            : Colors.black.withOpacity(0.03),
-                        border: Border.all(
-                          color: isDark 
-                              ? Colors.white.withOpacity(0.1)
-                              : Colors.black.withOpacity(0.05),
-                          width: 1,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: isDark
-                                ? Colors.white.withOpacity((0.05 + _pulseController.value * 0.03).clamp(0.0, 1.0))
-                                : Colors.black.withOpacity((0.05 + _pulseController.value * 0.03).clamp(0.0, 1.0)),
-                            blurRadius: 10,
-                            spreadRadius: 1,
-                          ),
-                        ],
-                      ),
-                      child: Icon(
-                        Icons.settings_outlined,
-                        color: isDark ? Colors.white : Colors.black,
-                        size: 22,
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ),
-          ),
-          
-          // Основной контент
-          Padding(
-            padding: const EdgeInsets.only(top: 40),
-            child: Column(
-              children: [
-                // Контент формы
-                Expanded(
+          // Main Split Screen Layout
+          Row(
+            children: [
+              // Left Column: Sequential Registration Form
+              Expanded(
+                flex: showRightPanel ? 5 : 10,
+                child: Container(
+                  color: isDark ? const Color(0xFF0C0C0C) : const Color(0xFFFFFFFF),
                   child: Center(
-                    child: SingleChildScrollView(
-                      padding: EdgeInsets.all(24 * scaleProvider.scale),
-                      child: FadeTransition(
-                        opacity: _fadeAnimation,
-                        child: SlideTransition(
-                          position: _slideAnimation,
-                          child: GlassCard(
-                            child: Padding(
-                              padding: EdgeInsets.all(32 * scaleProvider.scale),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 400),
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 48),
+                        child: _ScaledContent(
+                          child: FadeTransition(
+                            opacity: _fadeAnimation,
+                            child: SlideTransition(
+                              position: _slideAnimation,
                               child: Form(
                                 key: _formKey,
                                 child: Column(
                                   mainAxisSize: MainAxisSize.min,
-                                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    // Заголовок
+                                    // Logo (if right panel is hidden)
+                                    if (!showRightPanel) ...[
+                                      Image.asset(
+                                        'assets/logo.png',
+                                        width: 44,
+                                        height: 44,
+                                        color: isDark ? Colors.white : Colors.black,
+                                        fit: BoxFit.contain,
+                                      ),
+                                      const SizedBox(height: 32),
+                                    ],
+                                    
+                                    // Step Header
                                     _buildHeader(scaleProvider, isDark),
-                                    SizedBox(height: 32 * scaleProvider.scale),
+                                    const SizedBox(height: 24),
                                     
-                                    // Индикатор прогресса
+                                    // Progress Bar
                                     _buildProgressIndicator(scaleProvider, isDark),
-                                    SizedBox(height: 32 * scaleProvider.scale),
+                                    const SizedBox(height: 32),
                                     
-                                    // Текущий шаг
-                                    _buildCurrentStep(scaleProvider, isDark),
+                                    // Current Step form fields with fade transition
+                                    AnimatedSwitcher(
+                                      duration: const Duration(milliseconds: 300),
+                                      transitionBuilder: (Widget child, Animation<double> animation) {
+                                        return FadeTransition(opacity: animation, child: child);
+                                      },
+                                      child: KeyedSubtree(
+                                        key: ValueKey<int>(_currentStep),
+                                        child: _buildCurrentStep(scaleProvider, isDark),
+                                      ),
+                                    ),
                                     
-                                    SizedBox(height: (_currentStep == 8 ? 12 : 24) * scaleProvider.scale),
+                                    SizedBox(height: (_currentStep == 8 ? 16 : 32) * scaleProvider.scale),
                                     
-                                    // Кнопки навигации
+                                    // Navigation Buttons
                                     _buildNavigationButtons(scaleProvider, isDark),
                                   ],
                                 ),
@@ -621,11 +596,99 @@ class _RegisterScreenState extends State<RegisterScreen>
                     ),
                   ),
                 ),
-              ],
+              ),
+              
+              // Right Column: Minimal Branding Panel (identical to login)
+              if (showRightPanel)
+                Expanded(
+                  flex: 6,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: isDark ? const Color(0xFF050505) : const Color(0xFFF1F0F3),
+                      border: Border(
+                        left: BorderSide(
+                          color: isDark ? Colors.white.withOpacity(0.04) : Colors.black.withOpacity(0.04),
+                          width: 1,
+                        ),
+                      ),
+                    ),
+                    child: Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Image.asset(
+                            'assets/logo.png',
+                            width: 120,
+                            height: 120,
+                            color: isDark ? Colors.white : Colors.black,
+                          ),
+                          const SizedBox(height: 28),
+                          Text(
+                            'XANEO',
+                            style: TextStyle(
+                              fontSize: 32,
+                              fontWeight: FontWeight.w700,
+                              color: isDark ? Colors.white : Colors.black,
+                              letterSpacing: 4,
+                              fontFamily: 'Inter',
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'secure desktop communicator',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w300,
+                              color: isDark ? Colors.grey.shade600 : Colors.grey.shade500,
+                              letterSpacing: 2,
+                              fontFamily: 'Inter',
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          
+          // Settings button trigger
+          Positioned(
+            top: 50,
+            right: 20,
+            child: MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: GestureDetector(
+                onTap: () {
+                  setState(() => _showSettings = true);
+                  _settingsAnimationController.forward();
+                },
+                child: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: isDark 
+                        ? Colors.white.withOpacity(0.02)
+                        : Colors.black.withOpacity(0.02),
+                    border: Border.all(
+                      color: isDark 
+                          ? Colors.white.withOpacity(0.08)
+                          : Colors.black.withOpacity(0.08),
+                      width: 1,
+                    ),
+                  ),
+                  child: Icon(
+                    Icons.settings_outlined,
+                    color: isDark ? Colors.white : Colors.black,
+                    size: 20,
+                  ),
+                ),
+              ),
             ),
           ),
           
-          // Модальное окно настроек
+          // Settings Modal overlay
           if (_showSettings) _buildSettingsModal(context, isDark),
         ],
       ),
@@ -658,73 +721,62 @@ class _RegisterScreenState extends State<RegisterScreen>
     ];
     
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Логотип
-        Container(
-          width: 80 * scaleProvider.scale,
-          height: 80 * scaleProvider.scale,
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: isDark
-                  ? [Colors.white, Colors.grey.shade400]
-                  : [Colors.black, Colors.grey.shade700],
-            ),
-            borderRadius: BorderRadius.circular(20 * scaleProvider.scale),
-          ),
-          child: Icon(
-            Icons.person_add,
-            size: 40 * scaleProvider.scale,
-            color: isDark ? Colors.black87 : Colors.white,
+        Text(
+          'Регистрация',
+          style: TextStyle(
+            fontSize: 12 * scaleProvider.scale,
+            fontWeight: FontWeight.w500,
+            color: isDark ? Colors.grey.shade500 : Colors.grey.shade600,
+            letterSpacing: 1,
+            fontFamily: 'Inter',
           ),
         ),
-        SizedBox(height: 24 * scaleProvider.scale),
-        
-        // Заголовок
+        const SizedBox(height: 6),
         Text(
           titles[_currentStep],
           style: TextStyle(
             fontSize: 28 * scaleProvider.scale,
-            fontWeight: FontWeight.bold,
-            color: isDark ? Colors.white : Colors.black87,
+            fontWeight: FontWeight.w700,
+            color: isDark ? Colors.white : Colors.black,
+            fontFamily: 'Inter',
           ),
-          textAlign: TextAlign.center,
+          textAlign: TextAlign.start,
         ),
-        SizedBox(height: 8 * scaleProvider.scale),
-        
-        // Подзаголовок
+        const SizedBox(height: 8),
         Text(
           subtitles[_currentStep],
           style: TextStyle(
-            fontSize: 14 * scaleProvider.scale,
-            color: isDark ? Colors.white60 : Colors.black54,
+            fontSize: 13 * scaleProvider.scale,
+            color: isDark ? Colors.grey.shade500 : Colors.grey.shade600,
+            fontFamily: 'Inter',
           ),
-          textAlign: TextAlign.center,
+          textAlign: TextAlign.start,
         ),
       ],
     );
   }
   
   Widget _buildProgressIndicator(ScaleProvider scaleProvider, bool isDark) {
-    return Row(
-      children: List.generate(9, (index) {
-        final isActive = index <= _currentStep;
-        return Expanded(
-          child: Container(
-            height: 4,
-            margin: EdgeInsets.only(
-              right: index < 8 ? 4 * scaleProvider.scale : 0,
-            ),
-            decoration: BoxDecoration(
-              color: isActive
-                  ? (isDark ? Colors.white : Colors.black)
-                  : (isDark ? Colors.white.withOpacity(0.1) : Colors.black.withOpacity(0.1)),
-              borderRadius: BorderRadius.circular(2),
-            ),
+    final progress = (_currentStep + 1) / 9.0;
+    return Container(
+      height: 2,
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(1),
+      ),
+      child: FractionallySizedBox(
+        alignment: Alignment.centerLeft,
+        widthFactor: progress,
+        child: Container(
+          decoration: BoxDecoration(
+            color: isDark ? Colors.white : Colors.black,
+            borderRadius: BorderRadius.circular(1),
           ),
-        );
-      }),
+        ),
+      ),
     );
   }
   
@@ -759,7 +811,7 @@ class _RegisterScreenState extends State<RegisterScreen>
       controller: _firstNameController,
       focusNode: _firstNameFocus,
       label: 'Ваше имя',
-      icon: Icons.person,
+      icon: FontAwesomeIcons.user,
       textCapitalization: TextCapitalization.words,
       scaleProvider: scaleProvider,
       isDark: isDark,
@@ -779,7 +831,7 @@ class _RegisterScreenState extends State<RegisterScreen>
           controller: _nicknameController,
           focusNode: _nicknameFocus,
           label: 'Никнейм',
-          icon: Icons.alternate_email,
+          icon: FontAwesomeIcons.at,
           scaleProvider: scaleProvider,
           isDark: isDark,
         ),
@@ -857,7 +909,7 @@ class _RegisterScreenState extends State<RegisterScreen>
           controller: _emailController,
           focusNode: _emailFocus,
           label: 'Email',
-          icon: Icons.email,
+          icon: FontAwesomeIcons.envelope,
           keyboardType: TextInputType.emailAddress,
           scaleProvider: scaleProvider,
           isDark: isDark,
@@ -945,7 +997,7 @@ class _RegisterScreenState extends State<RegisterScreen>
           controller: _verificationCodeController,
           focusNode: _verificationCodeFocus,
           label: 'Код подтверждения',
-          icon: Icons.security,
+          icon: FontAwesomeIcons.shield,
           keyboardType: TextInputType.number,
           scaleProvider: scaleProvider,
           isDark: isDark,
@@ -968,10 +1020,10 @@ class _RegisterScreenState extends State<RegisterScreen>
           onPressed: _isLoading ? null : _sendVerificationCode,
           child: Text(
             'Отправить код повторно',
-              style: TextStyle(
-                fontSize: 14 * scaleProvider.scale,
-                color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
-              ),
+            style: TextStyle(
+              fontSize: 14 * scaleProvider.scale,
+              color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+            ),
           ),
         ),
       ],
@@ -1178,20 +1230,21 @@ class _RegisterScreenState extends State<RegisterScreen>
             child: OutlinedButton(
               onPressed: _isLoading ? null : _previousStep,
               style: OutlinedButton.styleFrom(
-                foregroundColor: isDark ? Colors.white : Colors.black87,
+                foregroundColor: isDark ? Colors.white : Colors.black,
                 side: BorderSide(
-                  color: isDark ? Colors.white.withOpacity(0.3) : Colors.black.withOpacity(0.2),
+                  color: isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.08),
                 ),
-                padding: EdgeInsets.symmetric(vertical: 16 * scaleProvider.scale),
+                padding: EdgeInsets.symmetric(vertical: 14 * scaleProvider.scale),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12 * scaleProvider.scale),
+                  borderRadius: BorderRadius.circular(8 * scaleProvider.scale),
                 ),
               ),
               child: Text(
                 'Назад',
                 style: TextStyle(
-                  fontSize: 16 * scaleProvider.scale,
+                  fontSize: 14 * scaleProvider.scale,
                   fontWeight: FontWeight.w600,
+                  fontFamily: 'Inter',
                 ),
               ),
             ),
@@ -1208,16 +1261,16 @@ class _RegisterScreenState extends State<RegisterScreen>
             style: ElevatedButton.styleFrom(
               backgroundColor: isDark ? Colors.white : Colors.black,
               foregroundColor: isDark ? Colors.black : Colors.white,
-              padding: EdgeInsets.symmetric(vertical: 16 * scaleProvider.scale),
+              padding: EdgeInsets.symmetric(vertical: 14 * scaleProvider.scale),
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12 * scaleProvider.scale),
+                borderRadius: BorderRadius.circular(8 * scaleProvider.scale),
               ),
               elevation: 0,
             ),
             child: _isLoading
                 ? SizedBox(
-                    width: 24 * scaleProvider.scale,
-                    height: 24 * scaleProvider.scale,
+                    width: 20 * scaleProvider.scale,
+                    height: 20 * scaleProvider.scale,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
                       valueColor: AlwaysStoppedAnimation<Color>(isDark ? Colors.black : Colors.white),
@@ -1226,8 +1279,9 @@ class _RegisterScreenState extends State<RegisterScreen>
                 : Text(
                     _currentStep == 8 ? 'Завершить' : 'Далее',
                     style: TextStyle(
-                      fontSize: 16 * scaleProvider.scale,
+                      fontSize: 14 * scaleProvider.scale,
                       fontWeight: FontWeight.bold,
+                      fontFamily: 'Inter',
                     ),
                   ),
           ),
@@ -1240,7 +1294,7 @@ class _RegisterScreenState extends State<RegisterScreen>
     required TextEditingController controller,
     required FocusNode focusNode,
     required String label,
-    required IconData icon,
+    required FaIconData icon,
     String? Function(String?)? validator,
     TextInputType? keyboardType,
     TextCapitalization? textCapitalization,
@@ -1248,47 +1302,15 @@ class _RegisterScreenState extends State<RegisterScreen>
     required ScaleProvider scaleProvider,
     required bool isDark,
   }) {
-    return TextFormField(
+    return CustomTextFormField(
       controller: controller,
       focusNode: focusNode,
+      labelText: label,
+      icon: icon,
       validator: validator,
       keyboardType: keyboardType,
       textCapitalization: textCapitalization ?? TextCapitalization.none,
       onChanged: onChanged,
-      style: TextStyle(
-        fontSize: 16 * scaleProvider.scale,
-        color: isDark ? Colors.white : Colors.black87,
-      ),
-      spellCheckConfiguration: null,
-      decoration: InputDecoration(
-        labelText: label,
-        prefixIcon: Icon(icon, size: 20 * scaleProvider.scale),
-        filled: true,
-        fillColor: isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.03),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12 * scaleProvider.scale),
-          borderSide: BorderSide.none,
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12 * scaleProvider.scale),
-          borderSide: BorderSide.none,
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12 * scaleProvider.scale),
-          borderSide: BorderSide(
-            color: isDark ? Colors.white : Colors.black,
-            width: 1.5,
-          ),
-        ),
-        errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12 * scaleProvider.scale),
-          borderSide: const BorderSide(color: Colors.red, width: 1),
-        ),
-        labelStyle: TextStyle(
-          color: isDark ? Colors.white60 : Colors.black54,
-          fontSize: 14 * scaleProvider.scale,
-        ),
-      ),
     );
   }
   
@@ -1302,92 +1324,23 @@ class _RegisterScreenState extends State<RegisterScreen>
     required ScaleProvider scaleProvider,
     required bool isDark,
   }) {
-    return TextFormField(
+    return CustomTextFormField(
       controller: controller,
       focusNode: focusNode,
+      labelText: label,
+      icon: FontAwesomeIcons.lock,
+      isPasswordField: true,
       validator: validator,
-      obscureText: obscureText,
-      style: TextStyle(
-        fontSize: 16 * scaleProvider.scale,
-        color: isDark ? Colors.white : Colors.black87,
-      ),
-      decoration: InputDecoration(
-        labelText: label,
-        prefixIcon: Icon(Icons.lock, size: 20 * scaleProvider.scale),
-        suffixIcon: IconButton(
-          icon: Icon(
-            obscureText ? Icons.visibility_off : Icons.visibility,
-            size: 20 * scaleProvider.scale,
-          ),
-          onPressed: onTap,
-        ),
-        filled: true,
-        fillColor: isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.03),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12 * scaleProvider.scale),
-          borderSide: BorderSide.none,
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12 * scaleProvider.scale),
-          borderSide: BorderSide.none,
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12 * scaleProvider.scale),
-          borderSide: BorderSide(
-            color: isDark ? Colors.white : Colors.black,
-            width: 1.5,
-          ),
-        ),
-        errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12 * scaleProvider.scale),
-          borderSide: const BorderSide(color: Colors.red, width: 1),
-        ),
-        labelStyle: TextStyle(
-          color: isDark ? Colors.white60 : Colors.black54,
-          fontSize: 14 * scaleProvider.scale,
-        ),
-      ),
     );
   }
   
   Widget _buildDateField(ScaleProvider scaleProvider, bool isDark) {
-    return TextFormField(
+    return CustomTextFormField(
       controller: _birthDateController,
       focusNode: _birthDateFocus,
+      labelText: 'Дата рождения',
+      icon: FontAwesomeIcons.calendarDays,
       readOnly: true,
-      style: TextStyle(
-        fontSize: 16 * scaleProvider.scale,
-        color: isDark ? Colors.white : Colors.black87,
-      ),
-      decoration: InputDecoration(
-        labelText: 'Дата рождения',
-        prefixIcon: Icon(Icons.calendar_today, size: 20 * scaleProvider.scale),
-        filled: true,
-        fillColor: isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.03),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12 * scaleProvider.scale),
-          borderSide: BorderSide.none,
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12 * scaleProvider.scale),
-          borderSide: BorderSide.none,
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12 * scaleProvider.scale),
-          borderSide: BorderSide(
-            color: isDark ? Colors.white : Colors.black,
-            width: 1.5,
-          ),
-        ),
-        errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12 * scaleProvider.scale),
-          borderSide: const BorderSide(color: Colors.red, width: 1),
-        ),
-        labelStyle: TextStyle(
-          color: isDark ? Colors.white60 : Colors.black54,
-          fontSize: 14 * scaleProvider.scale,
-        ),
-      ),
       onTap: _selectBirthDate,
     );
   }
@@ -1453,47 +1406,22 @@ class _RegisterScreenState extends State<RegisterScreen>
                             maxHeight: screenSize.height * 0.85,
                           ),
                           decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: isDark
-                                  ? [
-                                      Colors.grey.shade900.withOpacity(0.85),
-                                      Colors.black.withOpacity(0.9),
-                                    ]
-                                  : [
-                                      Colors.white.withOpacity(0.9),
-                                      Colors.grey.shade50.withOpacity(0.85),
-                                    ],
-                            ),
-                            borderRadius: BorderRadius.circular(28),
+                            color: isDark ? const Color(0xFF141414) : Colors.white,
+                            borderRadius: BorderRadius.circular(16),
                             border: Border.all(
-                              color: isDark
-                                  ? Colors.white.withOpacity(0.15)
-                                  : Colors.black.withOpacity(0.08),
-                              width: 1.5,
+                              color: isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.06),
+                              width: 1,
                             ),
                             boxShadow: [
                               BoxShadow(
-                                color: isDark
-                                    ? Colors.black.withOpacity(0.6)
-                                    : Colors.grey.withOpacity(0.4),
-                                blurRadius: 50,
-                                spreadRadius: 10,
+                                color: isDark ? Colors.black.withOpacity(0.5) : Colors.black.withOpacity(0.05),
+                                blurRadius: 40,
                                 offset: const Offset(0, 20),
-                              ),
-                              BoxShadow(
-                                color: isDark
-                                    ? Colors.white.withOpacity(0.05)
-                                    : Colors.black.withOpacity(0.03),
-                                blurRadius: 1,
-                                spreadRadius: 0,
-                                offset: const Offset(0, -1),
                               ),
                             ],
                           ),
                           child: ClipRRect(
-                            borderRadius: BorderRadius.circular(28),
+                            borderRadius: BorderRadius.circular(16),
                             child: BackdropFilter(
                               filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
                               child: Column(
@@ -1666,6 +1594,24 @@ class _RegisterScreenState extends State<RegisterScreen>
                                           },
                                         ),
                                       ),
+                                      if (_notificationsEnabled && NotificationService.isCustomOverlaySupported()) ...[
+                                        const SizedBox(height: 10),
+                                        _buildAnimatedSettingsTile(
+                                          icon: Icons.dashboard_customize_rounded,
+                                          title: 'Кастомный оверлей Xaneo',
+                                          subtitle: 'Анимированные уведомления с быстрым ответом',
+                                          isDark: isDark,
+                                          trailing: _buildAnimatedSwitch(
+                                            value: _useCustomNotifications,
+                                            isDark: isDark,
+                                            onChanged: (value) {
+                                              setState(() {
+                                                _useCustomNotifications = value;
+                                              });
+                                            },
+                                          ),
+                                        ),
+                                      ],
                                       
                                       const SizedBox(height: 24),
                                       
@@ -2505,6 +2451,27 @@ class _NavButton extends StatelessWidget {
           color: enabled ? color : color.withOpacity(0.25),
         ),
       ),
+    );
+  }
+}
+
+/// Виджет для применения масштаба к контенту
+class _ScaledContent extends StatelessWidget {
+  final Widget child;
+
+  const _ScaledContent({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    final scaleProvider = context.watch<ScaleProvider?>();
+    final scale = scaleProvider?.scale ?? 1.0;
+
+    return AnimatedScale(
+      scale: scale,
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOutCubic,
+      alignment: Alignment.center,
+      child: child,
     );
   }
 }

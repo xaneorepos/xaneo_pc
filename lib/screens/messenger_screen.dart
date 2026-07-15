@@ -2,6 +2,9 @@ import 'dart:ui';
 import 'dart:io';
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
+import 'package:file_picker/file_picker.dart';
+import 'package:dio/dio.dart';
 import 'package:record/record.dart';
 import 'package:camera/camera.dart';
 import 'package:path_provider/path_provider.dart';
@@ -29,6 +32,13 @@ import 'package:media_kit_video/media_kit_video.dart';
 import '../widgets/custom_toast.dart';
 import '../widgets/custom_context_menu.dart';
 import '../utils/local_proxy.dart';
+import '../services/webrtc/call_manager.dart';
+import '../services/webrtc/webrtc_signaling_service.dart';
+import 'webrtc/incoming_call_screen.dart';
+import 'webrtc/active_call_screen.dart';
+import 'package:desktop_multi_window/desktop_multi_window.dart';
+import 'package:window_manager/window_manager.dart';
+import '../services/notification_service.dart';
 
 class MessengerScreen extends StatefulWidget {
   const MessengerScreen({super.key});
@@ -42,6 +52,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
   final CryptoService _cryptoService = CryptoService();
   final GlobalKey<SettingsButtonState> _settingsKey = GlobalKey<SettingsButtonState>();
   final GlobalKey _attachmentKey = GlobalKey();
+  Map<String, dynamic>? _attachedFile;
+  final Map<String, Map<String, dynamic>> _fileMetadataCache = {};
+  final Set<String> _fetchingFileMetadata = {};
 
   List<dynamic> _chats = [];
   List<dynamic> _archivedChats = [];
@@ -50,6 +63,8 @@ class _MessengerScreenState extends State<MessengerScreen> {
   List<dynamic> _messages = [];
   bool _isChatsLoading = true;
   bool _isMessagesLoading = false;
+  bool _isLoadingMore = false;
+  bool _hasMoreMessages = true;
   
   // Decrypted messages store: message_id -> plaintext
   final Map<int, String> _decryptedMessages = {};
@@ -127,9 +142,41 @@ class _MessengerScreenState extends State<MessengerScreen> {
   void initState() {
     super.initState();
     _messageController.addListener(_onMessageTextChanged);
+    _scrollController.addListener(_onScroll);
     _startTypingExpiryTimer();
     _loadPreferences();
     _initMessenger();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        context.read<CallManager>().addListener(_handleCallStateChanged);
+        
+        // Listen to multi-window methods (for custom notification replies)
+        DesktopMultiWindow.setMethodHandler((MethodCall call, int fromWindowId) async {
+          if (call.method == 'reply_message') {
+            final data = call.arguments as Map;
+            final chatId = data['chat_id']?.toString() ?? '';
+            final text = data['text']?.toString() ?? '';
+            _sendOverlayReply(chatId, text);
+          } else if (call.method == 'accept_call') {
+            final callManager = context.read<CallManager>();
+            await callManager.acceptIncomingCall();
+            if (mounted) {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => const ActiveCallScreen(),
+                ),
+              );
+              await windowManager.show();
+              await windowManager.focus();
+            }
+          } else if (call.method == 'decline_call') {
+            final callManager = context.read<CallManager>();
+            callManager.rejectIncomingCall();
+          }
+          return null;
+        });
+      }
+    });
   }
 
   Future<void> _loadPreferences() async {
@@ -152,6 +199,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
     } else {
       _audioRecorder?.dispose();
     }
+    try {
+      context.read<CallManager>().removeListener(_handleCallStateChanged);
+    } catch (_) {}
     _messageController.removeListener(_onMessageTextChanged);
     _webSocketService?.dispose();
     _pollingTimer?.cancel();
@@ -188,6 +238,14 @@ class _MessengerScreenState extends State<MessengerScreen> {
           _myId = rawMyId is int ? rawMyId : int.tryParse(rawMyId.toString());
           _myUsername = profileRes.data!['username'] as String?;
         });
+        
+        // Connect signaling service
+        if (_myId != null) {
+          final signaling = Provider.of<WebRTCSignalingService>(context, listen: false);
+          if (!signaling.isConnected.value) {
+            signaling.connect(_myId!.toString());
+          }
+        }
       }
     } else {
       if (profileRes.statusCode == 401) {
@@ -198,7 +256,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
       }
     }
 
-    // Load active accounts list
+  // Load active accounts list
     final accountsList = await AccountService().getAccounts();
     if (mounted) {
       setState(() {
@@ -209,6 +267,447 @@ class _MessengerScreenState extends State<MessengerScreen> {
     // 3. Load chats & start polling
     await _loadChats();
     _startPolling();
+  }
+
+  bool _isCallDialogShowing = false;
+
+  void _handleCallStateChanged() {
+    if (!mounted) return;
+    final callManager = context.read<CallManager>();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    
+    if (callManager.state == CallState.incoming) {
+      if (_isCallDialogShowing) return;
+      _isCallDialogShowing = true;
+
+      showGeneralDialog(
+        context: context,
+        barrierLabel: "IncomingCallDialog",
+        barrierDismissible: false,
+        barrierColor: isDark ? Colors.black.withOpacity(0.85) : Colors.black.withOpacity(0.3),
+        transitionDuration: const Duration(milliseconds: 200),
+        transitionBuilder: (context, anim1, anim2, child) {
+          return FadeTransition(
+            opacity: anim1,
+            child: ScaleTransition(
+              scale: Tween<double>(begin: 0.98, end: 1.0).animate(
+                CurvedAnimation(parent: anim1, curve: Curves.easeOut),
+              ),
+              child: child,
+            ),
+          );
+        },
+        pageBuilder: (context, anim1, anim2) {
+          return const IncomingCallDialog();
+        },
+      ).then((_) {
+        _isCallDialogShowing = false;
+      });
+    }
+  }
+
+  Future<void> _startCall(String callType) async {
+    try {
+      if (_selectedChat == null) return;
+      final callManager = context.read<CallManager>();
+      
+      final otherUser = _selectedChat!['other_user'] as Map<String, dynamic>?;
+      if (otherUser == null) return;
+
+      final targetId = otherUser['id']?.toString() ?? '';
+      final targetName = otherUser['first_name'] ?? otherUser['username'] ?? 'User';
+      final targetAvatar = otherUser['avatar'];
+      final targetGradient = otherUser['avatar_gradient'];
+      final myUsername = _myUsername ?? 'User';
+
+      await callManager.startOutgoingCall(
+        targetUserId: targetId,
+        targetName: targetName,
+        targetAvatar: targetAvatar,
+        targetGradient: targetGradient,
+        callerName: myUsername,
+        callType: callType,
+      );
+
+      if (mounted) {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (context) => const ActiveCallScreen(),
+          ),
+        );
+      }
+    } catch (e, stack) {
+      debugPrint('WebRTC Call error: $e\n$stack');
+      if (mounted) {
+        CustomToast.show(
+          context,
+          'Ошибка старта звонка: $e',
+          type: ToastType.error,
+        );
+      }
+    }
+  }
+
+  void _showCallChoiceModal(BuildContext context, double scale, bool isDark) {
+    showGeneralDialog(
+      context: context,
+      barrierLabel: "CallChoiceDialog",
+      barrierDismissible: true,
+      barrierColor: isDark ? Colors.black.withOpacity(0.85) : Colors.black.withOpacity(0.3),
+      transitionDuration: const Duration(milliseconds: 200),
+      transitionBuilder: (context, anim1, anim2, child) {
+        return FadeTransition(
+          opacity: anim1,
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.98, end: 1.0).animate(
+              CurvedAnimation(parent: anim1, curve: Curves.easeOut),
+            ),
+            child: child,
+          ),
+        );
+      },
+      pageBuilder: (context, anim1, anim2) {
+        final bgColor = isDark ? const Color(0xFF0C0C0C) : Colors.white;
+        final borderColor = isDark ? const Color(0xFF1E1E1E) : const Color(0xFFEBEBEB);
+
+        return Material(
+          type: MaterialType.transparency,
+          child: Center(
+            child: Container(
+              width: 340 * scale,
+              margin: EdgeInsets.all(20 * scale),
+              decoration: BoxDecoration(
+                color: bgColor,
+                borderRadius: BorderRadius.circular(12 * scale),
+                border: Border.all(
+                  color: borderColor,
+                  width: 1,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(isDark ? 0.6 : 0.06),
+                    blurRadius: 24 * scale,
+                    offset: Offset(0, 8 * scale),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Header
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(20 * scale, 20 * scale, 20 * scale, 12 * scale),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'НАЧАТЬ ЗВОНОК',
+                          style: TextStyle(
+                            fontSize: 10 * scale,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 1.5 * scale,
+                            color: isDark ? Colors.white38 : Colors.black38,
+                            fontFamily: 'Inter',
+                          ),
+                        ),
+                        GestureDetector(
+                          onTap: () => Navigator.of(context).pop(),
+                          child: MouseRegion(
+                            cursor: SystemMouseCursors.click,
+                            child: Icon(
+                              Icons.close_rounded,
+                              size: 16 * scale,
+                              color: isDark ? Colors.white38 : Colors.black38,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // Call options list
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 10 * scale, vertical: 8 * scale),
+                    child: Column(
+                      children: [
+                        // Audio Call
+                        Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: () {
+                              Navigator.of(context).pop();
+                              _startCall('audio');
+                            },
+                            hoverColor: isDark ? Colors.white.withOpacity(0.06) : Colors.black.withOpacity(0.04),
+                            splashColor: isDark ? Colors.white.withOpacity(0.12) : Colors.black.withOpacity(0.08),
+                            borderRadius: BorderRadius.circular(8 * scale),
+                            child: Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 10 * scale, vertical: 10 * scale),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    padding: EdgeInsets.all(10 * scale),
+                                    decoration: BoxDecoration(
+                                      color: isDark ? const Color(0xFF10B981).withOpacity(0.15) : const Color(0xFF10B981).withOpacity(0.1),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: Icon(
+                                      Icons.phone_rounded,
+                                      color: const Color(0xFF10B981),
+                                      size: 18 * scale,
+                                    ),
+                                  ),
+                                  SizedBox(width: 14 * scale),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Голосовой звонок',
+                                          style: TextStyle(
+                                            color: isDark ? Colors.white : Colors.black87,
+                                            fontSize: 13.5 * scale,
+                                            fontWeight: FontWeight.w600,
+                                            fontFamily: 'Inter',
+                                          ),
+                                        ),
+                                        SizedBox(height: 2 * scale),
+                                        Text(
+                                          'Позвонить по голосовой связи',
+                                          style: TextStyle(
+                                            color: isDark ? Colors.white38 : Colors.black38,
+                                            fontSize: 11.5 * scale,
+                                            fontFamily: 'Inter',
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+
+                        SizedBox(height: 4 * scale),
+                        Divider(
+                          color: isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.05),
+                          height: 1,
+                          indent: 10 * scale,
+                          endIndent: 10 * scale,
+                        ),
+                        SizedBox(height: 4 * scale),
+
+                        // Video Call
+                        Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: () {
+                              Navigator.of(context).pop();
+                              _startCall('video');
+                            },
+                            hoverColor: isDark ? Colors.white.withOpacity(0.06) : Colors.black.withOpacity(0.04),
+                            splashColor: isDark ? Colors.white.withOpacity(0.12) : Colors.black.withOpacity(0.08),
+                            borderRadius: BorderRadius.circular(8 * scale),
+                            child: Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 10 * scale, vertical: 10 * scale),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    padding: EdgeInsets.all(10 * scale),
+                                    decoration: BoxDecoration(
+                                      color: isDark ? const Color(0xFF3B82F6).withOpacity(0.15) : const Color(0xFF3B82F6).withOpacity(0.1),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: Icon(
+                                      Icons.videocam_rounded,
+                                      color: const Color(0xFF3B82F6),
+                                      size: 18 * scale,
+                                    ),
+                                  ),
+                                  SizedBox(width: 14 * scale),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Видеозвонок',
+                                          style: TextStyle(
+                                            color: isDark ? Colors.white : Colors.black87,
+                                            fontSize: 13.5 * scale,
+                                            fontWeight: FontWeight.w600,
+                                            fontFamily: 'Inter',
+                                          ),
+                                        ),
+                                        SizedBox(height: 2 * scale),
+                                        Text(
+                                          'Позвонить с включенной камерой',
+                                          style: TextStyle(
+                                            color: isDark ? Colors.white38 : Colors.black38,
+                                            fontSize: 11.5 * scale,
+                                            fontFamily: 'Inter',
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  SizedBox(height: 12 * scale),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _sendOverlayReply(String chatId, String plaintextToEncrypt) async {
+    final myUserId = _myId?.toString();
+    
+    // Find otherUser details for encryption from our chats list
+    Map<String, dynamic>? targetChat;
+    for (var c in _chats) {
+      if (c['chat_id'] == chatId) {
+        targetChat = c;
+        break;
+      }
+    }
+    
+    final otherUser = targetChat?['other_user'] as Map<String, dynamic>?;
+
+    String encryptedText = "";
+    try {
+      if (chatId.startsWith('favorites_') || chatId == 'favorites') {
+        if (myUserId == null) return;
+        encryptedText = await _cryptoService.encryptFavoritesMessage(plaintextToEncrypt, myUserId);
+      } else if (chatId.startsWith('personal_')) {
+        final peerPubKey = await _getPeerPublicKey(otherUser);
+        if (peerPubKey == null) return;
+        if (peerPubKey == 'bot') {
+          final chatKeyHex = await _getGroupChatKey(chatId);
+          if (chatKeyHex == null) return;
+          encryptedText = await _cryptoService.encryptGroupMessage(plaintextToEncrypt, chatKeyHex);
+        } else {
+          encryptedText = await _cryptoService.encryptPersonalMessage(plaintextToEncrypt, peerPubKey, chatId);
+        }
+      } else if (chatId.startsWith('group_') || chatId.startsWith('channel_')) {
+        final chatKeyHex = await _getGroupChatKey(chatId);
+        if (chatKeyHex == null) return;
+        encryptedText = await _cryptoService.encryptGroupMessage(plaintextToEncrypt, chatKeyHex);
+      }
+    } catch (e) {
+      debugPrint("Overlay reply encryption failed: $e");
+      return;
+    }
+
+    _sentPlaintexts[encryptedText] = plaintextToEncrypt;
+
+    bool sentViaWs = false;
+    if (_webSocketService != null && _webSocketService!.isConnected && _selectedChat?['chat_id'] == chatId) {
+      sentViaWs = _webSocketService!.sendMessage({
+        'type': 'encrypted_message',
+        'encrypted_text': encryptedText,
+      });
+    }
+
+    if (!sentViaWs) {
+      _sentPlaintexts.remove(encryptedText);
+      final res = await _apiService.sendMessage(chatId, encryptedText);
+      if (res.success && res.data != null) {
+        final newMsg = res.data!;
+        final dynamic rawId = newMsg['id'];
+        final id = rawId is int ? rawId : (int.tryParse(rawId.toString()) ?? 0);
+        _decryptedMessages[id] = plaintextToEncrypt;
+
+        if (mounted && _selectedChat?['chat_id'] == chatId) {
+          setState(() {
+            _messages.insert(0, newMsg);
+            _messagesToAnimate.add(id);
+          });
+          _scrollToBottom();
+        }
+        _loadChats(silent: true);
+      }
+    }
+  }
+
+  Future<void> _checkForNewMessages(List<dynamic> oldChats, List<dynamic> newChats) async {
+    final prefs = await SharedPreferences.getInstance();
+    final notificationsEnabled = prefs.getBool('settings_notifications') ?? true;
+    if (!notificationsEnabled) return;
+
+    for (var newChat in newChats) {
+      final chatId = newChat['chat_id'] as String?;
+      if (chatId == null) continue;
+      
+      final isFocused = await windowManager.isFocused();
+      if (chatId == _selectedChat?['chat_id'] && isFocused) {
+        continue;
+      }
+
+      final oldChat = oldChats.cast<Map<String, dynamic>?>().firstWhere(
+        (c) => c != null && c['chat_id'] == chatId,
+        orElse: () => null,
+      );
+
+      final oldUnread = oldChat?['unread_count'] as int? ?? 0;
+      final newUnread = newChat['unread_count'] as int? ?? 0;
+
+      if (newUnread > oldUnread) {
+        final lastMsg = newChat['last_message'];
+        if (lastMsg == null) continue;
+
+        final encryptedText = lastMsg['encrypted_text'] as String?;
+        if (encryptedText == null || encryptedText.isEmpty) continue;
+
+        final otherUser = newChat['other_user'] as Map<String, dynamic>?;
+        final senderName = otherUser != null 
+            ? (otherUser['first_name'] ?? otherUser['username'] ?? 'Новое сообщение') 
+            : 'Новое сообщение';
+        
+        final avatar = otherUser?['avatar']?.toString();
+        final gradient = otherUser?['avatar_gradient']?.toString();
+
+        String body = "";
+        try {
+          body = await _decryptForChat(encryptedText, chatId, otherUser);
+        } catch (_) {
+          body = "[Зашифрованное сообщение]";
+        }
+
+        if (body.startsWith('{')) {
+          try {
+            final parsed = jsonDecode(body);
+            if (parsed['type'] == 'voice') {
+              body = "🎤 Голосовое сообщение";
+            } else if (parsed['type'] == 'video_message') {
+              body = "🎬 Видеосообщение";
+            } else if (parsed['type'] == 'file') {
+              body = "📎 Файл";
+            } else if (parsed['type'] == 'call') {
+              body = "📞 Звонок";
+            }
+          } catch (_) {}
+        }
+
+        await NotificationService().showMessageNotification(
+          chatId: chatId,
+          title: senderName,
+          body: body,
+          avatar: avatar,
+          gradient: gradient,
+        );
+      }
+    }
   }
 
   void _startPolling() {
@@ -312,6 +811,15 @@ class _MessengerScreenState extends State<MessengerScreen> {
           'mime_type': data['mime_type'] ?? 'video/mp4',
           if (localPath != null) 'local_path': localPath,
         });
+      } else if (data['message_type'] == 'call' || type == 'call') {
+        decryptedText = jsonEncode({
+          'type': 'call',
+          'status': data['message_data']?['status'] ?? data['status'] ?? 'connected',
+          'duration': data['message_data']?['duration'] ?? data['duration'] ?? 0,
+          'call_type': data['message_data']?['call_type'] ?? data['call_type'] ?? 'audio',
+          'caller_id': data['message_data']?['caller_id'] ?? data['caller_id'],
+          'callee_id': data['message_data']?['callee_id'] ?? data['callee_id'],
+        });
       } else if (encryptedText != null && encryptedText.isNotEmpty) {
         if (_sentPlaintexts.containsKey(encryptedText)) {
           decryptedText = _sentPlaintexts[encryptedText]!;
@@ -338,6 +846,44 @@ class _MessengerScreenState extends State<MessengerScreen> {
       final isMe = data['author_id']?.toString() == _myId?.toString();
       if (!isMe) {
         _markChatAsRead(activeChatId);
+        
+        final isFocused = await windowManager.isFocused();
+        if (!isFocused) {
+          final prefs = await SharedPreferences.getInstance();
+          final notificationsEnabled = prefs.getBool('settings_notifications') ?? true;
+          if (notificationsEnabled) {
+            final senderName = otherUser != null 
+                ? (otherUser['first_name'] ?? otherUser['username'] ?? 'Новое сообщение') 
+                : 'Новое сообщение';
+            
+            final avatar = otherUser?['avatar']?.toString();
+            final gradient = otherUser?['avatar_gradient']?.toString();
+            
+            String body = decryptedText;
+            if (body.startsWith('{')) {
+              try {
+                final parsed = jsonDecode(body);
+                if (parsed['type'] == 'voice') {
+                  body = "🎤 Голосовое сообщение";
+                } else if (parsed['type'] == 'video_message') {
+                  body = "🎬 Видеосообщение";
+                } else if (parsed['type'] == 'file') {
+                  body = "📎 Файл";
+                } else if (parsed['type'] == 'call') {
+                  body = "📞 Звонок";
+                }
+              } catch (_) {}
+            }
+
+            NotificationService().showMessageNotification(
+              chatId: activeChatId,
+              title: senderName,
+              body: body,
+              avatar: avatar,
+              gradient: gradient,
+            );
+          }
+        }
       }
     } else if (type == 'todo_completion_update') {
       final todoMsgId = data['todo_message_id']?.toString();
@@ -383,7 +929,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
   void _onMessageTextChanged() {
     final text = _messageController.text;
     
-    final bool hasText = text.trim().isNotEmpty;
+    final bool hasText = text.trim().isNotEmpty || _attachedFile != null;
     if (hasText != _showSendButton) {
       setState(() {
         _showSendButton = hasText;
@@ -479,6 +1025,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
           .toList();
 
       if (mounted) {
+        if (_chats.isNotEmpty) {
+          _checkForNewMessages(_chats, chatList);
+        }
         setState(() {
           _chats = chatList;
           _archivedChats = archivedList;
@@ -647,13 +1196,16 @@ class _MessengerScreenState extends State<MessengerScreen> {
     if (!silent) {
       setState(() => _isMessagesLoading = true);
     }
-    final res = await _apiService.getMessages(chatId);
+    _hasMoreMessages = true;
+    _isLoadingMore = false;
+    final res = await _apiService.getMessages(chatId, limit: 20, offset: 0);
     if (res.success && res.data != null) {
       final msgList = res.data!['results'] as List? ?? [];
       if (mounted) {
         setState(() {
           _messages = msgList.toList();
           _isMessagesLoading = false;
+          _hasMoreMessages = msgList.length >= 20;
         });
         
         // Decrypt all fetched messages
@@ -662,6 +1214,48 @@ class _MessengerScreenState extends State<MessengerScreen> {
     } else {
       if (mounted) {
         setState(() => _isMessagesLoading = false);
+      }
+    }
+  }
+
+  void _onScroll() {
+    if (_scrollController.hasClients) {
+      final maxScroll = _scrollController.position.maxScrollExtent;
+      final currentScroll = _scrollController.position.pixels;
+      if (maxScroll - currentScroll <= 100) {
+        _loadMoreMessages();
+      }
+    }
+  }
+
+  Future<void> _loadMoreMessages() async {
+    if (_isLoadingMore || !_hasMoreMessages || _selectedChat == null) return;
+
+    final chatId = _selectedChat!['chat_id'] as String;
+    setState(() {
+      _isLoadingMore = true;
+    });
+
+    final currentOffset = _messages.length;
+    final res = await _apiService.getMessages(chatId, limit: 20, offset: currentOffset);
+
+    if (res.success && res.data != null) {
+      final msgList = res.data!['results'] as List? ?? [];
+      if (mounted) {
+        setState(() {
+          _messages.addAll(msgList.toList());
+          _isLoadingMore = false;
+          _hasMoreMessages = msgList.length >= 20;
+        });
+
+        // Decrypt only the new batch of messages
+        _decryptAllMessages(msgList, chatId, _selectedChat?['other_user']);
+      }
+    } else {
+      if (mounted) {
+        setState(() {
+          _isLoadingMore = false;
+        });
       }
     }
   }
@@ -718,8 +1312,23 @@ class _MessengerScreenState extends State<MessengerScreen> {
     return null;
   }
 
+  bool _isBase64(String str) {
+    try {
+      final trimmed = str.trim();
+      if (trimmed.isEmpty) return false;
+      final decoded = base64Decode(trimmed);
+      return decoded.length >= 28;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Decrypt a single message based on chat type
   Future<String> _decryptForChat(String encryptedText, String chatId, Map<String, dynamic>? otherUser) async {
+    if (!_isBase64(encryptedText)) {
+      return encryptedText;
+    }
+
     final myUserId = _myId?.toString();
 
     if (chatId.startsWith('favorites_') || chatId == 'favorites') {
@@ -730,6 +1339,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
     if (chatId.startsWith('personal_')) {
       final peerPubKey = await _getPeerPublicKey(otherUser);
       if (peerPubKey == null) return "[Нет ключа]";
+      if (peerPubKey == 'bot') {
+        final chatKeyHex = await _getGroupChatKey(chatId);
+        if (chatKeyHex == null) return "[Нет ключа]";
+        return await _cryptoService.decryptGroupMessage(encryptedText, chatKeyHex);
+      }
       return await _cryptoService.decryptPersonalMessage(encryptedText, peerPubKey, chatId);
     }
 
@@ -745,7 +1359,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
   Future<void> _decryptSingleMessage(dynamic msg, String chatId, Map<String, dynamic>? otherUser) async {
     final dynamic rawId = msg['id'];
     final id = rawId is int ? rawId : int.tryParse(rawId.toString());
-    if (id == null || _decryptedMessages.containsKey(id)) return;
+    if (id == null) return;
+    final existing = _decryptedMessages[id];
+    final isCall = (msg['type'] == 'call' || msg['message_type'] == 'call');
+    if (existing != null && (!isCall || existing.startsWith('{'))) return;
 
     final type = msg['type'] as String?;
     final messageType = msg['message_type'] as String?;
@@ -771,6 +1388,20 @@ class _MessengerScreenState extends State<MessengerScreen> {
             'file_url': msg['file_url'] ?? msg['attached_file_url'],
             'duration': msg['duration'] ?? msg['attached_file_duration'],
             'mime_type': msg['mime_type'] ?? msg['attached_file_type'] ?? 'video/mp4',
+          });
+        });
+      }
+      return;
+    } else if (type == 'call' || messageType == 'call') {
+      if (mounted) {
+        setState(() {
+          _decryptedMessages[id] = jsonEncode({
+            'type': 'call',
+            'status': msg['message_data']?['status'] ?? msg['status'] ?? 'connected',
+            'duration': msg['message_data']?['duration'] ?? msg['duration'] ?? 0,
+            'call_type': msg['message_data']?['call_type'] ?? msg['call_type'] ?? 'audio',
+            'caller_id': msg['message_data']?['caller_id'] ?? msg['caller_id'],
+            'callee_id': msg['message_data']?['callee_id'] ?? msg['callee_id'],
           });
         });
       }
@@ -801,7 +1432,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
     for (var msg in messages) {
       final dynamic rawId = msg['id'];
       final id = rawId is int ? rawId : int.tryParse(rawId.toString());
-      if (id == null || _decryptedMessages.containsKey(id)) continue;
+      if (id == null) continue;
+      final existing = _decryptedMessages[id];
+      final isCall = (msg['type'] == 'call' || msg['message_type'] == 'call');
+      if (existing != null && (!isCall || existing.startsWith('{'))) continue;
 
       final type = msg['type'] as String?;
       final messageType = msg['message_type'] as String?;
@@ -831,6 +1465,20 @@ class _MessengerScreenState extends State<MessengerScreen> {
           });
         }
         continue;
+      } else if (type == 'call' || messageType == 'call') {
+        if (mounted) {
+          setState(() {
+            _decryptedMessages[id] = jsonEncode({
+              'type': 'call',
+              'status': msg['message_data']?['status'] ?? msg['status'] ?? 'connected',
+              'duration': msg['message_data']?['duration'] ?? msg['duration'] ?? 0,
+              'call_type': msg['message_data']?['call_type'] ?? msg['call_type'] ?? 'audio',
+              'caller_id': msg['message_data']?['caller_id'] ?? msg['caller_id'],
+              'callee_id': msg['message_data']?['callee_id'] ?? msg['callee_id'],
+            });
+          });
+        }
+        continue;
       }
 
       final encryptedText = msg['encrypted_text'] as String?;
@@ -856,7 +1504,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
   Future<void> _sendMessage() async {
     final text = _messageController.text.trim();
-    if (text.isEmpty || _selectedChat == null) return;
+    if ((text.isEmpty && _attachedFile == null) || _selectedChat == null) return;
 
     if (_isMeTyping) {
       _sendTypingStatus(false, 'typing');
@@ -869,6 +1517,21 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
     _messageController.clear();
 
+    String plaintextToEncrypt = text;
+    String? fileIdToSend;
+
+    if (_attachedFile != null) {
+      fileIdToSend = _attachedFile!['file_id'] as String;
+      if (text.isEmpty) {
+        plaintextToEncrypt = '';
+      }
+      
+      setState(() {
+        _attachedFile = null;
+        _showSendButton = false;
+      });
+    }
+
     String encryptedText = "";
     try {
       if (chatId.startsWith('favorites_') || chatId == 'favorites') {
@@ -876,7 +1539,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
           print("Cannot encrypt: myUserId is null");
           return;
         }
-        encryptedText = await _cryptoService.encryptFavoritesMessage(text, myUserId);
+        encryptedText = await _cryptoService.encryptFavoritesMessage(plaintextToEncrypt, myUserId);
       } else if (chatId.startsWith('personal_')) {
         final peerPubKey = await _getPeerPublicKey(otherUser);
         if (peerPubKey == null) {
@@ -887,7 +1550,20 @@ class _MessengerScreenState extends State<MessengerScreen> {
           );
           return;
         }
-        encryptedText = await _cryptoService.encryptPersonalMessage(text, peerPubKey, chatId);
+        if (peerPubKey == 'bot') {
+          final chatKeyHex = await _getGroupChatKey(chatId);
+          if (chatKeyHex == null) {
+            CustomToast.show(
+              context,
+              'Не удалось получить ключ шифрования для чата',
+              type: ToastType.error,
+            );
+            return;
+          }
+          encryptedText = await _cryptoService.encryptGroupMessage(plaintextToEncrypt, chatKeyHex);
+        } else {
+          encryptedText = await _cryptoService.encryptPersonalMessage(plaintextToEncrypt, peerPubKey, chatId);
+        }
       } else if (chatId.startsWith('group_') || chatId.startsWith('channel_')) {
         final chatKeyHex = await _getGroupChatKey(chatId);
         if (chatKeyHex == null) {
@@ -898,20 +1574,21 @@ class _MessengerScreenState extends State<MessengerScreen> {
           );
           return;
         }
-        encryptedText = await _cryptoService.encryptGroupMessage(text, chatKeyHex);
+        encryptedText = await _cryptoService.encryptGroupMessage(plaintextToEncrypt, chatKeyHex);
       }
     } catch (e) {
       print("Encryption failed: $e");
       return;
     }
 
-    _sentPlaintexts[encryptedText] = text;
+    _sentPlaintexts[encryptedText] = plaintextToEncrypt;
 
     bool sentViaWs = false;
     if (_webSocketService != null && _webSocketService!.isConnected) {
       sentViaWs = _webSocketService!.sendMessage({
         'type': 'encrypted_message',
         'encrypted_text': encryptedText,
+        if (fileIdToSend != null) 'file_id': fileIdToSend,
       });
     }
 
@@ -2245,6 +2922,8 @@ class _MessengerScreenState extends State<MessengerScreen> {
         lastMsgText = "📋 To-Do лист";
       } else if (msgType == 'poll') {
         lastMsgText = "🗳️ Опрос";
+      } else if (msgType == 'call') {
+        lastMsgText = "📞 Звонок";
       } else if (msgId != null) {
         lastMsgText = _decryptedMessages[msgId] ?? "[Зашифрованное сообщение]";
         if (lastMsgText.isEmpty) {
@@ -2264,14 +2943,26 @@ class _MessengerScreenState extends State<MessengerScreen> {
       if (lastMsgText.startsWith('{')) {
         try {
           final Map<String, dynamic> parsed = jsonDecode(lastMsgText);
-          if (parsed['type'] == 'voice') {
-            lastMsgText = "🎤 Голосовое сообщение";
-          } else if (parsed['type'] == 'file') {
-            lastMsgText = "📎 Файл";
-          } else if (parsed['type'] == 'todo_list') {
+          final hasFiles = (lastMsg['attached_file_id'] != null) ||
+                           (lastMsg['file_id'] != null) ||
+                           (lastMsg['files'] != null && (lastMsg['files'] as List).isNotEmpty) ||
+                           (lastMsg['images'] != null && (lastMsg['images'] as List).isNotEmpty);
+          
+          if (hasFiles) {
+            if (parsed['type'] == 'voice') {
+              lastMsgText = "🎤 Голосовое сообщение";
+            } else if (parsed['type'] == 'video_message') {
+              lastMsgText = "🎬 Видеосообщение";
+            } else if (parsed['type'] == 'file') {
+              lastMsgText = "📎 Файл";
+            }
+          }
+          if (parsed['type'] == 'todo_list' && (lastMsg['message_type'] == 'todo_list' || lastMsg['message_type'] == 'todo_list_message')) {
             lastMsgText = "📋 To-Do лист";
-          } else if (parsed['type'] == 'poll') {
+          } else if (parsed['type'] == 'poll' && lastMsg['message_type'] == 'poll') {
             lastMsgText = "🗳️ Опрос";
+          } else if (parsed['type'] == 'call') {
+            lastMsgText = "📞 Звонок";
           }
         } catch (_) {}
       }
@@ -2830,11 +3521,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                   icon: Icon(Icons.phone_rounded, size: 20 * scale),
                   tooltip: 'Позвонить',
                   onPressed: () {
-                    CustomToast.show(
-                      context,
-                      'Функция звонков находится в разработке',
-                      type: ToastType.info,
-                    );
+                    _showCallChoiceModal(context, scale, isDark);
                   },
                   color: isDark ? Colors.white70 : Colors.black54,
                 ),
@@ -2871,7 +3558,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                           controller: _scrollController,
                           reverse: true,
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                          itemCount: _messages.length,
+                          itemCount: _messages.length + (_isLoadingMore ? 1 : 0),
                           findChildIndexCallback: (Key key) {
                             if (key is ValueKey<String> && key.value.startsWith('anim_')) {
                               final idStr = key.value.substring(5); // remove 'anim_'
@@ -2881,6 +3568,15 @@ class _MessengerScreenState extends State<MessengerScreen> {
                             return null;
                           },
                           itemBuilder: (context, index) {
+                            if (index == _messages.length) {
+                              return const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 16),
+                                child: Center(
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                ),
+                              );
+                            }
+
                             final msg = _messages[index];
                             final isMe = msg['author_id']?.toString() == _myId?.toString();
                             final rawId = msg['id'];
@@ -3071,6 +3767,50 @@ class _MessengerScreenState extends State<MessengerScreen> {
         }
       } catch (_) {}
     }
+    final hasFiles = (msg['attached_file_id'] != null) ||
+                     (msg['file_id'] != null) ||
+                     (msg['files'] != null && (msg['files'] as List).isNotEmpty) ||
+                     (msg['images'] != null && (msg['images'] as List).isNotEmpty);
+
+    if (customPayload != null) {
+      final type = customPayload['type'];
+      if ((type == 'voice' || type == 'video_message' || type == 'file') && !hasFiles) {
+        customPayload = null;
+      } else if ((type == 'todo_list' || type == 'todo_list_message') &&
+                 msg['message_type'] != 'todo_list' &&
+                 msg['message_type'] != 'todo_list_message') {
+        customPayload = null;
+      } else if (type == 'poll' && msg['message_type'] != 'poll') {
+        customPayload = null;
+      }
+    }
+    final attachedFileId = msg['attached_file_id']?.toString() ?? msg['file_id']?.toString();
+    if (customPayload == null && attachedFileId != null) {
+      if (msg['attached_file_name'] != null) {
+        customPayload = {
+          'type': 'file',
+          'file_id': attachedFileId,
+          'file_name': msg['attached_file_name'],
+          'file_size': msg['attached_file_size'] ?? 0,
+          'mime_type': msg['attached_file_type'] ?? 'application/octet-stream',
+        };
+      } else if (_fileMetadataCache.containsKey(attachedFileId)) {
+        final cache = _fileMetadataCache[attachedFileId]!;
+        customPayload = {
+          'type': 'file',
+          'file_id': attachedFileId,
+          'file_name': cache['original_filename'] ?? cache['file_name'] ?? 'Файл',
+          'file_size': cache['file_size'] ?? 0,
+          'mime_type': cache['mime_type'] ?? cache['file_type'] ?? 'application/octet-stream',
+        };
+      } else {
+        customPayload = {
+          'type': 'file_loading',
+          'file_id': attachedFileId,
+        };
+        _triggerFileMetadataFetch(attachedFileId);
+      }
+    }
     final authorUsername = msg['author_username'] as String? ?? "Пользователь";
 
     if (customPayload != null && customPayload['type'] == 'video_message') {
@@ -3176,6 +3916,58 @@ class _MessengerScreenState extends State<MessengerScreen> {
                 isDark: isDark,
                 scale: scale,
               )
+            else if (customPayload != null && customPayload['type'] == 'file') ...[
+              _buildFileAttachmentWidget(customPayload, isMe, isDark, scale),
+              if (decryptedText.trim().isNotEmpty && !decryptedText.trim().startsWith('{')) ...[
+                const SizedBox(height: 8),
+                Text(
+                  decryptedText,
+                  style: TextStyle(
+                    color: isMe ? Colors.white : (isDark ? Colors.white.withOpacity(0.9) : Colors.black87),
+                    fontSize: 15 * scale,
+                  ),
+                ),
+              ],
+            ]
+            else if (customPayload != null && customPayload['type'] == 'file_loading') ...[
+              Container(
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: 14 * scale,
+                      height: 14 * scale,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 1.5,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          isMe ? Colors.white70 : (isDark ? Colors.white54 : Colors.black54),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      'Загрузка файла...',
+                      style: TextStyle(
+                        color: isMe ? Colors.white70 : (isDark ? Colors.white54 : Colors.black54),
+                        fontSize: 12.5 * scale,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (decryptedText.trim().isNotEmpty && !decryptedText.trim().startsWith('{')) ...[
+                const SizedBox(height: 8),
+                Text(
+                  decryptedText,
+                  style: TextStyle(
+                    color: isMe ? Colors.white : (isDark ? Colors.white.withOpacity(0.9) : Colors.black87),
+                    fontSize: 15 * scale,
+                  ),
+                ),
+              ],
+            ]
             else if (customPayload != null && 
                      (msg['message_type'] == 'todo_list' || msg['message_type'] == 'todo_list_message' || customPayload['is_native'] == true) &&
                      (customPayload['type'] == 'todo_list' || (customPayload['items'] != null && customPayload['title'] != null)))
@@ -3184,6 +3976,8 @@ class _MessengerScreenState extends State<MessengerScreen> {
                      (msg['message_type'] == 'poll' || msg['message_type'] == 'poll_message' || customPayload['is_native'] == true) &&
                      (customPayload['type'] == 'poll' || (customPayload['options'] != null && customPayload['question'] != null)))
               _buildPollWidget(msg, customPayload, isMe, isDark, scale)
+            else if (customPayload != null && customPayload['type'] == 'call')
+              _buildCallWidget(customPayload, isMe, isDark, scale)
             else
               Text(
                 decryptedText,
@@ -3205,12 +3999,14 @@ class _MessengerScreenState extends State<MessengerScreen> {
                     fontSize: 10,
                   ),
                 ),
-                const SizedBox(width: 4),
-                FaIcon(
-                  FontAwesomeIcons.lock, 
-                  size: 9, 
-                  color: isMe ? Colors.white60 : Colors.grey
-                ),
+                if (customPayload?['type'] != 'call') ...[
+                  const SizedBox(width: 4),
+                  FaIcon(
+                    FontAwesomeIcons.lock, 
+                    size: 9, 
+                    color: isMe ? Colors.white60 : Colors.grey
+                  ),
+                ],
               ],
             ),
           ],
@@ -3219,8 +4015,191 @@ class _MessengerScreenState extends State<MessengerScreen> {
     );
   }
 
+  Widget _buildCallWidget(Map<String, dynamic> fileData, bool isMe, bool isDark, double scale) {
+    final status = fileData['status']?.toString();
+    final duration = fileData['duration'] as int? ?? 0;
+    final callType = fileData['call_type']?.toString() ?? 'audio';
+
+    final isVideo = callType == 'video';
+    FaIconData callIcon = isVideo ? FontAwesomeIcons.video : FontAwesomeIcons.phone;
+    Color iconColor = Colors.grey;
+    Color iconBg = Colors.grey.withOpacity(0.15);
+    String callTitle = '';
+    String callSubtext = '';
+
+    if (isMe) {
+      // Outgoing
+      callTitle = 'Исходящий звонок';
+      if (status == 'connected') {
+        iconColor = const Color(0xFF10B981);
+        iconBg = const Color(0xFF10B981).withOpacity(0.15);
+        final mins = duration ~/ 60;
+        final secs = duration % 60;
+        if (mins > 0) {
+          callSubtext = '$mins мин $secs сек';
+        } else {
+          callSubtext = '$secs сек';
+        }
+      } else {
+        iconColor = const Color(0xFF9CA3AF);
+        iconBg = const Color(0xFF9CA3AF).withOpacity(0.15);
+        callSubtext = 'Разговор не состоялся';
+      }
+    } else {
+      // Incoming
+      if (status == 'connected') {
+        callTitle = 'Входящий звонок';
+        iconColor = const Color(0xFF10B981);
+        iconBg = const Color(0xFF10B981).withOpacity(0.15);
+        final mins = duration ~/ 60;
+        final secs = duration % 60;
+        if (mins > 0) {
+          callSubtext = '$mins мин $secs сек';
+        } else {
+          callSubtext = '$secs сек';
+        }
+      } else if (status == 'rejected') {
+        callTitle = 'Отклонённый звонок';
+        iconColor = const Color(0xFFEF4444);
+        iconBg = const Color(0xFFEF4444).withOpacity(0.15);
+        callIcon = isVideo ? FontAwesomeIcons.videoSlash : FontAwesomeIcons.phoneSlash;
+        callSubtext = 'Вы отклонили вызов';
+      } else {
+        callTitle = 'Пропущенный звонок';
+        iconColor = const Color(0xFFEF4444);
+        iconBg = const Color(0xFFEF4444).withOpacity(0.15);
+        callIcon = isVideo ? FontAwesomeIcons.videoSlash : FontAwesomeIcons.phoneSlash;
+        callSubtext = 'Вы пропустили вызов';
+      }
+    }
+
+    final textColor = isMe ? Colors.white : (isDark ? Colors.white.withOpacity(0.9) : Colors.black87);
+    final subtextColor = isMe ? Colors.white70 : (isDark ? Colors.white60 : Colors.black54);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 36 * scale,
+            height: 36 * scale,
+            decoration: BoxDecoration(
+              color: iconBg,
+              shape: BoxShape.circle,
+            ),
+            child: Center(
+              child: FaIcon(
+                callIcon,
+                color: iconColor,
+                size: 14 * scale,
+              ),
+            ),
+          ),
+          SizedBox(width: 8 * scale),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                callTitle,
+                style: TextStyle(
+                  color: textColor,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14 * scale,
+                ),
+              ),
+              SizedBox(height: 3 * scale),
+              Text(
+                callSubtext,
+                style: TextStyle(
+                  color: subtextColor,
+                  fontSize: 11 * scale,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildMessageInput(bool isDark, double scale) {
     final showRecordTooltip = _isHoveringRecordButton && !_showSendButton && !_isRecording;
+
+    Widget? previewWidget;
+    if (_attachedFile != null) {
+      final fileName = _attachedFile!['file_name'] as String;
+      final fileSize = _attachedFile!['file_size'] as int;
+      
+      String formatBytes(int bytes, int decimals) {
+        if (bytes <= 0) return '0 B';
+        const suffixes = ['Б', 'КБ', 'МБ', 'ГБ', 'ТБ'];
+        var i = (log(bytes) / log(1024)).floor();
+        return ((bytes / pow(1024, i)).toStringAsFixed(decimals)) + ' ' + suffixes[i];
+      }
+
+      previewWidget = Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: isDark ? Colors.white.withOpacity(0.06) : Colors.black.withOpacity(0.03),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isDark ? Colors.white.withOpacity(0.12) : Colors.black.withOpacity(0.08),
+            width: 1.2,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            FaIcon(
+              FontAwesomeIcons.fileLines,
+              color: isDark ? Colors.white70 : Colors.black54,
+              size: 16 * scale,
+            ),
+            const SizedBox(width: 8),
+            Flexible(
+              child: Text(
+                fileName,
+                style: TextStyle(
+                  color: isDark ? Colors.white.withOpacity(0.9) : Colors.black87,
+                  fontSize: 12.5 * scale,
+                  fontWeight: FontWeight.w500,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              '(${formatBytes(fileSize, 1)})',
+              style: TextStyle(
+                color: isDark ? Colors.white38 : Colors.black45,
+                fontSize: 11 * scale,
+              ),
+            ),
+            const SizedBox(width: 8),
+            GestureDetector(
+              onTap: () {
+                setState(() {
+                  _attachedFile = null;
+                  if (_messageController.text.trim().isEmpty) {
+                    _showSendButton = false;
+                  }
+                });
+              },
+              child: FaIcon(
+                FontAwesomeIcons.xmark,
+                color: isDark ? Colors.white54 : Colors.black54,
+                size: 14 * scale,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Center(
       child: Container(
         constraints: BoxConstraints(maxWidth: 600 * scale),
@@ -3228,11 +4207,16 @@ class _MessengerScreenState extends State<MessengerScreen> {
         decoration: const BoxDecoration(
           color: Colors.transparent,
         ),
-        child: Stack(
-          clipBehavior: Clip.none,
-          alignment: Alignment.center,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            ClipRRect(
+            if (previewWidget != null) previewWidget,
+            Stack(
+              clipBehavior: Clip.none,
+              alignment: Alignment.center,
+              children: [
+                ClipRRect(
               borderRadius: BorderRadius.circular(28),
               child: BackdropFilter(
                 filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
@@ -3347,12 +4331,17 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                 final position = renderBox.localToGlobal(Offset.zero);
                                 final size = renderBox.size;
                                 final menuLeft = position.dx + (size.width / 2) - (100.0 * scale);
-                                final menuTop = position.dy - (88.0 * scale) - 8;
+                                final menuTop = position.dy - (132.0 * scale) - 8;
 
                                 CustomContextMenu.show(
                                   context: context,
                                   position: Offset(menuLeft, menuTop),
                                   items: [
+                                    CustomContextMenuItem(
+                                      icon: FaIcon(FontAwesomeIcons.fileLines, size: 14 * scale),
+                                      label: 'Файл',
+                                      onTap: _pickAndStageFile,
+                                    ),
                                     CustomContextMenuItem(
                                       icon: FaIcon(FontAwesomeIcons.listCheck, size: 14 * scale),
                                       label: 'Список задач',
@@ -3525,8 +4514,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
             ),
           ],
         ),
-      ),
-    );
+      ],
+    ),
+  ),
+);
   }
 
   Widget _buildSearchOverlay(bool isDark, double scale) {
@@ -4008,6 +4999,85 @@ class _MessengerScreenState extends State<MessengerScreen> {
     );
   }
 
+  Widget _buildFileAttachmentWidget(Map<String, dynamic> payload, bool isMe, bool isDark, double scale) {
+    final fileName = payload['file_name']?.toString() ?? 'Файл';
+    final fileSize = payload['file_size'] as int? ?? 0;
+    final fileId = payload['file_id']?.toString() ?? '';
+    
+    // Nice byte formatting
+    String formatBytes(int bytes, int decimals) {
+      if (bytes <= 0) return "0 Б";
+      const suffixes = ["Б", "КБ", "МБ", "ГБ", "ТБ"];
+      var i = (log(bytes) / log(1024)).floor();
+      return ((bytes / pow(1024, i)).toStringAsFixed(decimals)) + ' ' + suffixes[i];
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 4, top: 4),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: isMe ? Colors.white.withOpacity(0.12) : (isDark ? Colors.white.withOpacity(0.04) : Colors.black.withOpacity(0.03)),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isMe ? Colors.white.withOpacity(0.2) : (isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.05)),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: isMe ? Colors.white.withOpacity(0.15) : (isDark ? Colors.white.withOpacity(0.06) : Colors.black.withOpacity(0.04)),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: FaIcon(
+              FontAwesomeIcons.fileLines,
+              color: isMe ? Colors.white : (isDark ? Colors.white70 : Colors.black87),
+              size: 20 * scale,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Flexible(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  fileName,
+                  style: TextStyle(
+                    color: isMe ? Colors.white : (isDark ? Colors.white.withOpacity(0.9) : Colors.black87),
+                    fontSize: 13.5 * scale,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  formatBytes(fileSize, 1),
+                  style: TextStyle(
+                    color: isMe ? Colors.white70 : (isDark ? Colors.white54 : Colors.black54),
+                    fontSize: 11 * scale,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          IconButton(
+            icon: FaIcon(
+              FontAwesomeIcons.download,
+              color: isMe ? Colors.white70 : (isDark ? Colors.white54 : Colors.black54),
+              size: 14 * scale,
+            ),
+            onPressed: () => _downloadFile(fileId, fileName),
+          ),
+        ],
+      ),
+    );
+  }
+
   String _formatVotesCountText(int count) {
     if (count % 10 == 1 && count % 100 != 11) {
       return 'голос';
@@ -4015,6 +5085,131 @@ class _MessengerScreenState extends State<MessengerScreen> {
       return 'голоса';
     } else {
       return 'голосов';
+    }
+  }
+
+  Future<void> _pickAndStageFile() async {
+    if (_selectedChat == null) return;
+    
+    try {
+      final result = await FilePicker.pickFiles(allowMultiple: false);
+      if (result == null || result.files.single.path == null) return;
+      
+      final path = result.files.single.path!;
+      final file = File(path);
+      final fileName = result.files.single.name;
+      final fileSize = result.files.single.size;
+      
+      // Determine file type based on extension
+      String fileType = 'document';
+      final lowerName = fileName.toLowerCase();
+      if (lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg') || lowerName.endsWith('.png') || lowerName.endsWith('.gif') || lowerName.endsWith('.webp') || lowerName.endsWith('.bmp')) {
+        fileType = 'image';
+      } else if (lowerName.endsWith('.mp4') || lowerName.endsWith('.mov') || lowerName.endsWith('.avi') || lowerName.endsWith('.mkv') || lowerName.endsWith('.webm')) {
+        fileType = 'video';
+      } else if (lowerName.endsWith('.mp3') || lowerName.endsWith('.wav') || lowerName.endsWith('.ogg') || lowerName.endsWith('.m4a') || lowerName.endsWith('.flac')) {
+        fileType = 'audio';
+      }
+
+      if (mounted) {
+        CustomToast.show(context, 'Загрузка файла "$fileName"...', type: ToastType.info);
+      }
+
+      final chatId = _selectedChat!['id'].toString();
+      final uploadRes = await _apiService.uploadFile(file, fileType, chatId);
+
+      if (uploadRes.success && uploadRes.data != null) {
+        final fileId = uploadRes.data!['file_id']?.toString() ?? uploadRes.data!['id']?.toString();
+        if (fileId == null) throw Exception('Не получен ID файла от сервера');
+
+        setState(() {
+          _attachedFile = {
+            'file_id': fileId,
+            'file_name': fileName,
+            'file_size': fileSize,
+            'file_type': fileType,
+          };
+          _showSendButton = true;
+        });
+        
+        if (mounted) {
+          CustomToast.show(context, 'Файл загружен и прикреплен', type: ToastType.success);
+        }
+      } else {
+        throw Exception(uploadRes.error ?? 'Неизвестная ошибка загрузки');
+      }
+    } catch (e) {
+      Logger.error('MessengerScreen', 'Ошибка загрузки файла', e);
+      if (mounted) {
+        CustomToast.show(context, 'Ошибка загрузки файла: $e', type: ToastType.error);
+      }
+    }
+  }
+
+  void _triggerFileMetadataFetch(String fileId) {
+    if (_fetchingFileMetadata.contains(fileId)) return;
+    _fetchingFileMetadata.add(fileId);
+    
+    _apiService.getFileMetadata(fileId).then((res) {
+      if (mounted) {
+        if (res.success && res.data != null) {
+          setState(() {
+            _fileMetadataCache[fileId] = res.data!;
+          });
+        }
+        _fetchingFileMetadata.remove(fileId);
+      }
+    }).catchError((e) {
+      if (mounted) {
+        _fetchingFileMetadata.remove(fileId);
+      }
+    });
+  }
+
+  Future<void> _downloadFile(String fileId, String fileName) async {
+    try {
+      final dir = await getDownloadsDirectory();
+      
+      String? outputFilePath = await FilePicker.saveFile(
+        dialogTitle: 'Сохранить файл как',
+        fileName: fileName,
+        initialDirectory: dir?.path,
+      );
+
+      if (outputFilePath == null) return;
+
+      if (mounted) {
+        CustomToast.show(context, 'Скачивание файла "$fileName"...', type: ToastType.info);
+      }
+
+      final uri = Uri.parse(ApiService.baseUrl);
+      final port = uri.hasPort ? ':${uri.port}' : '';
+      final host = '${uri.scheme}://${uri.host}$port';
+      final downloadUrl = '$host/api/files/download/$fileId/';
+
+      final token = await _apiService.getAccessToken();
+      final dio = Dio();
+      
+      final response = await dio.download(
+        downloadUrl,
+        outputFilePath,
+        options: Options(
+          headers: token != null ? {'Authorization': 'Bearer $token'} : null,
+        ),
+      );
+
+      if (response.statusCode == 200) {
+        if (mounted) {
+          CustomToast.show(context, 'Файл сохранен: $outputFilePath', type: ToastType.success);
+        }
+      } else {
+        throw Exception('Код сервера: ${response.statusCode}');
+      }
+    } catch (e) {
+      Logger.error('MessengerScreen', 'Ошибка скачивания файла', e);
+      if (mounted) {
+        CustomToast.show(context, 'Ошибка при скачивании файла: $e', type: ToastType.error);
+      }
     }
   }
 
@@ -4033,7 +5228,13 @@ class _MessengerScreenState extends State<MessengerScreen> {
       } else if (chatId.startsWith('personal_')) {
         final peerPubKey = await _getPeerPublicKey(otherUser);
         if (peerPubKey == null) return;
-        encryptedText = await _cryptoService.encryptPersonalMessage(text, peerPubKey, chatId);
+        if (peerPubKey == 'bot') {
+          final chatKeyHex = await _getGroupChatKey(chatId);
+          if (chatKeyHex == null) return;
+          encryptedText = await _cryptoService.encryptGroupMessage(text, chatKeyHex);
+        } else {
+          encryptedText = await _cryptoService.encryptPersonalMessage(text, peerPubKey, chatId);
+        }
       } else if (chatId.startsWith('group_') || chatId.startsWith('channel_')) {
         final chatKeyHex = await _getGroupChatKey(chatId);
         if (chatKeyHex == null) return;
@@ -4055,7 +5256,13 @@ class _MessengerScreenState extends State<MessengerScreen> {
         } else if (chatId.startsWith('personal_')) {
           final peerPubKey = await _getPeerPublicKey(otherUser);
           if (peerPubKey == null) return "";
-          return await _cryptoService.encryptPersonalMessage(plaintext, peerPubKey, chatId);
+          if (peerPubKey == 'bot') {
+            final chatKeyHex = await _getGroupChatKey(chatId);
+            if (chatKeyHex == null) return "";
+            return await _cryptoService.encryptGroupMessage(plaintext, chatKeyHex);
+          } else {
+            return await _cryptoService.encryptPersonalMessage(plaintext, peerPubKey, chatId);
+          }
         } else if (chatId.startsWith('group_') || chatId.startsWith('channel_')) {
           final chatKeyHex = await _getGroupChatKey(chatId);
           if (chatKeyHex == null) return "";
@@ -4110,6 +5317,13 @@ class _MessengerScreenState extends State<MessengerScreen> {
           'duration': parsedJson['duration'],
           'chat_id': chatId,
           'encrypted_text': encryptedText,
+        });
+      } else if (parsedJson != null && parsedJson['type'] == 'file') {
+        sentViaWs = _webSocketService!.sendMessage({
+          'type': 'encrypted_message',
+          'chat_id': chatId,
+          'encrypted_text': encryptedText,
+          'file_id': parsedJson['file_id'],
         });
       } else {
         sentViaWs = _webSocketService!.sendMessage({

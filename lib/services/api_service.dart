@@ -12,7 +12,7 @@ import 'logger_service.dart';
 /// API сервис для Xaneo PC с поддержкой автоматического сохранения сессионных кук (через Dio)
 class ApiService {
   // Базовый URL сервера (настраивается)
-  static String _baseUrl = 'https://192.168.3.65/api/v1';
+  static String _baseUrl = 'https://192.168.1.113/api/v1';
   
   // User-Agent для идентификации приложения
   static const String _userAgent = 'XaneoPC/1.0 xaneo-app';
@@ -603,6 +603,25 @@ class ApiService {
     }
   }
 
+  /// Получить токен доступа к LiveKit комнате для WebRTC звонков
+  Future<ApiResponse> getLiveKitToken(String roomName) async {
+    try {
+      final options = await _getAuthOptions();
+      final baseUrlWithoutV1 = _baseUrl.replaceAll('/v1', '');
+      final response = await _dio.get(
+        '$baseUrlWithoutV1/webrtc/livekit-token/',
+        queryParameters: {'room': roomName},
+        options: options,
+      );
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(
+        success: false,
+        error: 'Ошибка получения LiveKit токена: $e',
+      );
+    }
+  }
+
   // ==================== MESSAGING ENDPOINTS ====================
 
   /// Получить список чатов
@@ -644,13 +663,18 @@ class ApiService {
   }
 
   /// Получить список сообщений в чате
-  Future<ApiResponse> getMessages(String chatId) async {
+  Future<ApiResponse> getMessages(String chatId, {int? limit, int? offset}) async {
     try {
       final options = await _getAuthOptions();
+      final queryParams = {
+        'chat_id': chatId,
+        if (limit != null) 'limit': limit,
+        if (offset != null) 'offset': offset,
+      };
       final response = await _dio.get(
         '$_baseUrl/encrypted-messages/',
         options: options,
-        queryParameters: {'chat_id': chatId},
+        queryParameters: queryParams,
       );
       return _handleDioResponse(response);
     } catch (e) {
@@ -678,6 +702,23 @@ class ApiService {
       return ApiResponse(
         success: false,
         error: 'Ошибка отправки сообщения: $e',
+      );
+    }
+  }
+
+  /// Получить метаданные файла
+  Future<ApiResponse> getFileMetadata(String fileId) async {
+    try {
+      final options = await _getAuthOptions();
+      final response = await _dio.get(
+        '$_baseUrl/files/metadata/$fileId/',
+        options: options,
+      );
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(
+        success: false,
+        error: 'Ошибка получения метаданных файла: $e',
       );
     }
   }

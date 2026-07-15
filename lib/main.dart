@@ -21,14 +21,50 @@ import 'widgets/custom_title_bar.dart';
 import 'widgets/settings_modal.dart';
 import 'services/logger_service.dart';
 import 'utils/local_proxy.dart';
+import 'services/webrtc/webrtc_signaling_service.dart';
+import 'services/webrtc/call_manager.dart';
 
 import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
+import 'screens/notification_overlay_screen.dart';
+import 'services/notification_service.dart';
 
 // Глобальный ключ для доступа к Navigator
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
-void main() async {
+void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  if (args.firstOrNull == 'multi_window') {
+    final windowId = int.parse(args[1]);
+    final arguments = args[2].isEmpty
+        ? const <String, dynamic>{}
+        : jsonDecode(args[2]) as Map<String, dynamic>;
+    runApp(NotificationOverlayApp(windowId: windowId, arguments: arguments));
+    return;
+  }
+
+  // Intercept and ignore harmless platform/formatting exceptions to keep console clean
+  final originalOnError = FlutterError.onError;
+  FlutterError.onError = (FlutterErrorDetails details) {
+    final exceptionStr = details.exception.toString();
+    if (exceptionStr.contains('No active stream to cancel') || 
+        exceptionStr.contains('DiagnosticsProperty')) {
+      return;
+    }
+    originalOnError?.call(details);
+  };
+
+  PlatformDispatcher.instance.onError = (error, stack) {
+    final errorStr = error.toString();
+    if (errorStr.contains('No active stream to cancel') || 
+        errorStr.contains('DiagnosticsProperty')) {
+      return true; // marked as handled
+    }
+    return false;
+  };
+
+  await NotificationService().init();
   await Logger.init();
   Logger.info('Main', 'App main() entry point reached.');
 
@@ -83,6 +119,16 @@ void main() async {
         ChangeNotifierProvider(create: (context) => ThemeProvider()),
         ChangeNotifierProvider(create: (context) => ScaleProvider()),
         ChangeNotifierProvider(create: (context) => PlaybackProvider()),
+        Provider<WebRTCSignalingService>(
+          create: (context) => WebRTCSignalingService(),
+          dispose: (context, service) => service.dispose(),
+        ),
+        ChangeNotifierProvider<CallManager>(
+          create: (context) {
+            final signaling = context.read<WebRTCSignalingService>();
+            return CallManager(signalingService: signaling);
+          },
+        ),
       ],
       child: const MyApp(),
     ),
@@ -202,5 +248,27 @@ class MyHttpOverrides extends HttpOverrides {
     return super.createHttpClient(context)
       ..userAgent = 'XaneoPC/1.0 xaneo-app'
       ..badCertificateCallback = (X509Certificate cert, String host, int port) => true;
+  }
+}
+
+class NotificationOverlayApp extends StatelessWidget {
+  final int windowId;
+  final Map<String, dynamic> arguments;
+
+  const NotificationOverlayApp({
+    super.key,
+    required this.windowId,
+    required this.arguments,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: NotificationOverlayScreen(
+        windowId: windowId,
+        arguments: arguments,
+      ),
+    );
   }
 }

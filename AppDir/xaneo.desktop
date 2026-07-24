@@ -1,8 +1,8 @@
 [Desktop Entry]
-Name=Xaneo PC
+Name=Xaneo
 Comment=Desktop application with onboarding
-Exec=xaneo-pc
-Icon=xaneo_pc
+Exec=xaneo
+Icon=xaneo
 Type=Application
 Categories=Utility;
 Terminal=false

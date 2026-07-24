@@ -9,13 +9,13 @@ class Logger {
     try {
       final home = Platform.environment['HOME'];
       if (home != null) {
-        final dir = Directory('$home/.xaneo_pc');
+        final dir = Directory('$home/.xaneo');
         if (!await dir.exists()) {
           await dir.create(recursive: true);
         }
         _logFile = File('${dir.path}/app.log');
       } else {
-        _logFile = File('${Directory.systemTemp.path}/xaneo_pc_app.log');
+        _logFile = File('${Directory.systemTemp.path}/xaneo_app.log');
       }
 
       // Handle log rotation / size limiting (max 2MB)

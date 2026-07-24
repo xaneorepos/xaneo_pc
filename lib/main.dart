@@ -197,7 +197,7 @@ class _MyAppState extends State<MyApp> with WindowListener {
 
         return MaterialApp(
           navigatorKey: navigatorKey,
-          title: 'Xaneo PC',
+          title: 'Xaneo',
           locale: localeProvider.locale ?? const Locale('ru'),
           localizationsDelegates: const [
             AppLocalizations.delegate,

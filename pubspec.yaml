@@ -1,4 +1,4 @@
-name: xaneo_pc
+name: xaneo
 description: "Xaneo PC - Desktop application with onboarding"
 publish_to: 'none'
 version: 1.0.0+1
@@ -12,11 +12,17 @@ dependencies:
   flutter_localizations:
     sdk: flutter
 
-  # HTTP requests
+  # HTTP & gRPC requests
   http: ^1.1.0
   dio: ^5.4.0
   dio_cookie_manager: ^3.0.0
   cookie_jar: ^4.0.8
+  grpc: ^4.1.0
+  protobuf: ^3.1.0
+  fixnum: ^1.1.0
+
+
+
   
   # Toast notifications
   fluttertoast: ^8.0.8

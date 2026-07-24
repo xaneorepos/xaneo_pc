@@ -9,9 +9,9 @@ import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:screen_retriever/screen_retriever.dart';
 import 'package:window_manager/window_manager.dart';
 
-import 'package:xaneo_pc/main.dart';
-import 'package:xaneo_pc/services/webrtc/call_manager.dart';
-import 'package:xaneo_pc/screens/webrtc/active_call_screen.dart';
+import 'package:xaneo/main.dart';
+import 'package:xaneo/services/webrtc/call_manager.dart';
+import 'package:xaneo/screens/webrtc/active_call_screen.dart';
 
 class NotificationService {
   static final NotificationService _instance = NotificationService._internal();

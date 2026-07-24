@@ -8,34 +8,26 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../../services/webrtc/call_manager.dart';
 import '../../services/api_service.dart';
 
-class ActiveCallScreen extends StatefulWidget {
+import 'base_call_screen.dart';
+import 'group_active_call_screen.dart';
+
+class ActiveCallScreen extends BaseCallScreen {
   const ActiveCallScreen({super.key});
 
   @override
   State<ActiveCallScreen> createState() => _ActiveCallScreenState();
 }
 
-class _ActiveCallScreenState extends State<ActiveCallScreen> with SingleTickerProviderStateMixin {
-  late AnimationController _callingAnimationController;
-
-  @override
-  void initState() {
-    super.initState();
-    _callingAnimationController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 2),
-    )..repeat();
-  }
-
-  @override
-  void dispose() {
-    _callingAnimationController.dispose();
-    super.dispose();
-  }
+class _ActiveCallScreenState extends BaseCallScreenState<ActiveCallScreen> {
 
   @override
   Widget build(BuildContext context) {
     final callManager = Provider.of<CallManager>(context);
+
+    // Если звонок является ГРУППОВЫМ — открываем экран группового звонка!
+    if (callManager.isGroupCall) {
+      return const GroupActiveCallScreen();
+    }
     debugPrint('ActiveCallScreen: build called. CallManager state: ${callManager.state}');
 
     // Если звонок завершен, закрываем экран
@@ -360,17 +352,17 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> with SingleTickerPr
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         AnimatedBuilder(
-          animation: _callingAnimationController,
+          animation: callingAnimationController,
           builder: (context, child) {
             return Stack(
               alignment: Alignment.center,
               children: [
                 Container(
-                  width: 120 + (_callingAnimationController.value * 50),
-                  height: 120 + (_callingAnimationController.value * 50),
+                  width: 120 + (callingAnimationController.value * 50),
+                  height: 120 + (callingAnimationController.value * 50),
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: const Color(0xFF3B82F6).withOpacity(0.08 * (1 - _callingAnimationController.value)),
+                    color: const Color(0xFF3B82F6).withOpacity(0.08 * (1 - callingAnimationController.value)),
                   ),
                 ),
                 child!,

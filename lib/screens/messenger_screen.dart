@@ -22,6 +22,7 @@ import '../providers/playback_provider.dart';
 import '../widgets/advanced_background.dart';
 import '../widgets/voice_waveform_slider.dart';
 import '../widgets/settings_modal.dart';
+import '../widgets/global_search_modal.dart';
 import '../services/api_service.dart';
 import '../services/crypto_service.dart';
 import '../services/account_service.dart';
@@ -99,6 +100,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
   final Map<String, String> _sentPlaintexts = {};
   final Map<String, String> _localVideoPaths = {};
   double _chatListWidth = 320.0;
+
+  // Membership / Subscription state
+  Set<String> _joinedChatIds = {};
+  bool _isJoiningOrLeavingChat = false;
+  final GlobalKey _headerSettingsKey = GlobalKey();
 
   // Typing status variables
   final Map<String, _TypingState> _activeTypingUsers = {};
@@ -306,11 +312,57 @@ class _MessengerScreenState extends State<MessengerScreen> {
     }
   }
 
+  bool _canMakeCallInCurrentChat() {
+    if (_selectedChat == null) return false;
+    final chatType = _selectedChat!['chat_type'] as String?;
+    final otherUser = _selectedChat!['other_user'] as Map<String, dynamic>?;
+    final isBot = otherUser != null && (
+      otherUser['is_bot'] == true ||
+      otherUser['bot'] == true ||
+      (otherUser['username']?.toString().toLowerCase().endsWith('bot') ?? false)
+    );
+
+    if (chatType == 'personal' && !isBot) {
+      return true;
+    }
+    if (chatType == 'group') {
+      final enabled = _selectedChat!['group_calls_enabled'];
+      if (enabled == null) return true;
+      return enabled == true || enabled == 1 || enabled == 'true';
+    }
+    return false;
+  }
+
   Future<void> _startCall(String callType) async {
     try {
       if (_selectedChat == null) return;
       final callManager = context.read<CallManager>();
-      
+      final chatType = _selectedChat!['chat_type'] as String?;
+
+      if (chatType == 'group') {
+        final groupId = _selectedChat!['chat_id']?.toString().replaceFirst('group_', '') ?? '';
+        final groupName = _getChatName(_selectedChat!);
+        final groupAvatar = _selectedChat!['avatar_url'] as String? ?? _selectedChat!['avatar'] as String?;
+        final groupGradient = _selectedChat!['avatar_gradient'] as String?;
+
+        await callManager.startOutgoingGroupCall(
+          groupId: groupId,
+          groupName: groupName,
+          groupAvatar: groupAvatar,
+          groupGradient: groupGradient,
+          callType: callType,
+        );
+
+        if (mounted) {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (context) => const ActiveCallScreen(),
+            ),
+          );
+        }
+        return;
+      }
+
       final otherUser = _selectedChat!['other_user'] as Map<String, dynamic>?;
       if (otherUser == null) return;
 
@@ -1033,6 +1085,13 @@ class _MessengerScreenState extends State<MessengerScreen> {
           _archivedChats = archivedList;
           _isChatsLoading = false;
           
+          final joinedIds = <String>{};
+          for (final c in [...chatList, ...archivedList]) {
+            final id = c['chat_id'] as String?;
+            if (id != null) joinedIds.add(id);
+          }
+          _joinedChatIds = joinedIds;
+          
           if (_selectedChat != null) {
             final allChats = [...chatList, ...archivedList];
             final updatedChat = allChats.cast<Map<String, dynamic>?>().firstWhere(
@@ -1408,6 +1467,26 @@ class _MessengerScreenState extends State<MessengerScreen> {
       return;
     }
 
+    final systemTypes = const [
+      'system',
+      'user_joined',
+      'user_joined_group',
+      'user_left',
+      'user_left_group',
+      'user_invited_group',
+      'user_invited_channel',
+      'user_subscribed_channel',
+      'user_unsubscribed_channel'
+    ];
+    if (systemTypes.contains(messageType) || msg['is_system'] == true) {
+      if (mounted) {
+        setState(() {
+          _decryptedMessages[id] = msg['encrypted_text'] as String? ?? '';
+        });
+      }
+      return;
+    }
+
     final encryptedText = msg['encrypted_text'] as String?;
     if (encryptedText == null || encryptedText.isEmpty) {
       _decryptedMessages[id] = "";
@@ -1705,27 +1784,38 @@ class _MessengerScreenState extends State<MessengerScreen> {
   }
 
   void _startChatWithUser(Map<String, dynamic> user) {
-    final dynamic rawTargetId = user['id'];
-    final targetId = rawTargetId is int ? rawTargetId : (int.tryParse(rawTargetId.toString()) ?? 0);
-    final targetUsername = user['username'] as String;
-    if (_myId == null) return;
+    final rawTargetId = user['user_id'] ?? user['id'];
+    final targetId = rawTargetId is int ? rawTargetId : (int.tryParse(rawTargetId?.toString() ?? '') ?? 0);
+    final targetUsername = user['username']?.toString() ?? 'user';
+    if (_myId == null || targetId == 0) return;
+
+    final rawFirstName = user['first_name']?.toString() ?? '';
+    final rawLastName = user['last_name']?.toString() ?? '';
+    var displayName = '$rawFirstName $rawLastName'.trim();
+    if (displayName.isEmpty) {
+      displayName = user['display_name']?.toString() ?? '';
+    }
+    if (displayName.isEmpty) {
+      displayName = targetUsername;
+    }
 
     _typingTimer?.cancel();
     _isMeTyping = false;
     _activeTypingUsers.clear();
 
     // Create unique personal chat ID
-    final chatId = "personal_${_myId! < targetId ? '${_myId!}_$targetId' : '${targetId}_$_myId!'}";
+    final sorted = [_myId!, targetId]..sort();
+    final chatId = "personal_${sorted[0]}_${sorted[1]}";
     
     final newChat = {
       'chat_id': chatId,
       'chat_type': 'personal',
-      'chat_display_name': user['first_name'] ?? targetUsername,
+      'chat_display_name': displayName,
       'other_user': {
         'id': targetId,
         'username': targetUsername,
-        'first_name': user['first_name'] ?? targetUsername,
-        'avatar_url': user['avatar_url'],
+        'first_name': displayName,
+        'avatar_url': user['avatar_url'] ?? user['avatar'],
         'avatar_gradient': user['avatar_gradient'] ?? '',
       }
     };
@@ -1752,6 +1842,301 @@ class _MessengerScreenState extends State<MessengerScreen> {
     _connectWebSocket(chatId);
     _markChatAsRead(chatId);
     _prefetchUserProfile(newChat);
+  }
+
+  String _formatPluralCount(int count, String one, String few, String many) {
+    final mod10 = count % 10;
+    final mod100 = count % 100;
+    if (mod100 >= 11 && mod100 <= 19) {
+      return '$count $many';
+    }
+    if (mod10 == 1) {
+      return '$count $one';
+    }
+    if (mod10 >= 2 && mod10 <= 4) {
+      return '$count $few';
+    }
+    return '$count $many';
+  }
+
+  String _getGroupStatusText(Map<String, dynamic> chat) {
+    final rawCount = chat['members_count'] ?? chat['members']?.length ?? chat['participants_count'] ?? 0;
+    final count = rawCount is int ? rawCount : int.tryParse(rawCount.toString()) ?? 0;
+    if (count <= 0) return 'группа';
+    return _formatPluralCount(count, 'участник', 'участника', 'участников');
+  }
+
+  String _getChannelStatusText(Map<String, dynamic> chat) {
+    final rawCount = chat['subscribers_count'] ?? chat['subscribers']?.length ?? 0;
+    final count = rawCount is int ? rawCount : int.tryParse(rawCount.toString()) ?? 0;
+    if (count <= 0) return 'канал';
+    return _formatPluralCount(count, 'подписчик', 'подписчика', 'подписчиков');
+  }
+
+  DateTime? _parseMsgDate(dynamic createdAt) {
+    if (createdAt == null) return null;
+    try {
+      return DateTime.parse(createdAt.toString()).toLocal();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  bool _isSameDay(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
+  String _formatDateDivider(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+    final msgDate = DateTime(date.year, date.month, date.day);
+
+    if (msgDate == today) {
+      return 'Сегодня';
+    } else if (msgDate == yesterday) {
+      return 'Вчера';
+    } else {
+      const months = [
+        'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
+        'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'
+      ];
+      final monthStr = months[date.month - 1];
+      if (date.year == now.year) {
+        return '${date.day} $monthStr';
+      } else {
+        return '${date.day} $monthStr ${date.year}';
+      }
+    }
+  }
+
+  Widget _buildDateDivider(String text, bool isDark, double scale) {
+    return Container(
+      width: double.infinity,
+      alignment: Alignment.center,
+      margin: EdgeInsets.symmetric(vertical: 12 * scale),
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: 14 * scale, vertical: 4 * scale),
+        decoration: BoxDecoration(
+          color: isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.06),
+          borderRadius: BorderRadius.circular(14 * scale),
+          border: Border.all(
+            color: isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.06),
+            width: 0.8,
+          ),
+        ),
+        child: Text(
+          text,
+          style: TextStyle(
+            fontSize: 11.5 * scale,
+            fontWeight: FontWeight.w600,
+            color: isDark ? Colors.white70 : Colors.black54,
+          ),
+        ),
+      ),
+    );
+  }
+
+  bool _isUserSubscribedOrJoined(Map<String, dynamic>? chat) {
+    if (chat == null) return false;
+    final chatType = chat['chat_type'] as String?;
+    if (chatType == 'personal' || chatType == 'favorites') {
+      return true;
+    }
+    final chatId = chat['chat_id'] as String?;
+    if (chatId == null) return false;
+
+    if (chat['is_subscribed'] == true || chat['is_member'] == true || chat['is_joined'] == true) {
+      return true;
+    }
+    if (chat['is_subscribed'] == false || chat['is_member'] == false || chat['is_joined'] == false) {
+      return false;
+    }
+
+    return _joinedChatIds.contains(chatId);
+  }
+
+  Future<void> _handleJoinChat(Map<String, dynamic> chat) async {
+    final chatId = chat['chat_id'] as String?;
+    if (chatId == null || _isJoiningOrLeavingChat) return;
+
+    setState(() {
+      _isJoiningOrLeavingChat = true;
+    });
+
+    final res = await _apiService.joinChat(chatId);
+
+    if (mounted) {
+      setState(() {
+        _isJoiningOrLeavingChat = false;
+      });
+
+      if (res.success) {
+        chat['is_subscribed'] = true;
+        chat['is_member'] = true;
+        chat['is_joined'] = true;
+
+        if (chat['chat_type'] == 'channel') {
+          final count = (chat['subscribers_count'] is int ? chat['subscribers_count'] as int : int.tryParse(chat['subscribers_count']?.toString() ?? '0') ?? 0);
+          chat['subscribers_count'] = count + 1;
+        } else if (chat['chat_type'] == 'group') {
+          final count = (chat['members_count'] is int ? chat['members_count'] as int : int.tryParse(chat['members_count']?.toString() ?? '0') ?? 0);
+          chat['members_count'] = count + 1;
+        }
+
+        setState(() {
+          _joinedChatIds.add(chatId);
+          final existingIndex = _chats.indexWhere((c) => c['chat_id'] == chatId);
+          if (existingIndex < 0) {
+            _chats.insert(0, chat);
+          }
+        });
+
+        final isChannel = chat['chat_type'] == 'channel';
+        CustomToast.show(
+          context,
+          isChannel ? 'Вы подписались на канал' : 'Вы присоединились к группе',
+          type: ToastType.success,
+        );
+
+        _loadMessages(chatId);
+        _connectWebSocket(chatId);
+      } else {
+        CustomToast.show(
+          context,
+          res.error ?? 'Не удалось присоединиться',
+          type: ToastType.error,
+        );
+      }
+    }
+  }
+
+  Future<void> _handleLeaveChat(Map<String, dynamic> chat) async {
+    final chatId = chat['chat_id'] as String?;
+    if (chatId == null || _isJoiningOrLeavingChat) return;
+
+    setState(() {
+      _isJoiningOrLeavingChat = true;
+    });
+
+    final res = await _apiService.leaveChat(chatId);
+
+    if (mounted) {
+      setState(() {
+        _isJoiningOrLeavingChat = false;
+      });
+
+      if (res.success) {
+        chat['is_subscribed'] = false;
+        chat['is_member'] = false;
+        chat['is_joined'] = false;
+
+        if (chat['chat_type'] == 'channel') {
+          final count = (chat['subscribers_count'] is int ? chat['subscribers_count'] as int : int.tryParse(chat['subscribers_count']?.toString() ?? '0') ?? 0);
+          chat['subscribers_count'] = count > 0 ? count - 1 : 0;
+        } else if (chat['chat_type'] == 'group') {
+          final count = (chat['members_count'] is int ? chat['members_count'] as int : int.tryParse(chat['members_count']?.toString() ?? '0') ?? 0);
+          chat['members_count'] = count > 0 ? count - 1 : 0;
+        }
+
+        setState(() {
+          _joinedChatIds.remove(chatId);
+          _chats.removeWhere((c) => c['chat_id'] == chatId);
+          _archivedChats.removeWhere((c) => c['chat_id'] == chatId);
+        });
+
+        final isChannel = chat['chat_type'] == 'channel';
+        CustomToast.show(
+          context,
+          isChannel ? 'Вы отписались от канала' : 'Вы покинули группу',
+          type: ToastType.info,
+        );
+      } else {
+        CustomToast.show(
+          context,
+          res.error ?? 'Не удалось выполнить действие',
+          type: ToastType.error,
+        );
+      }
+    }
+  }
+
+  void _handleSearchResultSelected(Map<String, dynamic> item, String type) {
+    if (type == 'favorites') {
+      if (_myId == null) return;
+      final chatId = 'favorites_user_$_myId';
+      final favChat = {
+        'chat_id': chatId,
+        'chat_type': 'favorites',
+        'chat_display_name': 'Избранное',
+      };
+      setState(() {
+        _selectedChat = favChat;
+        final existingIndex = _chats.indexWhere((c) => c['chat_id'] == chatId);
+        if (existingIndex < 0) {
+          _chats.insert(0, favChat);
+        }
+      });
+      _loadMessages(chatId);
+      _connectWebSocket(chatId);
+      _markChatAsRead(chatId);
+    } else if (type == 'group') {
+      final groupId = item['id'];
+      final chatId = 'group_$groupId';
+      final isMember = item['is_member'] == true || _joinedChatIds.contains(chatId);
+      final groupChat = {
+        'chat_id': chatId,
+        'chat_type': 'group',
+        'chat_display_name': item['name'] ?? 'Группа',
+        'group_id': groupId,
+        'members_count': item['members_count'] ?? 0,
+        'avatar_url': item['avatar'] ?? item['avatar_url'],
+        'avatar_gradient': item['avatar_gradient'] ?? '',
+        'is_member': isMember,
+        'is_joined': isMember,
+      };
+      setState(() {
+        _selectedChat = groupChat;
+        if (isMember) {
+          final existingIndex = _chats.indexWhere((c) => c['chat_id'] == chatId);
+          if (existingIndex < 0) {
+            _chats.insert(0, groupChat);
+          }
+        }
+      });
+      _loadMessages(chatId);
+      _connectWebSocket(chatId);
+      _markChatAsRead(chatId);
+    } else if (type == 'channel') {
+      final channelId = item['id'];
+      final chatId = 'channel_$channelId';
+      final isSubscribed = item['is_subscribed'] == true || _joinedChatIds.contains(chatId);
+      final channelChat = {
+        'chat_id': chatId,
+        'chat_type': 'channel',
+        'chat_display_name': item['name'] ?? 'Канал',
+        'channel_id': channelId,
+        'subscribers_count': item['subscribers_count'] ?? 0,
+        'avatar_url': item['avatar'] ?? item['avatar_url'],
+        'avatar_gradient': item['avatar_gradient'] ?? '',
+        'is_subscribed': isSubscribed,
+        'is_joined': isSubscribed,
+      };
+      setState(() {
+        _selectedChat = channelChat;
+        if (isSubscribed) {
+          final existingIndex = _chats.indexWhere((c) => c['chat_id'] == chatId);
+          if (existingIndex < 0) {
+            _chats.insert(0, channelChat);
+          }
+        }
+      });
+      _loadMessages(chatId);
+      _connectWebSocket(chatId);
+      _markChatAsRead(chatId);
+    } else {
+      _startChatWithUser(item);
+    }
   }
 
   Future<void> _logout() async {
@@ -2662,12 +3047,13 @@ class _MessengerScreenState extends State<MessengerScreen> {
               if (!_viewingArchive)
                 IconButton(
                   icon: Icon(Icons.search_rounded, size: 20 * scale),
-                  tooltip: 'Поиск контактов',
+                  tooltip: 'Глобальный поиск',
                   onPressed: () {
-                    setState(() {
-                      _isSearching = true;
-                      _searchResults = [];
-                    });
+                    GlobalSearchModal.show(
+                      context: context,
+                      apiService: _apiService,
+                      onResultSelected: (item, type) => _handleSearchResultSelected(item, type),
+                    );
                   },
                   color: isDark ? Colors.white70 : Colors.black54,
                 ),
@@ -2912,13 +3298,30 @@ class _MessengerScreenState extends State<MessengerScreen> {
     final lastMsg = chat['last_message'];
     
     String lastMsgText = "Нет сообщений";
+    if (chatType == 'group') {
+      lastMsgText = _getGroupStatusText(chat);
+    } else if (chatType == 'channel') {
+      lastMsgText = _getChannelStatusText(chat);
+    }
     String lastMsgTime = "";
     if (lastMsg != null) {
       final dynamic rawMsgId = lastMsg['id'];
       final msgId = rawMsgId is int ? rawMsgId : int.tryParse(rawMsgId.toString());
       final msgType = lastMsg['message_type'] as String?;
 
-      if (msgType == 'todo_list') {
+      if (msgType == 'user_joined_group' || msgType == 'user_joined') {
+        final authorName = lastMsg['author_first_name'] ?? lastMsg['author_username'] ?? 'Пользователь';
+        lastMsgText = "$authorName присоединился к чату";
+      } else if (msgType == 'user_left_group' || msgType == 'user_left') {
+        final authorName = lastMsg['author_first_name'] ?? lastMsg['author_username'] ?? 'Пользователь';
+        lastMsgText = "$authorName покинул чат";
+      } else if (msgType == 'user_subscribed_channel') {
+        final authorName = lastMsg['author_first_name'] ?? lastMsg['author_username'] ?? 'Пользователь';
+        lastMsgText = "$authorName подписался на канал";
+      } else if (msgType == 'user_unsubscribed_channel') {
+        final authorName = lastMsg['author_first_name'] ?? lastMsg['author_username'] ?? 'Пользователь';
+        lastMsgText = "$authorName отписался от канала";
+      } else if (msgType == 'todo_list') {
         lastMsgText = "📋 To-Do лист";
       } else if (msgType == 'poll') {
         lastMsgText = "🗳️ Опрос";
@@ -2983,15 +3386,20 @@ class _MessengerScreenState extends State<MessengerScreen> {
       children: [
         if (chatType == 'favorites')
           _buildFavoritesAvatar(22, scale)
-        else
-          _buildAvatar(
-            otherUser?['avatar_url'] as String?,
-            displayName,
-            22 * scale,
-            1.0,
-            isDark,
-            avatarGradient: otherUser?['avatar_gradient'] as String?,
-          ),
+        else ...[
+          Builder(builder: (context) {
+            final avatarUrl = otherUser?['avatar_url'] as String? ?? chat['avatar_url'] as String? ?? chat['avatar'] as String?;
+            final gradientStr = otherUser?['avatar_gradient'] as String? ?? chat['avatar_gradient'] as String?;
+            return _buildAvatar(
+              avatarUrl,
+              displayName,
+              22 * scale,
+              1.0,
+              isDark,
+              avatarGradient: gradientStr,
+            );
+          }),
+        ],
         if (chatType == 'personal' && isOnline)
           Positioned(
             right: 0,
@@ -3194,23 +3602,31 @@ class _MessengerScreenState extends State<MessengerScreen> {
           if (svgString.contains('<text') && svgString.contains('</text>')) {
             // It's an initials avatar generated by the backend!
             // SvgPicture has major issues centering text baselines.
-            // Let's extract the background color and use our pixel-perfect native Flutter implementation instead.
-            String? extractedColor;
-            final rectMatch = RegExp(r'<rect[^>]*fill="(#[A-Fa-f0-9]{6})"').firstMatch(svgString);
-            if (rectMatch != null) {
-              extractedColor = rectMatch.group(1);
-            } else {
-              final pathMatch = RegExp(r'<path[^>]*fill="(#[A-Fa-f0-9]{6})"').firstMatch(svgString);
-              if (pathMatch != null) {
-                extractedColor = pathMatch.group(1);
+            String? gradientToUse;
+            final stopColors = <String>[];
+            final matches = RegExp(r'stop-color:(#[A-Fa-f0-9]{6})|stop-color="(#[A-Fa-f0-9]{6})"').allMatches(svgString);
+            for (var m in matches) {
+              final c = m.group(1) ?? m.group(2);
+              if (c != null && !stopColors.contains(c)) {
+                stopColors.add(c);
               }
             }
-            
-            String? gradientToUse;
-            if (extractedColor != null) {
-              gradientToUse = '$extractedColor|$extractedColor';
+
+            if (stopColors.length >= 2) {
+              gradientToUse = '${stopColors[0]}|${stopColors[1]}';
+            } else if (stopColors.length == 1) {
+              gradientToUse = '${stopColors[0]}|${stopColors[0]}';
             } else {
-              gradientToUse = avatarGradient;
+              String? extractedColor;
+              final rectMatch = RegExp(r'fill="(#[A-Fa-f0-9]{6})"').firstMatch(svgString);
+              if (rectMatch != null) {
+                extractedColor = rectMatch.group(1);
+              }
+              if (extractedColor != null) {
+                gradientToUse = '$extractedColor|$extractedColor';
+              } else {
+                gradientToUse = avatarGradient;
+              }
             }
             
             return _buildInitialsAvatar(initials, radius, scale, isDark, avatarGradient: gradientToUse, borderRadius: borderRadius);
@@ -3413,9 +3829,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
     } else if (chatType == 'personal') {
       statusText = isBot ? "бот" : (isOnline ? "в сети" : "не в сети");
     } else if (chatType == 'group') {
-      statusText = "группа";
+      statusText = _getGroupStatusText(_selectedChat!);
     } else if (chatType == 'channel') {
-      statusText = "канал";
+      statusText = _getChannelStatusText(_selectedChat!);
     }
 
     String? typingAction;
@@ -3516,7 +3932,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
               ),
 
               // Action buttons: Call, Settings
-              if ((chatType == 'personal' && !isBot) || chatType == 'group')
+              if (_canMakeCallInCurrentChat())
                 IconButton(
                   icon: Icon(Icons.phone_rounded, size: 20 * scale),
                   tooltip: 'Позвонить',
@@ -3526,14 +3942,75 @@ class _MessengerScreenState extends State<MessengerScreen> {
                   color: isDark ? Colors.white70 : Colors.black54,
                 ),
               IconButton(
+                key: _headerSettingsKey,
                 icon: Icon(Icons.settings_rounded, size: 20 * scale),
                 tooltip: 'Настройки чата',
                 onPressed: () {
-                  CustomToast.show(
-                    context,
-                    'Настройки чата пока недоступны',
-                    type: ToastType.info,
-                  );
+                  final renderBox = _headerSettingsKey.currentContext?.findRenderObject() as RenderBox?;
+                  if (renderBox != null) {
+                    final position = renderBox.localToGlobal(Offset.zero);
+                    final size = renderBox.size;
+                    final menuLeft = position.dx - (160.0 * scale);
+                    final menuTop = position.dy + size.height + 4;
+
+                    final isSubscribed = _isUserSubscribedOrJoined(_selectedChat);
+                    final isChannel = chatType == 'channel';
+                    final isGroup = chatType == 'group';
+
+                    final items = <CustomContextMenuItem>[];
+
+                    if (isGroup) {
+                      if (isSubscribed) {
+                        items.add(
+                          CustomContextMenuItem(
+                            icon: FaIcon(FontAwesomeIcons.rightFromBracket, size: 14 * scale, color: Colors.redAccent),
+                            label: 'Покинуть группу',
+                            onTap: () => _handleLeaveChat(_selectedChat!),
+                          ),
+                        );
+                      } else {
+                        items.add(
+                          CustomContextMenuItem(
+                            icon: FaIcon(FontAwesomeIcons.userPlus, size: 14 * scale, color: const Color(0xFF2563EB)),
+                            label: 'Присоединиться к группе',
+                            onTap: () => _handleJoinChat(_selectedChat!),
+                          ),
+                        );
+                      }
+                    } else if (isChannel) {
+                      if (isSubscribed) {
+                        items.add(
+                          CustomContextMenuItem(
+                            icon: FaIcon(FontAwesomeIcons.bellSlash, size: 14 * scale, color: Colors.redAccent),
+                            label: 'Отписаться от канала',
+                            onTap: () => _handleLeaveChat(_selectedChat!),
+                          ),
+                        );
+                      } else {
+                        items.add(
+                          CustomContextMenuItem(
+                            icon: FaIcon(FontAwesomeIcons.bullhorn, size: 14 * scale, color: const Color(0xFF2563EB)),
+                            label: 'Подписаться на канал',
+                            onTap: () => _handleJoinChat(_selectedChat!),
+                          ),
+                        );
+                      }
+                    }
+
+                    items.add(
+                      CustomContextMenuItem(
+                        icon: FaIcon(FontAwesomeIcons.boxArchive, size: 14 * scale),
+                        label: (_selectedChat!['is_archived'] == true) ? 'Разархивировать' : 'В архив',
+                        onTap: () => _toggleArchive(_selectedChat!),
+                      ),
+                    );
+
+                    CustomContextMenu.show(
+                      context: context,
+                      position: Offset(menuLeft, menuTop),
+                      items: items,
+                    );
+                  }
                 },
                 color: isDark ? Colors.white70 : Colors.black54,
               ),
@@ -3583,7 +4060,24 @@ class _MessengerScreenState extends State<MessengerScreen> {
                             final msgId = rawId is int ? rawId : int.tryParse(rawId.toString());
                             final isNewMessage = msgId != null && _messagesToAnimate.contains(msgId);
 
-                            return NewMessageAnimator(
+                            bool showDateDivider = false;
+                            String? dateDividerText;
+                            final currentDate = _parseMsgDate(msg['created_at']);
+                            if (currentDate != null) {
+                              if (index == _messages.length - 1) {
+                                showDateDivider = true;
+                              } else {
+                                final olderDate = _parseMsgDate(_messages[index + 1]['created_at']);
+                                if (olderDate != null && !_isSameDay(currentDate, olderDate)) {
+                                  showDateDivider = true;
+                                }
+                              }
+                              if (showDateDivider) {
+                                dateDividerText = _formatDateDivider(currentDate);
+                              }
+                            }
+
+                            final bubbleWidget = NewMessageAnimator(
                               key: ValueKey('anim_${msgId ?? index}'),
                               animate: isNewMessage,
                               onStartAnimating: isNewMessage
@@ -3595,6 +4089,18 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                   : null,
                               child: _buildMessageBubble(msg, isMe, isDark, scale),
                             );
+
+                            if (showDateDivider && dateDividerText != null) {
+                              return Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  _buildDateDivider(dateDividerText, isDark, scale),
+                                  bubbleWidget,
+                                ],
+                              );
+                            }
+
+                            return bubbleWidget;
                           },
                         ),
               
@@ -3612,8 +4118,8 @@ class _MessengerScreenState extends State<MessengerScreen> {
           ),
         ),
 
-        // Message Input
-        _buildMessageInput(isDark, scale),
+        // Bottom Panel (Message Input or Join / Subscribe / Unsubscribe Button)
+        _buildBottomPanel(isDark, scale),
       ],
     );
   }
@@ -3754,10 +4260,104 @@ class _MessengerScreenState extends State<MessengerScreen> {
     );
   }
 
+  Widget _buildSystemMessageBubble(Map<String, dynamic> msg, String text, bool isDark, double scale) {
+    final messageType = msg['message_type'] as String? ?? 'system';
+    final author = msg['author'] as Map<String, dynamic>? ?? {};
+    final authorName = msg['author_first_name'] ??
+        author['first_name'] ??
+        author['username'] ??
+        msg['author_username'] ??
+        '';
+    final messageData = msg['message_data'] as Map<String, dynamic>? ?? {};
+
+    String displayText = '';
+
+    if (messageType == 'user_joined_group' || messageType == 'user_joined') {
+      final name = authorName.isNotEmpty ? authorName : 'Пользователь';
+      displayText = '$name присоединился к чату';
+    } else if (messageType == 'user_left_group' || messageType == 'user_left') {
+      final name = authorName.isNotEmpty ? authorName : 'Пользователь';
+      displayText = '$name покинул чат';
+    } else if (messageType == 'user_subscribed_channel') {
+      final name = authorName.isNotEmpty ? authorName : 'Пользователь';
+      displayText = '$name подписался на канал';
+    } else if (messageType == 'user_unsubscribed_channel') {
+      final name = authorName.isNotEmpty ? authorName : 'Пользователь';
+      displayText = '$name отписался от канала';
+    } else if (messageType == 'user_invited_group' || messageType == 'user_invited_channel') {
+      final inviter = authorName.isNotEmpty ? authorName : 'Пользователь';
+      final invited = messageData['invited_name'] ?? messageData['subject_user_name'] ?? 'пользователя';
+      displayText = '$inviter пригласил $invited';
+    } else {
+      if (text.isNotEmpty && !text.startsWith('{') && text != '[Расшифровка...]') {
+        displayText = text;
+      } else {
+        displayText = 'Системное сообщение';
+      }
+    }
+
+    final timeStr = msg['created_at'] != null
+        ? DateTime.parse(msg['created_at'] as String).toLocal().toString().substring(11, 16)
+        : "";
+
+    return Container(
+      width: double.infinity,
+      alignment: Alignment.center,
+      margin: EdgeInsets.symmetric(vertical: 8 * scale),
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: 16 * scale, vertical: 6 * scale),
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xCC232326) : const Color(0xE6F0F0F2),
+          borderRadius: BorderRadius.circular(20 * scale),
+          border: Border.all(
+            color: isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.06),
+            width: 1.0,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.info_outline_rounded,
+              size: 13 * scale,
+              color: isDark ? Colors.white54 : Colors.black54,
+            ),
+            SizedBox(width: 6 * scale),
+            Text(
+              displayText,
+              style: TextStyle(
+                fontSize: 12.5 * scale,
+                fontWeight: FontWeight.w500,
+                color: isDark ? Colors.white70 : Colors.black87,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildMessageBubble(Map<String, dynamic> msg, bool isMe, bool isDark, double scale) {
+    final messageType = msg['message_type'] as String?;
+    final isSystemMsg = msg['is_system'] == true ||
+        messageType == 'system' ||
+        messageType == 'user_joined' ||
+        messageType == 'user_joined_group' ||
+        messageType == 'user_left' ||
+        messageType == 'user_left_group' ||
+        messageType == 'user_invited_group' ||
+        messageType == 'user_invited_channel' ||
+        messageType == 'user_subscribed_channel' ||
+        messageType == 'user_unsubscribed_channel';
+
     final dynamic rawId = msg['id'];
     final id = rawId is int ? rawId : (int.tryParse(rawId.toString()) ?? 0);
-    final decryptedText = _decryptedMessages[id] ?? "[Расшифровка...]";
+    final decryptedText = _decryptedMessages[id] ?? msg['encrypted_text'] ?? "";
+
+    if (isSystemMsg) {
+      return _buildSystemMessageBubble(msg, decryptedText, isDark, scale);
+    }
     Map<String, dynamic>? customPayload;
     if (decryptedText.trim().startsWith('{')) {
       try {
@@ -4120,6 +4720,128 @@ class _MessengerScreenState extends State<MessengerScreen> {
             ],
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildBottomPanel(bool isDark, double scale) {
+    if (_selectedChat == null) return const SizedBox.shrink();
+
+    final chatType = _selectedChat!['chat_type'] as String?;
+    final isSubscribedOrJoined = _isUserSubscribedOrJoined(_selectedChat);
+
+    if (chatType == 'group') {
+      if (!isSubscribedOrJoined) {
+        return _buildJoinSubscribeBar(
+          isDark: isDark,
+          scale: scale,
+          label: 'Присоединиться к группе',
+          icon: Icons.group_add_rounded,
+          color: const Color(0xFF2563EB),
+          onPressed: () => _handleJoinChat(_selectedChat!),
+        );
+      } else {
+        return _buildMessageInput(isDark, scale);
+      }
+    } else if (chatType == 'channel') {
+      if (!isSubscribedOrJoined) {
+        return _buildJoinSubscribeBar(
+          isDark: isDark,
+          scale: scale,
+          label: 'Подписаться на канал',
+          icon: Icons.campaign_rounded,
+          color: const Color(0xFF2563EB),
+          onPressed: () => _handleJoinChat(_selectedChat!),
+        );
+      } else {
+        final canPost = _selectedChat!['can_post'] == true || _selectedChat!['is_admin'] == true;
+        if (canPost) {
+          return _buildMessageInput(isDark, scale);
+        } else {
+          return _buildJoinSubscribeBar(
+            isDark: isDark,
+            scale: scale,
+            label: 'Отписаться от канала',
+            icon: Icons.notifications_off_rounded,
+            color: isDark ? const Color(0xFF2A2A2A) : const Color(0xFFEFEFEF),
+            textColor: isDark ? Colors.redAccent : const Color(0xFFDC2626),
+            isDanger: true,
+            onPressed: () => _handleLeaveChat(_selectedChat!),
+          );
+        }
+      }
+    }
+
+    return _buildMessageInput(isDark, scale);
+  }
+
+  Widget _buildJoinSubscribeBar({
+    required bool isDark,
+    required double scale,
+    required String label,
+    required IconData icon,
+    required Color color,
+    Color? textColor,
+    bool isDanger = false,
+    required VoidCallback onPressed,
+  }) {
+    final bgColor = isDanger
+        ? (isDark ? const Color(0xFF2A1C1C) : const Color(0xFFFEE2E2))
+        : color;
+    final fgColor = textColor ?? (isDanger ? const Color(0xFFDC2626) : Colors.white);
+
+    return Center(
+      child: Container(
+        constraints: BoxConstraints(maxWidth: 600 * scale),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: SizedBox(
+          width: double.infinity,
+          height: 46 * scale,
+          child: ElevatedButton(
+            onPressed: _isJoiningOrLeavingChat ? null : onPressed,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: bgColor,
+              foregroundColor: fgColor,
+              elevation: isDanger ? 0 : 2,
+              shadowColor: color.withOpacity(0.3),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(24 * scale),
+                side: isDanger
+                    ? BorderSide(
+                        color: isDark ? const Color(0xFF7F1D1D) : const Color(0xFFFCA5A5),
+                        width: 1,
+                      )
+                    : BorderSide.none,
+              ),
+              padding: EdgeInsets.symmetric(horizontal: 24 * scale),
+            ),
+            child: _isJoiningOrLeavingChat
+                ? SizedBox(
+                    width: 20 * scale,
+                    height: 20 * scale,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(fgColor),
+                    ),
+                  )
+                : Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(icon, size: 19 * scale, color: fgColor),
+                      SizedBox(width: 8 * scale),
+                      Text(
+                        label,
+                        style: TextStyle(
+                          fontSize: 14 * scale,
+                          fontWeight: FontWeight.w600,
+                          fontFamily: 'Inter',
+                          color: fgColor,
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
+        ),
       ),
     );
   }

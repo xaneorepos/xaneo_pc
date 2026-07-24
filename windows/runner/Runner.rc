@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.example" "\0"
-            VALUE "FileDescription", "xaneo_pc" "\0"
+            VALUE "CompanyName", "net.xaneo" "\0"
+            VALUE "FileDescription", "Xaneo" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "xaneo_pc" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.example. All rights reserved." "\0"
-            VALUE "OriginalFilename", "xaneo_pc.exe" "\0"
-            VALUE "ProductName", "xaneo_pc" "\0"
+            VALUE "InternalName", "xaneo" "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 net.xaneo. All rights reserved." "\0"
+            VALUE "OriginalFilename", "xaneo.exe" "\0"
+            VALUE "ProductName", "Xaneo" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

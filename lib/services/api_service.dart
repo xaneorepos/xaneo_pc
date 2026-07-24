@@ -980,6 +980,82 @@ class ApiService {
       );
     }
   }
+
+  /// Присоединиться к группе или подписаться на канал
+  Future<ApiResponse> joinChat(String chatId) async {
+    try {
+      final options = await _getAuthOptions();
+      Response response;
+      if (chatId.startsWith('channel_')) {
+        final channelIdStr = chatId.replaceFirst('channel_', '');
+        final channelId = int.tryParse(channelIdStr) ?? channelIdStr;
+        response = await _dio.post(
+          '$_baseUrl/channels/subscribe/',
+          options: options,
+          data: {
+            'channel_id': channelId,
+            'action': 'subscribe',
+          },
+        );
+      } else if (chatId.startsWith('group_')) {
+        final groupId = chatId.replaceFirst('group_', '');
+        response = await _dio.post(
+          '$_baseUrl/groups/$groupId/join/',
+          options: options,
+        );
+      } else {
+        response = await _dio.post(
+          '$_baseUrl/chats/join/',
+          options: options,
+          data: {'chat_id': chatId},
+        );
+      }
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(
+        success: false,
+        error: 'Ошибка при вступлении/подписке: $e',
+      );
+    }
+  }
+
+  /// Покинуть группу или отписаться от канала
+  Future<ApiResponse> leaveChat(String chatId) async {
+    try {
+      final options = await _getAuthOptions();
+      Response response;
+      if (chatId.startsWith('channel_')) {
+        final channelIdStr = chatId.replaceFirst('channel_', '');
+        final channelId = int.tryParse(channelIdStr) ?? channelIdStr;
+        response = await _dio.post(
+          '$_baseUrl/channels/subscribe/',
+          options: options,
+          data: {
+            'channel_id': channelId,
+            'action': 'unsubscribe',
+          },
+        );
+      } else if (chatId.startsWith('group_')) {
+        final groupId = chatId.replaceFirst('group_', '');
+        response = await _dio.post(
+          '$_baseUrl/groups/$groupId/leave/',
+          options: options,
+        );
+      } else {
+        response = await _dio.post(
+          '$_baseUrl/chats/leave/',
+          options: options,
+          data: {'chat_id': chatId},
+        );
+      }
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(
+        success: false,
+        error: 'Ошибка при выходе/отписке: $e',
+      );
+    }
+  }
 }
 
 /// Результат API запроса

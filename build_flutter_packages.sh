@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Скрипт для сборки пакетов xaneo_pc (Flutter) для различных дистрибутивов Linux
+# Скрипт для сборки пакетов xaneo (Flutter) для различных дистрибутивов Linux
 # Поддерживаемые дистрибутивы: Debian, Fedora, Arch, Alpine, Void, AppImage, Tarball
 
 set -e
@@ -141,27 +141,27 @@ HERE=${SELF%/*}
 export PATH="${HERE}/usr/bin:${HERE}/bin:${PATH}"
 export LD_LIBRARY_PATH="${HERE}/usr/lib:${HERE}/lib:${LD_LIBRARY_PATH}"
 export XDG_DATA_DIRS="${HERE}/usr/share:${XDG_DATA_DIRS}"
-exec "${HERE}/xaneo_pc_new" "$@"
+exec "${HERE}/xaneo" "$@"
 EOF
         chmod +x "$appdir/AppRun"
     fi
     
     # Создаём .desktop файл если его нет
-    if [ ! -f "$appdir/xaneo_pc.desktop" ]; then
-        cat > "$appdir/xaneo_pc.desktop" << 'EOF'
+    if [ ! -f "$appdir/xaneo.desktop" ]; then
+        cat > "$appdir/xaneo.desktop" << 'EOF'
 [Desktop Entry]
 Type=Application
 Name=Xaneo PC
 Comment=Desktop application with onboarding
-Exec=xaneo_pc_new
-Icon=xaneo_pc
+Exec=xaneo
+Icon=xaneo
 Categories=Utility;
 EOF
     fi
     
     # Создаём символическую ссылку на иконку если её нет
     if [ ! -f "$appdir/.DirIcon" ]; then
-        ln -sf xaneo_pc.png "$appdir/.DirIcon"
+        ln -sf xaneo.png "$appdir/.DirIcon"
     fi
     
     log_success "AppDir создан"
@@ -180,16 +180,16 @@ create_appimage() {
     # Проверяем наличие appimagetool
     if [ -f "./appimagetool-x86_64.AppImage" ]; then
         chmod +x ./appimagetool-x86_64.AppImage
-        ./appimagetool-x86_64.AppImage "$appdir" "$dist_dir/xaneo_pc.AppImage"
+        ./appimagetool-x86_64.AppImage "$appdir" "$dist_dir/xaneo.AppImage"
     elif command -v appimagetool &> /dev/null; then
-        appimagetool "$appdir" "$dist_dir/xaneo_pc.AppImage"
+        appimagetool "$appdir" "$dist_dir/xaneo.AppImage"
     else
         log_warning "appimagetool не найден, пропускаем создание AppImage"
         return 1
     fi
     
-    if [ -f "$dist_dir/xaneo_pc.AppImage" ]; then
-        log_success "AppImage создан: $dist_dir/xaneo_pc.AppImage"
+    if [ -f "$dist_dir/xaneo.AppImage" ]; then
+        log_success "AppImage создан: $dist_dir/xaneo.AppImage"
     fi
 }
 
@@ -221,15 +221,15 @@ create_deb() {
     cp -r AppDir/* "$pkg_dir/opt/xaneo-pc/"
     
     # Копируем .desktop файл
-    cp AppDir/xaneo_pc.desktop "$pkg_dir/usr/share/applications/"
+    cp AppDir/xaneo.desktop "$pkg_dir/usr/share/applications/"
     
     # Копируем иконку
-    if [ -f "AppDir/xaneo_pc.png" ]; then
-        cp AppDir/xaneo_pc.png "$pkg_dir/usr/share/icons/hicolor/256x256/apps/"
+    if [ -f "AppDir/xaneo.png" ]; then
+        cp AppDir/xaneo.png "$pkg_dir/usr/share/icons/hicolor/256x256/apps/"
     fi
     
     # Создаём символическую ссылку
-    ln -sf /opt/xaneo-pc/xaneo_pc_new "$pkg_dir/usr/bin/xaneo-pc"
+    ln -sf /opt/xaneo-pc/xaneo "$pkg_dir/usr/bin/xaneo-pc"
     
     # Создаём control файл
     cat > "$pkg_dir/DEBIAN/control" << EOF
@@ -327,9 +327,9 @@ mkdir -p \$RPM_BUILD_ROOT/usr/share/icons/hicolor/256x256/apps
 mkdir -p \$RPM_BUILD_ROOT/usr/bin
 
 cp -r * \$RPM_BUILD_ROOT/opt/xaneo-pc/
-cp xaneo_pc.desktop \$RPM_BUILD_ROOT/usr/share/applications/
-cp xaneo_pc.png \$RPM_BUILD_ROOT/usr/share/icons/hicolor/256x256/apps/
-ln -sf /opt/xaneo-pc/xaneo_pc_new \$RPM_BUILD_ROOT/usr/bin/xaneo-pc
+cp xaneo.desktop \$RPM_BUILD_ROOT/usr/share/applications/
+cp xaneo.png \$RPM_BUILD_ROOT/usr/share/icons/hicolor/256x256/apps/
+ln -sf /opt/xaneo-pc/xaneo \$RPM_BUILD_ROOT/usr/bin/xaneo-pc
 
 %post
 update-desktop-database /usr/share/applications || true
@@ -342,8 +342,8 @@ gtk-update-icon-cache -f -t /usr/share/icons/hicolor || true
 %files
 %defattr(-,root,root,-)
 /opt/xaneo-pc
-/usr/share/applications/xaneo_pc.desktop
-/usr/share/icons/hicolor/256x256/apps/xaneo_pc.png
+/usr/share/applications/xaneo.desktop
+/usr/share/icons/hicolor/256x256/apps/xaneo.png
 /usr/bin/xaneo-pc
 
 %changelog
@@ -398,9 +398,9 @@ package() {
     mkdir -p "\$pkgdir/usr/bin"
     
     cp -r $appdir_path/* "\$pkgdir/opt/xaneo-pc/"
-    cp $appdir_path/xaneo_pc.desktop "\$pkgdir/usr/share/applications/"
-    cp $appdir_path/xaneo_pc.png "\$pkgdir/usr/share/icons/hicolor/256x256/apps/"
-    ln -sf /opt/xaneo-pc/xaneo_pc_new "\$pkgdir/usr/bin/xaneo-pc"
+    cp $appdir_path/xaneo.desktop "\$pkgdir/usr/share/applications/"
+    cp $appdir_path/xaneo.png "\$pkgdir/usr/share/icons/hicolor/256x256/apps/"
+    ln -sf /opt/xaneo-pc/xaneo "\$pkgdir/usr/bin/xaneo-pc"
 }
 EOF
     
@@ -455,9 +455,9 @@ package() {
     mkdir -p "\$pkgdir/usr/bin"
     
     cp -r ../AppDir/* "\$pkgdir/opt/xaneo-pc/"
-    cp ../AppDir/xaneo_pc.desktop "\$pkgdir/usr/share/applications/"
-    cp ../AppDir/xaneo_pc.png "\$pkgdir/usr/share/icons/hicolor/256x256/apps/"
-    ln -sf /opt/xaneo-pc/xaneo_pc_new "\$pkgdir/usr/bin/xaneo-pc"
+    cp ../AppDir/xaneo.desktop "\$pkgdir/usr/share/applications/"
+    cp ../AppDir/xaneo.png "\$pkgdir/usr/share/icons/hicolor/256x256/apps/"
+    ln -sf /opt/xaneo-pc/xaneo "\$pkgdir/usr/bin/xaneo-pc"
 }
 EOF
     
@@ -510,9 +510,9 @@ do_install() {
     vmkdir usr/bin
     
     cp -r ../AppDir/* \${DESTDIR}/opt/xaneo-pc/
-    cp ../AppDir/xaneo_pc.desktop \${DESTDIR}/usr/share/applications/
-    cp ../AppDir/xaneo_pc.png \${DESTDIR}/usr/share/icons/hicolor/256x256/apps/
-    ln -sf /opt/xaneo-pc/xaneo_pc_new \${DESTDIR}/usr/bin/xaneo-pc
+    cp ../AppDir/xaneo.desktop \${DESTDIR}/usr/share/applications/
+    cp ../AppDir/xaneo.png \${DESTDIR}/usr/share/icons/hicolor/256x256/apps/
+    ln -sf /opt/xaneo-pc/xaneo \${DESTDIR}/usr/bin/xaneo-pc
 }
 EOF
     
@@ -534,31 +534,31 @@ create_tarball() {
     
     local dist_dir="dist"
     local version="1.0.0"
-    local tarball_name="xaneo_pc-${version}-x86_64.tar.gz"
+    local tarball_name="xaneo-${version}-x86_64.tar.gz"
     
     mkdir -p "$dist_dir"
     
     # Создаём временную папку для tarball
     local temp_dir="$dist_dir/tarball-temp"
     rm -rf "$temp_dir"
-    mkdir -p "$temp_dir/xaneo_pc-${version}-x86_64"
+    mkdir -p "$temp_dir/xaneo-${version}-x86_64"
     
     # Копируем содержимое AppDir
-    cp -r AppDir/* "$temp_dir/xaneo_pc-${version}-x86_64/"
+    cp -r AppDir/* "$temp_dir/xaneo-${version}-x86_64/"
     
     # Создаём скрипт запуска
-    cat > "$temp_dir/xaneo_pc-${version}-x86_64/run.sh" << 'EOF'
+    cat > "$temp_dir/xaneo-${version}-x86_64/run.sh" << 'EOF'
 #!/bin/bash
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 export LD_LIBRARY_PATH="$SCRIPT_DIR/lib:$SCRIPT_DIR/data:$LD_LIBRARY_PATH"
 export PATH="$SCRIPT_DIR:$PATH"
-./xaneo_pc_new "$@"
+./xaneo "$@"
 EOF
-    chmod +x "$temp_dir/xaneo_pc-${version}-x86_64/run.sh"
+    chmod +x "$temp_dir/xaneo-${version}-x86_64/run.sh"
     
     # Создаём README
-    cat > "$temp_dir/xaneo_pc-${version}-x86_64/README.txt" << 'EOF'
+    cat > "$temp_dir/xaneo-${version}-x86_64/README.txt" << 'EOF'
 Xaneo PC - Desktop Application
 ================================
 
@@ -566,14 +566,14 @@ Xaneo PC - Desktop Application
 -------------------
 
 1. Распакуйте архив:
-   tar -xzf xaneo_pc-1.0.0-x86_64.tar.gz
-   cd xaneo_pc-1.0.0-x86_64
+   tar -xzf xaneo-1.0.0-x86_64.tar.gz
+   cd xaneo-1.0.0-x86_64
 
 2. Запустите приложение:
    ./run.sh
 
 Или запустите напрямую:
-   ./xaneo_pc_new
+   ./xaneo
 
 Требования:
 -----------
@@ -588,7 +588,7 @@ EOF
     
     # Создаём tarball
     cd "$temp_dir"
-    tar -czf "../$tarball_name" "xaneo_pc-${version}-x86_64"
+    tar -czf "../$tarball_name" "xaneo-${version}-x86_64"
     cd - > /dev/null
     
     # Удаляем временную папку
@@ -614,51 +614,51 @@ create_symlinks() {
     cd "$dist_dir"
     
     # AppImage
-    if [ -f "xaneo_pc.AppImage" ]; then
-        ln -sf "xaneo_pc.AppImage" "xaneo_pc-latest.AppImage"
-        log_success "Создана ссылка: xaneo_pc-latest.AppImage"
+    if [ -f "xaneo.AppImage" ]; then
+        ln -sf "xaneo.AppImage" "xaneo-latest.AppImage"
+        log_success "Создана ссылка: xaneo-latest.AppImage"
     fi
     
     # DEB
     if ls xaneo-pc_*.deb 1> /dev/null 2>&1; then
         local deb_file=$(ls xaneo-pc_*.deb | head -1)
-        ln -sf "$deb_file" "xaneo_pc-latest.deb"
-        log_success "Создана ссылка: xaneo_pc-latest.deb"
+        ln -sf "$deb_file" "xaneo-latest.deb"
+        log_success "Создана ссылка: xaneo-latest.deb"
     fi
     
     # RPM
     if ls xaneo-pc-*.rpm 1> /dev/null 2>&1; then
         local rpm_file=$(ls xaneo-pc-*.rpm | head -1)
-        ln -sf "$rpm_file" "xaneo_pc-latest.rpm"
-        log_success "Создана ссылка: xaneo_pc-latest.rpm"
+        ln -sf "$rpm_file" "xaneo-latest.rpm"
+        log_success "Создана ссылка: xaneo-latest.rpm"
     fi
     
     # Arch
     if ls xaneo-pc-*.pkg.tar.zst 1> /dev/null 2>&1; then
         local arch_file=$(ls xaneo-pc-*.pkg.tar.zst | head -1)
-        ln -sf "$arch_file" "xaneo_pc-latest.pkg.tar.zst"
-        log_success "Создана ссылка: xaneo_pc-latest.pkg.tar.zst"
+        ln -sf "$arch_file" "xaneo-latest.pkg.tar.zst"
+        log_success "Создана ссылка: xaneo-latest.pkg.tar.zst"
     fi
     
     # Alpine
     if ls xaneo-pc-*.apk 1> /dev/null 2>&1; then
         local alpine_file=$(ls xaneo-pc-*.apk | head -1)
-        ln -sf "$alpine_file" "xaneo_pc-latest.apk"
-        log_success "Создана ссылка: xaneo_pc-latest.apk"
+        ln -sf "$alpine_file" "xaneo-latest.apk"
+        log_success "Создана ссылка: xaneo-latest.apk"
     fi
     
     # Void
     if ls xaneo-pc-*.xbps 1> /dev/null 2>&1; then
         local void_file=$(ls xaneo-pc-*.xbps | head -1)
-        ln -sf "$void_file" "xaneo_pc-latest.xbps"
-        log_success "Создана ссылка: xaneo_pc-latest.xbps"
+        ln -sf "$void_file" "xaneo-latest.xbps"
+        log_success "Создана ссылка: xaneo-latest.xbps"
     fi
     
     # Tarball
-    if ls xaneo_pc-*-x86_64.tar.gz 1> /dev/null 2>&1; then
-        local tarball_file=$(ls xaneo_pc-*-x86_64.tar.gz | head -1)
-        ln -sf "$tarball_file" "xaneo_pc-latest.tar.gz"
-        log_success "Создана ссылка: xaneo_pc-latest.tar.gz"
+    if ls xaneo-*-x86_64.tar.gz 1> /dev/null 2>&1; then
+        local tarball_file=$(ls xaneo-*-x86_64.tar.gz | head -1)
+        ln -sf "$tarball_file" "xaneo-latest.tar.gz"
+        log_success "Создана ссылка: xaneo-latest.tar.gz"
     fi
     
     cd ..
@@ -679,8 +679,8 @@ show_package_info() {
     cd "$dist_dir"
     
     # AppImage
-    if [ -f "xaneo_pc.AppImage" ]; then
-        local size=$(du -h "xaneo_pc.AppImage" | cut -f1)
+    if [ -f "xaneo.AppImage" ]; then
+        local size=$(du -h "xaneo.AppImage" | cut -f1)
         echo -e "${GREEN}✓${NC} AppImage - $size"
     fi
     
@@ -720,8 +720,8 @@ show_package_info() {
     fi
     
     # Tarball
-    if ls xaneo_pc-*-x86_64.tar.gz 1> /dev/null 2>&1; then
-        local tarball_file=$(ls xaneo_pc-*-x86_64.tar.gz | head -1)
+    if ls xaneo-*-x86_64.tar.gz 1> /dev/null 2>&1; then
+        local tarball_file=$(ls xaneo-*-x86_64.tar.gz | head -1)
         local size=$(du -h "$tarball_file" | cut -f1)
         echo -e "${GREEN}✓${NC} Tarball (.tar.gz) - $size"
     fi
@@ -755,7 +755,7 @@ create_checksums() {
 # Функция для создания архива с пакетами
 create_archive() {
     local version=${1:-"1.0.0"}
-    local archive_name="xaneo_pc-${version}-linux-packages.tar.gz"
+    local archive_name="xaneo-${version}-linux-packages.tar.gz"
     
     log_info "Создание архива с пакетами: $archive_name"
     
@@ -775,7 +775,7 @@ create_archive() {
 # Главная функция
 main() {
     echo "=========================================="
-    echo "  Сборка пакетов xaneo_pc (Flutter)"
+    echo "  Сборка пакетов xaneo (Flutter)"
     echo "=========================================="
     echo ""
     

@@ -867,24 +867,79 @@ class CryptoService {
     return encryptMessageWithKey(plaintext, keyBytes);
   }
 
-  /// Decrypt group chat message (AES-GCM with server-managed symmetric key)
+  /// Decrypt group chat message (XChaCha20-Poly1305 with AES-GCM fallback using server-managed symmetric key)
   Future<String> decryptGroupMessage(
     String base64Message,
     String chatKeyHex,
   ) async {
     final keyBytes = _hexToBytes(chatKeyHex);
+    final trimmed = base64Message.trim().replaceAll('"', '');
+    if (trimmed.isEmpty) return "";
+
+    Uint8List rawData;
+    try {
+      rawData = base64Decode(trimmed);
+    } catch (_) {
+      return base64Message;
+    }
+
+    if (rawData.length < 28) {
+      return base64Message;
+    }
+
+    // 1. Try XChaCha20-Poly1305 (24-byte nonce + ciphertext + 16-byte mac) - Standard group E2EE in Web & Mobile
+    if (rawData.length >= 40) {
+      try {
+        final nonce = rawData.sublist(0, 24);
+        final ciphertextWithMac = rawData.sublist(24);
+        final ciphertext = ciphertextWithMac.sublist(0, ciphertextWithMac.length - 16);
+        final mac = ciphertextWithMac.sublist(ciphertextWithMac.length - 16);
+
+        final xchacha20 = crypto.Xchacha20.poly1305Aead();
+        final secretBox = crypto.SecretBox(
+          ciphertext,
+          nonce: nonce,
+          mac: crypto.Mac(mac),
+        );
+
+        final decryptedBytes = await xchacha20.decrypt(
+          secretBox,
+          secretKey: crypto.SecretKey(keyBytes),
+        );
+        return utf8.decode(decryptedBytes);
+      } catch (e) {
+        // Fallback to AES-GCM
+      }
+    }
+
+    // 2. Fallback to AES-256-GCM (12-byte nonce + ciphertext + 16-byte mac)
     final debugLabel = "Group Chat\n"
         "  - Chat Key Hex: $chatKeyHex";
-    return decryptMessageWithKey(base64Message, keyBytes, debugLabel: debugLabel);
+    return decryptMessageWithKey(base64Message, keyBytes, debugLabel: debugLabel, quiet: true);
   }
 
-  /// Encrypt group chat message (AES-GCM with server-managed symmetric key)
+  /// Encrypt group chat message (XChaCha20-Poly1305 with server-managed symmetric key)
   Future<String> encryptGroupMessage(
     String plaintext,
     String chatKeyHex,
   ) async {
     final keyBytes = _hexToBytes(chatKeyHex);
-    return encryptMessageWithKey(plaintext, keyBytes);
+    final plaintextBytes = utf8.encode(plaintext);
+    final nonce = _generateRandomBytes(24);
+    final xchacha20 = crypto.Xchacha20.poly1305Aead();
+
+    final secretBox = await xchacha20.encrypt(
+      plaintextBytes,
+      secretKey: crypto.SecretKey(keyBytes),
+      nonce: nonce,
+    );
+
+    final encryptedBytes = Uint8List.fromList([
+      ...nonce,
+      ...secretBox.cipherText,
+      ...secretBox.mac.bytes,
+    ]);
+    return base64Encode(encryptedBytes);
   }
 
   // ==================== HELPER METHODS ====================

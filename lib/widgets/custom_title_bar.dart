@@ -55,7 +55,7 @@ class CustomTitleBar extends StatelessWidget {
                     ),
                     const SizedBox(width: 10),
                     Text(
-                      'xaneo_pc',
+                      'xaneo',
                       style: TextStyle(
                         color: isDark
                             ? Colors.white.withOpacity(0.7)

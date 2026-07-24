@@ -284,14 +284,14 @@ class _InstallerScreenState extends State<InstallerScreen> {
   String _installPath = '';
 
   final Map<String, Map<String, String>> _locales = {
-    'en': {'title': 'Xaneo PC Setup', 'welcome': 'Welcome to Xaneo PC', 'install': 'Install', 'installing': 'Installing...', 'done': 'Installation Complete', 'launch': 'Launch Xaneo PC', 'cancel': 'Cancel', 'path': 'Install Location', 'browse': 'Browse'},
-    'ru': {'title': 'Установка Xaneo PC', 'welcome': 'Добро пожаловать в Xaneo PC', 'install': 'Установить', 'installing': 'Установка...', 'done': 'Установка завершена', 'launch': 'Запустить Xaneo PC', 'cancel': 'Отмена', 'path': 'Путь установки', 'browse': 'Обзор'},
-    'ar': {'title': 'إعداد Xaneo PC', 'welcome': 'مرحبا بك في Xaneo PC', 'install': 'تثبيت', 'installing': 'جارٍ التثبيت...', 'done': 'اكتمل التثبيت', 'launch': 'تشغيل Xaneo PC', 'cancel': 'إلغاء', 'path': 'مسار التثبيت', 'browse': 'تصفح'},
-    'es': {'title': 'Instalación de Xaneo PC', 'welcome': 'Bienvenido a Xaneo PC', 'install': 'Instalar', 'installing': 'Instalando...', 'done': 'Instalación completada', 'launch': 'Iniciar Xaneo PC', 'cancel': 'Cancelar', 'path': 'Ruta de instalación', 'browse': 'Explorar'},
-    'fr': {'title': 'Installation de Xaneo PC', 'welcome': 'Bienvenue sur Xaneo PC', 'install': 'Installer', 'installing': 'Installation...', 'done': 'Installation terminée', 'launch': 'Lancer Xaneo PC', 'cancel': 'Annuler', 'path': "Chemin d'installation", 'browse': 'Parcourir'},
-    'ja': {'title': 'Xaneo PC セットアップ', 'welcome': 'Xaneo PCへようこそ', 'install': 'インストール', 'installing': 'インストール中...', 'done': 'インストール完了', 'launch': 'Xaneo PC を起動', 'cancel': 'キャンセル', 'path': 'インストール先', 'browse': '参照'},
-    'ko': {'title': 'Xaneo PC 설정', 'welcome': 'Xaneo PC에 오신 것을 환영합니다', 'install': '설치', 'installing': '설치 중...', 'done': '설치 완료', 'launch': 'Xaneo PC 실행', 'cancel': '취소', 'path': '설치 경로', 'browse': '찾а보기'},
-    'zh': {'title': 'Xaneo PC 安装', 'welcome': '欢迎使用 Xaneo PC', 'install': '安装', 'installing': '正在安装...', 'done': '安装完成', 'launch': '启动 Xaneo PC', 'cancel': '取消', 'path': '安装路径', 'browse': '浏览'},
+    'en': {'title': 'Xaneo Setup', 'welcome': 'Welcome to Xaneo', 'install': 'Install', 'installing': 'Installing...', 'done': 'Installation Complete', 'launch': 'Launch Xaneo', 'cancel': 'Cancel', 'path': 'Install Location', 'browse': 'Browse'},
+    'ru': {'title': 'Установка Xaneo', 'welcome': 'Добро пожаловать в Xaneo', 'install': 'Установить', 'installing': 'Установка...', 'done': 'Установка завершена', 'launch': 'Запустить Xaneo', 'cancel': 'Отмена', 'path': 'Путь установки', 'browse': 'Обзор'},
+    'ar': {'title': 'إعداد Xaneo', 'welcome': 'مرحبا بك في Xaneo', 'install': 'تثبيت', 'installing': 'جارٍ التثبيت...', 'done': 'اكتمل التثبيت', 'launch': 'تشغيل Xaneo', 'cancel': 'إلغاء', 'path': 'مسار التثبيت', 'browse': 'تصفح'},
+    'es': {'title': 'Instalación de Xaneo', 'welcome': 'Bienvenido a Xaneo', 'install': 'Instalar', 'installing': 'Instalando...', 'done': 'Instalación completada', 'launch': 'Iniciar Xaneo', 'cancel': 'Cancelar', 'path': 'Ruta de instalación', 'browse': 'Explorar'},
+    'fr': {'title': 'Installation de Xaneo', 'welcome': 'Bienvenue sur Xaneo', 'install': 'Installer', 'installing': 'Installation...', 'done': 'Installation terminée', 'launch': 'Lancer Xaneo', 'cancel': 'Annuler', 'path': "Chemin d'installation", 'browse': 'Parcourir'},
+    'ja': {'title': 'Xaneo セットアップ', 'welcome': 'Xaneoへようこそ', 'install': 'インストール', 'installing': 'インストール中...', 'done': 'インストール完了', 'launch': 'Xaneo を起動', 'cancel': 'キャンセル', 'path': 'インストール先', 'browse': '参照'},
+    'ko': {'title': 'Xaneo 설정', 'welcome': 'Xaneo에 오신 것을 환영합니다', 'install': '설치', 'installing': '설치 중...', 'done': '설치 완료', 'launch': 'Xaneo 실행', 'cancel': '취소', 'path': '설치 경로', 'browse': '찾а보기'},
+    'zh': {'title': 'Xaneo 安装', 'welcome': '欢迎使用 Xaneo', 'install': '安装', 'installing': '正在安装...', 'done': '安装完成', 'launch': '启动 Xaneo', 'cancel': '取消', 'path': '安装路径', 'browse': '浏览'},
   };
 
   @override
@@ -306,9 +306,9 @@ class _InstallerScreenState extends State<InstallerScreen> {
     setState(() {
       _lang = prefs.getString('lang') ?? 'en';
       if (envAppdata != null) {
-        _installPath = '$envAppdata\\Xaneo_PC';
+        _installPath = '$envAppdata\\Xaneo';
       } else {
-        _installPath = 'C:\\Xaneo_PC';
+        _installPath = 'C:\\Xaneo';
       }
     });
   }
@@ -327,7 +327,7 @@ class _InstallerScreenState extends State<InstallerScreen> {
     String? result = await FilePicker.getDirectoryPath();
     if (result != null) {
       setState(() {
-        _installPath = '$result\\Xaneo_PC';
+        _installPath = '$result\\Xaneo';
       });
     }
   }
@@ -352,7 +352,7 @@ class _InstallerScreenState extends State<InstallerScreen> {
 
       final exeDir = File(Platform.resolvedExecutable).parent.path;
       await LogManager.log('Exe directory: $exeDir');
-      final zipPath = '$exeDir\\data\\flutter_assets\\assets\\xaneo_pc.zip';
+      final zipPath = '$exeDir\\data\\flutter_assets\\assets\\xaneo.zip';
       await LogManager.log('Zip file path: $zipPath');
       
       if (!File(zipPath).existsSync()) {
@@ -411,20 +411,20 @@ class _InstallerScreenState extends State<InstallerScreen> {
       // Create Shortcuts & Registry via in-memory PowerShell (avoid dropping .ps1 file)
       final installCmd = '''
 \$WshShell = New-Object -comObject WScript.Shell
-\$Shortcut = \$WshShell.CreateShortcut("\$env:USERPROFILE\\Desktop\\Xaneo PC.lnk")
-\$Shortcut.TargetPath = "${targetDir.path}\\xaneo_pc.exe"
-\$Shortcut.IconLocation = "${targetDir.path}\\xaneo_pc.exe"
+\$Shortcut = \$WshShell.CreateShortcut("\$env:USERPROFILE\\Desktop\\Xaneo.lnk")
+\$Shortcut.TargetPath = "${targetDir.path}\\xaneo.exe"
+\$Shortcut.IconLocation = "${targetDir.path}\\xaneo.exe"
 \$Shortcut.Save()
 
-\$StartMenuShortcut = \$WshShell.CreateShortcut("\$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\\Xaneo PC.lnk")
-\$StartMenuShortcut.TargetPath = "${targetDir.path}\\xaneo_pc.exe"
-\$StartMenuShortcut.IconLocation = "${targetDir.path}\\xaneo_pc.exe"
+\$StartMenuShortcut = \$WshShell.CreateShortcut("\$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\\Xaneo.lnk")
+\$StartMenuShortcut.TargetPath = "${targetDir.path}\\xaneo.exe"
+\$StartMenuShortcut.IconLocation = "${targetDir.path}\\xaneo.exe"
 \$StartMenuShortcut.Save()
 
-\$RegPath = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Xaneo_PC"
+\$RegPath = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Xaneo"
 New-Item -Path \$RegPath -Force | Out-Null
-New-ItemProperty -Path \$RegPath -Name "DisplayName" -Value "Xaneo PC" -PropertyType String -Force | Out-Null
-New-ItemProperty -Path \$RegPath -Name "DisplayIcon" -Value "${targetDir.path}\\xaneo_pc.exe" -PropertyType String -Force | Out-Null
+New-ItemProperty -Path \$RegPath -Name "DisplayName" -Value "Xaneo" -PropertyType String -Force | Out-Null
+New-ItemProperty -Path \$RegPath -Name "DisplayIcon" -Value "${targetDir.path}\\xaneo.exe" -PropertyType String -Force | Out-Null
 New-ItemProperty -Path \$RegPath -Name "UninstallString" -Value '"${uninstallerDir.path}\\xaneo_uninstaller.exe"' -PropertyType String -Force | Out-Null
 New-ItemProperty -Path \$RegPath -Name "Publisher" -Value "Xaneo" -PropertyType String -Force | Out-Null
 New-ItemProperty -Path \$RegPath -Name "InstallLocation" -Value "${targetDir.path}" -PropertyType String -Force | Out-Null
@@ -469,7 +469,7 @@ New-ItemProperty -Path \$RegPath -Name "InstallLocation" -Value "${targetDir.pat
   }
 
   void _launchApp() {
-    Process.run('$_installPath\\xaneo_pc.exe', []);
+    Process.run('$_installPath\\xaneo.exe', []);
     windowManager.close();
   }
 
@@ -660,14 +660,14 @@ class _UninstallerScreenState extends State<UninstallerScreen> {
   String _status = '';
 
   final Map<String, Map<String, String>> _locales = {
-    'en': {'title': 'Xaneo PC Uninstall', 'prompt': 'Are you sure you want to uninstall Xaneo PC?', 'uninstall': 'Uninstall', 'cancel': 'Cancel', 'removing': 'Removing files...', 'done': 'Xaneo PC has been uninstalled.'},
-    'ru': {'title': 'Удаление Xaneo PC', 'prompt': 'Вы уверены, что хотите удалить Xaneo PC?', 'uninstall': 'Удалить', 'cancel': 'Отмена', 'removing': 'Удаление файлов...', 'done': 'Xaneo PC удален.'},
-    'ar': {'title': 'إلغاء تثبيت Xaneo PC', 'prompt': 'هل أنت متأكد أنك تريد إلغاء تثبيت Xaneo PC؟', 'uninstall': 'إلغاء التثبيت', 'cancel': 'إلغاء', 'removing': 'جاري إزالة الملفات...', 'done': 'تم إلغاء تثبيت Xaneo PC.'},
-    'es': {'title': 'Desinstalar Xaneo PC', 'prompt': '¿Estás seguro de que quieres desinstalar Xaneo PC?', 'uninstall': 'Desinstalar', 'cancel': 'Cancelar', 'removing': 'Eliminando archivos...', 'done': 'Xaneo PC ha sido desinstalado.'},
-    'fr': {'title': 'Désinstaller Xaneo PC', 'prompt': 'Êtes-vous sûr de vouloir désinstaller Xaneo PC ?', 'uninstall': 'Désinstaller', 'cancel': 'Annuler', 'removing': 'Suppression des fichiers...', 'done': 'Xaneo PC a été désinstallé.'},
-    'ja': {'title': 'Xaneo PC アンインストール', 'prompt': 'Xaneo PC をアンインストールしてもよろしいですか？', 'uninstall': 'アンインストール', 'cancel': 'キャンセル', 'removing': 'ファイルを削除중...', 'done': 'Xaneo PC はアンインストールされました。'},
-    'ko': {'title': 'Xaneo PC 제거', 'prompt': 'Xaneo PC를 제거하시겠습니까?', 'uninstall': '제거', 'cancel': '취소', 'removing': '파일 삭제 중...', 'done': 'Xaneo PC가 제거되었습니다.'},
-    'zh': {'title': 'Xaneo PC 卸载', 'prompt': '您确定要卸载 Xaneo PC 吗？', 'uninstall': '卸载', 'cancel': '取消', 'removing': '正在删除文件...', 'done': 'Xaneo PC 已卸载。'},
+    'en': {'title': 'Xaneo Uninstall', 'prompt': 'Are you sure you want to uninstall Xaneo?', 'uninstall': 'Uninstall', 'cancel': 'Cancel', 'removing': 'Removing files...', 'done': 'Xaneo has been uninstalled.'},
+    'ru': {'title': 'Удаление Xaneo', 'prompt': 'Вы уверены, что хотите удалить Xaneo?', 'uninstall': 'Удалить', 'cancel': 'Отмена', 'removing': 'Удаление файлов...', 'done': 'Xaneo удален.'},
+    'ar': {'title': 'إلغاء تثبيت Xaneo', 'prompt': 'هل أنت متأكد أنك تريد إلغاء تثبيت Xaneo؟', 'uninstall': 'إلغاء التثبيت', 'cancel': 'إلغاء', 'removing': 'جاري إزالة الملفات...', 'done': 'تم إلغاء تثبيت Xaneo.'},
+    'es': {'title': 'Desinstalar Xaneo', 'prompt': '¿Estás seguro de que quieres desinstalar Xaneo?', 'uninstall': 'Desinstalar', 'cancel': 'Cancelar', 'removing': 'Eliminando archivos...', 'done': 'Xaneo ha sido desinstalado.'},
+    'fr': {'title': 'Désinstaller Xaneo', 'prompt': 'Êtes-vous sûr de vouloir désinstaller Xaneo ?', 'uninstall': 'Désinstaller', 'cancel': 'Annuler', 'removing': 'Suppression des fichiers...', 'done': 'Xaneo a été désinstallé.'},
+    'ja': {'title': 'Xaneo アンインストール', 'prompt': 'Xaneo をアンインストールしてもよろしいですか？', 'uninstall': 'アンインストール', 'cancel': 'キャンセル', 'removing': 'ファイルを削除중...', 'done': 'Xaneo はアンインストールされました。'},
+    'ko': {'title': 'Xaneo 제거', 'prompt': 'Xaneo를 제거하시겠습니까?', 'uninstall': '제거', 'cancel': '취소', 'removing': '파일 삭제 중...', 'done': 'Xaneo가 제거되었습니다.'},
+    'zh': {'title': 'Xaneo 卸载', 'prompt': '您确定要卸载 Xaneo 吗？', 'uninstall': '卸载', 'cancel': '取消', 'removing': '正在删除文件...', 'done': 'Xaneo 已卸载。'},
   };
 
   @override

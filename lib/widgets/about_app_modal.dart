@@ -50,7 +50,7 @@ class _AboutAppModalState extends State<AboutAppModal>
   }
   
   Future<void> _openGitHub() async {
-    const url = 'https://github.com/saneome/xaneo_pc';
+    const url = 'https://github.com/saneome/xaneo';
     try {
       if (Platform.isLinux) {
         await Process.run('xdg-open', [url]);
@@ -332,7 +332,7 @@ class _AboutAppModalState extends State<AboutAppModal>
     return Column(
       children: [
         Text(
-          'xaneo_pc',
+          'xaneo',
           style: TextStyle(
             fontSize: 28,
             fontWeight: FontWeight.w700,
@@ -553,7 +553,7 @@ class _AboutAppModalState extends State<AboutAppModal>
               ),
               const SizedBox(width: 12),
               Text(
-                'github.com/saneome/xaneo_pc',
+                'github.com/saneome/xaneo',
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w500,
@@ -748,7 +748,7 @@ class _ConfettiOverlayState extends State<_ConfettiOverlay>
                       ),
                       const SizedBox(height: 16),
                       const Text(
-                        'Спасибо за использование xaneo_pc!',
+                        'Спасибо за использование xaneo!',
                         style: TextStyle(
                           fontSize: 16,
                           color: Colors.white,

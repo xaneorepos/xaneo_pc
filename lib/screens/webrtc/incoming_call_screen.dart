@@ -3,7 +3,7 @@ import 'package:provider/provider.dart';
 import '../../services/webrtc/call_manager.dart';
 import '../../services/api_service.dart';
 import 'active_call_screen.dart';
-import 'package:xaneo_pc/main.dart';
+import 'package:xaneo/main.dart';
 
 class IncomingCallDialog extends StatefulWidget {
   const IncomingCallDialog({super.key});

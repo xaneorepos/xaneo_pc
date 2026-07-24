@@ -394,7 +394,7 @@ class SettingsButtonState extends State<SettingsButton>
                                     cursor: SystemMouseCursors.click,
                                     child: GestureDetector(
                                       onTap: () async {
-                                        const url = 'https://github.com/saneome/xaneo_pc';
+                                        const url = 'https://github.com/saneome/xaneo';
                                         if (await canLaunchUrl(Uri.parse(url))) {
                                           await launchUrl(Uri.parse(url));
                                         }

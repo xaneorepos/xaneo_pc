@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:xaneo_pc/services/crypto_service.dart';
+import 'package:xaneo/services/crypto_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

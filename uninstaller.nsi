@@ -1,7 +1,7 @@
 # uninstaller.nsi
 !include "FileFunc.nsh"
 
-Name "Xaneo PC Uninstall"
+Name "Xaneo Uninstall"
 OutFile "installer_app\build\windows\x64\runner\Release\xaneo_uninstaller.exe"
 SilentInstall silent
 RequestExecutionLevel user
@@ -23,11 +23,11 @@ Section
   
   perform_delete:
     # 1. Remove Registry entries
-    DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Xaneo_PC"
+    DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Xaneo"
     
     # 2. Remove shortcuts
-    Delete "$DESKTOP\Xaneo PC.lnk"
-    Delete "$SMPROGRAMS\Xaneo PC.lnk"
+    Delete "$DESKTOP\Xaneo.lnk"
+    Delete "$SMPROGRAMS\Xaneo.lnk"
     
     # 3. Read install path from install_path.txt
     ClearErrors

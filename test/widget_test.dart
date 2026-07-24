@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:xaneo_pc/main.dart';
-import 'package:xaneo_pc/providers/locale_provider.dart';
-import 'package:xaneo_pc/providers/theme_provider.dart';
-import 'package:xaneo_pc/providers/scale_provider.dart';
+import 'package:xaneo/main.dart';
+import 'package:xaneo/providers/locale_provider.dart';
+import 'package:xaneo/providers/theme_provider.dart';
+import 'package:xaneo/providers/scale_provider.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

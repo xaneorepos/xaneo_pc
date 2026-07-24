@@ -9,17 +9,17 @@
   !define DISPLAY_VERSION "1.0.0"
 !endif
 
-Name "Xaneo PC Setup"
-OutFile "dist\xaneo_pc-${DISPLAY_VERSION}-windows-setup.exe"
+Name "Xaneo Setup"
+OutFile "dist\xaneo-${DISPLAY_VERSION}-windows-setup.exe"
 SilentInstall silent
 RequestExecutionLevel user
 
 # Version Information for Windows File Explorer / Properties
 VIProductVersion "${VERSION}"
-VIAddVersionKey "ProductName" "Xaneo PC Setup"
+VIAddVersionKey "ProductName" "Xaneo Setup"
 VIAddVersionKey "CompanyName" "Xaneo"
 VIAddVersionKey "LegalCopyright" "Copyright © Xaneo"
-VIAddVersionKey "FileDescription" "Xaneo PC Setup"
+VIAddVersionKey "FileDescription" "Xaneo Setup"
 VIAddVersionKey "FileVersion" "${VERSION}"
 VIAddVersionKey "ProductVersion" "${DISPLAY_VERSION}"
 

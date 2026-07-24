@@ -1,4 +1,4 @@
-import 'package:xaneo_pc/services/crypto_service.dart';
+import 'package:xaneo/services/crypto_service.dart';
 
 import "package:flutter_test/flutter_test.dart";
 void main() {

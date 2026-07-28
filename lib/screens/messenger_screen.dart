@@ -41,6 +41,10 @@ import 'webrtc/active_call_screen.dart';
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:window_manager/window_manager.dart';
 import '../services/notification_service.dart';
+import '../models/app_version_info.dart';
+import '../services/update_service.dart';
+import '../widgets/update_banner_widget.dart';
+
 
 class MessengerScreen extends StatefulWidget {
   const MessengerScreen({super.key});
@@ -150,6 +154,8 @@ class _MessengerScreenState extends State<MessengerScreen> {
     },
   );
 
+  AppVersionInfo? _availableUpdate;
+
   @override
   void initState() {
     super.initState();
@@ -158,6 +164,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
     _startTypingExpiryTimer();
     _loadPreferences();
     _initMessenger();
+    _checkAppUpdate();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         context.read<CallManager>().addListener(_handleCallStateChanged);
@@ -197,6 +204,15 @@ class _MessengerScreenState extends State<MessengerScreen> {
     if (savedWidth != null && mounted) {
       setState(() {
         _chatListWidth = savedWidth;
+      });
+    }
+  }
+
+  Future<void> _checkAppUpdate() async {
+    final update = await UpdateService().checkForUpdates();
+    if (mounted && update != null) {
+      setState(() {
+        _availableUpdate = update;
       });
     }
   }
@@ -3456,6 +3472,19 @@ class _MessengerScreenState extends State<MessengerScreen> {
                       },
                     ),
         ),
+
+        // Update Banner (if new version available)
+        if (_availableUpdate != null)
+          UpdateBannerWidget(
+            updateInfo: _availableUpdate!,
+            isDark: isDark,
+            scale: scale,
+            onDismiss: () {
+              setState(() {
+                _availableUpdate = null;
+              });
+            },
+          ),
 
         // Bottom Account Info
         _buildBottomAccountInfo(isDark, scale),

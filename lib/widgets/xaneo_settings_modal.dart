@@ -6,9 +6,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/theme_provider.dart';
 import '../providers/locale_provider.dart';
 import '../services/api_service.dart';
+import '../services/update_service.dart';
+import '../models/app_version_info.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'base_custom_modal.dart';
 
 // ─── Описание раздела настроек ──────────────────────────────────────────────
+
 
 class _SettingsSection {
   final String id;
@@ -95,7 +99,15 @@ final _interfaceSections = [
     icon: Icons.bolt_rounded,
     gradient: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
   ),
+  _SettingsSection(
+    id: 'about',
+    title: 'О приложении',
+    description: 'Версия, проверка обновлений, ссылки',
+    icon: Icons.info_outline_rounded,
+    gradient: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
+  ),
 ];
+
 
 // ─── Главный виджет ──────────────────────────────────────────────────────────
 
@@ -147,9 +159,36 @@ class _XaneoSettingsModalState
   @override
   double get modalHeightFactor => 0.90;
 
-  String? _activeSection;
+  // ── Update ─────────────────────────────────────────────────────────────────
+  bool _isCheckingUpdate = false;
+  String? _updateStatusMessage;
+  AppVersionInfo? _foundUpdateInfo;
+
+  Future<void> _handleManualUpdateCheck() async {
+    setState(() {
+      _isCheckingUpdate = true;
+      _updateStatusMessage = 'Проверка обновлений...';
+      _foundUpdateInfo = null;
+    });
+
+    final update = await UpdateService().checkForUpdates(force: true);
+    final currentVersion = await UpdateService().getCurrentVersion();
+
+    if (!mounted) return;
+
+    setState(() {
+      _isCheckingUpdate = false;
+      if (update != null) {
+        _foundUpdateInfo = update;
+        _updateStatusMessage = 'Доступна новая версия v${update.version}!';
+      } else {
+        _updateStatusMessage = 'У вас установлена актуальная версия v$currentVersion';
+      }
+    });
+  }
 
   // ── Appearance ────────────────────────────────────────────────────────────
+
   double _fontSize = 15.0;
 
   // ── Notifications ─────────────────────────────────────────────────────────
@@ -569,10 +608,131 @@ class _XaneoSettingsModalState
         return _buildChats(isDark, scale);
       case 'security':
         return _buildSecurity(isDark, scale);
+      case 'about':
+        return _buildAboutSection(isDark, scale);
       default:
         return _comingSoon(isDark, scale);
     }
   }
+
+  Widget _buildAboutSection(bool isDark, double scale) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionHeader(
+          title: 'О приложении',
+          subtitle: 'Информация о клиенте Xaneo PC и проверка обновлений',
+          icon: Icons.info_outline_rounded,
+          gradient: const [Color(0xFF2563EB), Color(0xFF1D4ED8)],
+          isDark: isDark,
+          scale: scale,
+        ),
+        SizedBox(height: 16 * scale),
+        Container(
+          padding: EdgeInsets.all(16 * scale),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF1E212B) : const Color(0xFFF3F4F6),
+            borderRadius: BorderRadius.circular(16 * scale),
+            border: Border.all(
+              color: isDark ? Colors.white.withAlpha(20) : Colors.black.withAlpha(15),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.desktop_windows_rounded, size: 24 * scale, color: isDark ? Colors.white : Colors.black87),
+                  SizedBox(width: 12 * scale),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Xaneo PC Desktop Client',
+                        style: TextStyle(
+                          fontSize: 16 * scale,
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? Colors.white : Colors.black87,
+                          fontFamily: 'Inter',
+                        ),
+                      ),
+                      Text(
+                        'Версия: 1.0.0+1 (Linux / Windows / macOS)',
+                        style: TextStyle(
+                          fontSize: 12 * scale,
+                          color: isDark ? Colors.white54 : Colors.black54,
+                          fontFamily: 'Inter',
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              SizedBox(height: 16 * scale),
+              if (_updateStatusMessage != null) ...[
+                Text(
+                  _updateStatusMessage!,
+                  style: TextStyle(
+                    fontSize: 13 * scale,
+                    fontWeight: FontWeight.w500,
+                    color: _foundUpdateInfo != null
+                        ? Colors.greenAccent
+                        : (isDark ? Colors.white70 : Colors.black70),
+                    fontFamily: 'Inter',
+                  ),
+                ),
+                SizedBox(height: 12 * scale),
+              ],
+              Row(
+                children: [
+                  ElevatedButton.icon(
+                    onPressed: _isCheckingUpdate ? null : _handleManualUpdateCheck,
+                    icon: _isCheckingUpdate
+                        ? SizedBox(
+                            width: 14 * scale,
+                            height: 14 * scale,
+                            child: const CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : Icon(Icons.refresh_rounded, size: 16 * scale),
+                    label: Text(
+                      _isCheckingUpdate ? 'Проверка...' : 'Проверить обновления',
+                      style: TextStyle(fontSize: 13 * scale, fontFamily: 'Inter'),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: isDark ? Colors.white : Colors.black87,
+                      foregroundColor: isDark ? Colors.black : Colors.white,
+                      padding: EdgeInsets.symmetric(horizontal: 16 * scale, vertical: 10 * scale),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10 * scale)),
+                    ),
+                  ),
+                  if (_foundUpdateInfo != null) ...[
+                    SizedBox(width: 10 * scale),
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                        final uri = Uri.parse(_foundUpdateInfo!.downloadUrl ?? _foundUpdateInfo!.htmlUrl);
+                        if (await canLaunchUrl(uri)) {
+                          await launchUrl(uri, mode: LaunchMode.externalApplication);
+                        }
+                      },
+                      icon: Icon(Icons.download_rounded, size: 16 * scale),
+                      label: Text('Скачать v${_foundUpdateInfo!.version}', style: TextStyle(fontSize: 13 * scale, fontFamily: 'Inter')),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.greenAccent,
+                        side: const BorderSide(color: Colors.greenAccent),
+                        padding: EdgeInsets.symmetric(horizontal: 16 * scale, vertical: 10 * scale),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10 * scale)),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
 
   // ── Personal ─────────────────────────────────────────────────────────────────
 

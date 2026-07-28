@@ -224,6 +224,9 @@ class CallManager extends ChangeNotifier {
       if (_state != CallState.idle) return;
 
       _state = CallState.outgoing;
+      _isGroupCall = false;
+      _groupCallId = null;
+      _groupParticipants.clear();
       _targetUserId = targetUserId;
       _targetName = targetName;
       _targetAvatar = targetAvatar;
@@ -543,6 +546,9 @@ class CallManager extends ChangeNotifier {
     _remoteVideoTrack = null;
     _remoteScreenShareTrack = null;
     _isScreenSharing = false;
+    _isGroupCall = false;
+    _groupCallId = null;
+    _groupParticipants.clear();
     _activeCallId = null;
     _targetUserId = null;
     _targetName = null;

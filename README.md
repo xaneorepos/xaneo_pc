@@ -1,172 +1,178 @@
 # Xaneo PC
 
-![Flutter](https://img.shields.io/badge/Flutter-%2302569B.svg?style=for-the-badge&logo=Flutter&logoColor=white)
+<div align="center">
 
-Десктопное приложение на Flutter для Windows/Linux/macOS с стильным чёрно-белым онбордингом и 3D эффектами.
+![Xaneo PC Logo](assets/logo.png)
 
-**Примечание:** Это не весь проект Xaneo. Мы вернёмся к полному проекту позже. Эта версия — desktop-клиент для компьютеров.
+### **Современный кроссплатформенный десктопный клиент на Flutter**
 
-## Скриншоты
+[![Flutter](https://img.shields.io/badge/Flutter-%2302569B.svg?style=for-the-badge&logo=Flutter&logoColor=white)](https://flutter.dev)
+[![Dart](https://img.shields.io/badge/Dart-%230175C2.svg?style=for-the-badge&logo=Dart&logoColor=white)](https://dart.dev)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)](LICENSE)
+[![GitHub Stars](https://img.shields.io/github/stars/xaneorepos/xaneo_pc?style=for-the-badge&logo=github&color=gold)](https://github.com/xaneorepos/xaneo_pc/stargazers)
+[![GitHub Forks](https://img.shields.io/github/forks/xaneorepos/xaneo_pc?style=for-the-badge&logo=github)](https://github.com/xaneorepos/xaneo_pc/network/members)
+[![GitHub Issues](https://img.shields.io/github/issues/xaneorepos/xaneo_pc?style=for-the-badge&logo=github)](https://github.com/xaneorepos/xaneo_pc/issues)
 
-### Онбординг
-![Онбординг](screenshots/image_on.png)
-*Стильный чёрно-белый онбординг с 3D эффектами и плавными анимациями*
+[![Platforms](https://img.shields.io/badge/Platforms-Linux%20%7C%20Windows%20%7C%20macOS-blue?style=for-the-badge&logo=linux)](https://github.com/xaneorepos/xaneo_pc)
+
+</div>
+
+---
+
+## 📌 О проекте
+
+**Xaneo PC** — это высокопроизводительное десктопное приложение-мессенджер, написанное на **Flutter** и **Dart**. Проект сочетает в себе встроенное сквозное шифрование, видео/аудио звонки реального времени (WebRTC / LiveKit), гибкие сетевые протоколы (gRPC / WebSockets / REST), стильный тёмный дизайн с 3D-параллакс эффектами и глубокую интеграцию с операционными системами (Linux, Windows, macOS).
+
+> **Примечание:** Это десктоп-клиент экосистемы Xaneo.
+
+---
+
+## 📥 Загрузка и Релизы
+
+Готовые сборки и установочные пакеты для различных операционных систем доступны в разделе **[GitHub Releases](https://github.com/xaneorepos/xaneo_pc/releases)**.
+
+---
+
+## 🖼 Скриншоты
+
+### Мессенджер
+![Мессенджер](screenshots/messenger.png)
+*Главный экран мессенджера — интерфейс чатов, диалогов, настроек профиля и сообщений*
 
 ### Экран входа
-![Экран входа](screenshots/image.png)
-*Минималистичный экран входа с эффектом стекла и анимированными полями ввода*
+![Экран входа](screenshots/login.png)
+*Минималистичный экран авторизации*
 
 ### Экран регистрации
-![Экран регистрации](screenshots/image_2.png)
-*Расширенная форма регистрации с валидацией и интерактивными элементами*
+![Экран регистрации](screenshots/register.png)
+*Форма создания нового аккаунта*
 
-### Настройки
-![Настройки](screenshots/image_set.png)
-*Модальное окно настроек с выбором языка, размера шрифта и темы*
+---
 
-### О приложении
-![О приложении](screenshots/image_3.png)
-*Информационное окно с техническими деталями и ссылками*
+## 🌟 Основные возможности
 
-## Особенности
+- 💬 **Полноценный Мессенджер**:
+  - Сообщения, диалоги и чаты с динамической загрузкой.
+  - Голосовые сообщения (запись через `record`, воспроизведение через `just_audio` и `media_kit`).
+  - Передача файлов, аватарок и медиаданных.
 
-- 🎨 **Чёрно-белая тема** - минималистичный и стильный дизайн
-- 🚀 **3D эффекты** - интерактивные карточки с параллаксом
-- ✨ **Анимации** - плавные переходы и эффекты появления
-- 🌐 **Локализация** - поддержка русского и английского языков
-- 💫 **Частицы** - анимированный фон с частицами
-- 📱 **Кроссплатформенность** - Windows, Linux, macOS
+- 📞 **Голосовые и Видеозвонки (WebRTC & LiveKit)**:
+  - Интеграция `livekit_client` и WebRTC для качественных групповых и личных звонков с низкой задержкой.
 
-## Загрузки
+- 🔒 **Криптография и Безопасность**:
+  - Шифрование сообщений и данных с использованием алгоритмов **Argon2**, **X25519** и **PointyCastle** (`cryptography`).
 
-⚠️ **Важное предупреждение:** Представленные ниже пакеты очень старые и не содержат последних изменений. Рекомендуется собирать приложение из исходного кода для получения актуальной версии.
+- 🪟 **Нативная Desktop-интеграция**:
+  - Кастомный стильный заголовок окна (`window_manager`).
+  - Поддержка многооконного режима (`desktop_multi_window`).
+  - Системные и оверлей-уведомления (`local_notifier` и нативный оверлей).
 
-### Linux
+- 🎨 **Современный UI/UX & Дизайн**:
+  - Чёрно-белая и тёмная премиум-тема.
+  - Интерактивные 3D-карточки с эффектом параллакса при движении мыши.
+  - Фон с анимированными физическими частицами.
+  - Lottie-анимации и векторная графика (SVG).
+  - Поддержка графического движка **Impeller**.
 
-### Linux
+- 🌐 **Локализация (i18n)**:
+  - Встроенная поддержка русского и английского языков.
 
-- **DEB** (Debian/Ubuntu): [xaneo-pc_1.0.0_amd64.deb](dist/xaneo-pc_1.0.0_amd64.deb)  
-  Установка: `sudo dpkg -i xaneo-pc_1.0.0_amd64.deb`
-- **RPM** (Fedora/openSUSE): [xaneo_pc-1.0.0-1.x86_64.rpm](dist/xaneo_pc-1.0.0-1.x86_64.rpm)  
-  Установка: `sudo rpm -i xaneo_pc-1.0.0-1.x86_64.rpm`
-- **Pacman** (Arch/CachyOS): [xaneo_pc-1.0.0-1-x86_64.pkg.tar.zst](dist/xaneo_pc-1.0.0-1-x86_64.pkg.tar.zst)  
-  Установка: `sudo pacman -U xaneo_pc-1.0.0-1-x86_64.pkg.tar.zst`
-- **APK** (Alpine): [xaneo_pc-1.0.0-x86_64.apk](dist/xaneo_pc-1.0.0-x86_64.apk)  
-  Установка: `apk add --allow-untrusted xaneo_pc-1.0.0-x86_64.apk`
-- **Tar.gz** (Slackware): [xaneo_pc-1.0.0-x86_64.tgz](dist/xaneo_pc-1.0.0-x86_64.tgz)  
-  Установка: `tar -xzf xaneo_pc-1.0.0-x86_64.tgz -C /`
-- **AppImage** (универсальный): [xaneo_pc.AppImage](dist/xaneo_pc.AppImage)  
-  Запуск: `chmod +x xaneo_pc.AppImage && ./xaneo_pc.AppImage`
-- **Nix** (NixOS): [xaneo_pc.nix](dist/xaneo_pc.nix) + [bundle/](dist/bundle/)  
-  Установка: `nix-env -i -f xaneo_pc.nix`
+---
 
-### Windows
+## 🛠 Технологический стек
 
-Собирается на Windows: `flutter build windows --release`
+### Core & Framework
+| Технология | Описание |
+| :--- | :--- |
+| **Flutter 3.x** | Кроссплатформенный UI фреймворк |
+| **Dart SDK ^3.9.0** | Основной язык разработки |
+| **Provider** | Управление состоянием (State Management) |
 
-### macOS
+### Сеть и Протоколы (Networking)
+| Технология | Описание |
+| :--- | :--- |
+| **gRPC & Protobuf** | Высокопроизводительные RPC-запросы |
+| **WebSockets** | Двунаправленный обмен сообщениями в реальном времени |
+| **Dio & Http** | REST API клиенты с менеджером сессий и cookies (`cookie_jar`) |
 
-Собирается на macOS: `flutter build macos --release`
+### Звонки & Медиа (Media & Calls)
+| Технология | Описание |
+| :--- | :--- |
+| **LiveKit Client & WebRTC** | Видео- и аудиосвязь в реальном времени |
+| **MediaKit & JustAudio** | Проигрывание аудио/видео с нативными библиотеками |
+| **Record & Camera** | Запись голосовых сообщений и работа с камерой |
 
-## Особенности
+### Безопасность & Криптография
+| Технология | Описание |
+| :--- | :--- |
+| **Cryptography / PointyCastle** | Поддержка стойких криптографических примитивов |
+| **Argon2 & X25519** | Хеширование паролей и генерация ключей обмена |
 
-- 🎨 **Чёрно-белая тема** - минималистичный и стильный дизайн
-- 🚀 **3D эффекты** - интерактивные карточки с параллаксом
-- ✨ **Анимации** - плавные переходы и эффекты появления
-- 🌐 **Локализация** - поддержка русского и английского языков
-- 💫 **Частицы** - анимированный фон с частицами
-- 📱 **Кроссплатформенность** - Windows, Linux, macOS
+### Desktop Integration & UI
+| Технология | Описание |
+| :--- | :--- |
+| **Window Manager** | Управление окнами, рамками и кастомным TitleBar |
+| **Desktop Multi Window** | Работа с несколькими окнами приложения |
+| **Local Notifier** | Системные push-уведомления ОС |
+| **Lottie & Flutter SVG** | Векторные и Lottie анимации |
+| **FastForge** | Инструмент сборки пакетов под Linux & Windows |
 
-## Технологии
+---
 
-- **Flutter** - фреймворк для кроссплатформенной разработки
-- **Dart** - язык программирования
-- **Provider** - управление состоянием
-- **url_launcher** - открытие внешних ссылок
+## 🚀 Запуск и Сборка
 
-## Структура проекта
+### Требования
+- Flutter SDK (3.x+)
+- Dart SDK (^3.9.0)
+- CMake, Ninja, C++ compiler (для сборки desktop-приложений)
 
-```
-lib/
-├── l10n/                    # Локализация
-│   ├── app_localizations.dart
-│   ├── app_localizations_en.dart
-│   ├── app_localizations_ru.dart
-│   ├── app_en.arb
-│   └── app_ru.arb
-├── models/                  # Модели данных
-├── providers/               # State management
-│   ├── theme_provider.dart
-│   └── locale_provider.dart
-├── screens/                 # Экраны приложения
-│   ├── onboarding_screen.dart
-│   └── login_screen.dart
-├── styles/                  # Стили приложения
-│   └── app_styles.dart
-├── utils/                   # Утилиты
-├── widgets/                 # Переиспользуемые виджеты
-│   ├── 3d_card.dart
-│   └── particle_background.dart
-└── main.dart                # Точка входа
-```
-
-## Установка зависимостей
+### Запуск в режиме разработки
 
 ```bash
+# Установка зависимостей
 flutter pub get
-```
 
-## Запуск приложения
-
-### Windows
-```bash
-flutter run -d windows
-```
-
-### Linux
-```bash
+# Запуск на Linux
 flutter run -d linux
-```
 
-### macOS
-```bash
+# Запуск на Windows
+flutter run -d windows
+
+# Запуск на macOS
 flutter run -d macos
 ```
 
-## Сборка приложения
-
-### Windows
+#### Запуск с графическим движком Impeller
 ```bash
-flutter build windows --release
+./run_with_impeller.sh
 ```
 
-### Linux
+### Сборка релизных пакетов
+
+#### Обычная сборка
 ```bash
 flutter build linux --release
-```
-
-### macOS
-```bash
+flutter build windows --release
 flutter build macos --release
 ```
 
-## Онбординг
+#### Сборка всех дистрибутивов через скрипт
+```bash
+./build_flutter_packages.sh
+```
 
-Приложение содержит три этапа онбординга:
+---
 
-1. **Приветствие** - "Добро пожаловать в Xaneo"
-2. **Приватность** - "Все ваши данные в безопасности"
-3. **Хранение данных** - "Все дата-центры Xaneo находятся в России"
+## 📈 Динамика звёзд (Star History)
 
-После завершения онбординга пользователь переходит на экран входа.
+[![Star History Chart](https://api.star-history.com/svg?repos=xaneorepos/xaneo_pc&type=Date)](https://star-history.com/#xaneorepos/xaneo_pc&Date)
 
-## Технологии
+---
 
-- **Flutter** - кроссплатформенный фреймворк
-- **Provider** - управление состоянием
-- **shared_preferences** - хранение настроек
-- **flutter_localizations** - локализация
+## 📄 Лицензия
 
-## Лицензия
+Проект распространяется под лицензией **MIT License**. Подробнее см. в файле [LICENSE](LICENSE).
 
-MIT License
+<div align="center">
+  <sub>Created with ❤️ by <a href="https://github.com/xaneorepos">Xaneo Repos</a></sub>
+</div>

@@ -21,7 +21,8 @@ import '../providers/scale_provider.dart';
 import '../providers/playback_provider.dart';
 import '../widgets/advanced_background.dart';
 import '../widgets/voice_waveform_slider.dart';
-import '../widgets/settings_modal.dart';
+import '../widgets/settings_modal.dart'; // деактивировано — используем XaneoSettingsModal
+import '../widgets/xaneo_settings_modal.dart';
 import '../widgets/global_search_modal.dart';
 import '../services/api_service.dart';
 import '../services/crypto_service.dart';
@@ -61,7 +62,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
   List<dynamic> _archivedChats = [];
   bool _viewingArchive = false;
   Map<String, dynamic>? _selectedChat;
+  Map<int, Map<String, dynamic>> _contactsMap = {};
   List<dynamic> _messages = [];
+  Map<String, dynamic>? _replyingToMessage;
   bool _isChatsLoading = true;
   bool _isMessagesLoading = false;
   bool _isLoadingMore = false;
@@ -83,6 +86,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
   // Предзагруженные профили собеседников (userId -> данные с применённой приватностью)
   final Map<int, Map<String, dynamic>> _userProfileCache = {};
+
+  // Кеш профилей авторов сообщений в группах (username/id -> {first_name, avatar, avatar_gradient})
+  final Map<String, Map<String, dynamic>> _msgAuthorProfiles = {};
 
   // Search dialog state
   bool _isSearching = false;
@@ -270,9 +276,33 @@ class _MessengerScreenState extends State<MessengerScreen> {
       });
     }
 
-    // 3. Load chats & start polling
+    // 3. Load contacts, chats & start polling
+    await _loadContactsCache();
     await _loadChats();
     _startPolling();
+  }
+
+  Future<void> _loadContactsCache() async {
+    try {
+      final res = await _apiService.dio.get('/contacts/list/');
+      final data = res.data is Map<String, dynamic> ? res.data as Map<String, dynamic> : {};
+      final list = data['contacts'] is List ? data['contacts'] as List : [];
+      final map = <int, Map<String, dynamic>>{};
+      for (final item in list) {
+        if (item is Map<String, dynamic>) {
+          final userId = item['contact_user_id'];
+          final idInt = userId is int ? userId : int.tryParse(userId?.toString() ?? '');
+          if (idInt != null) {
+            map[idInt] = item;
+          }
+        }
+      }
+      if (mounted) {
+        setState(() {
+          _contactsMap = map;
+        });
+      }
+    } catch (_) {}
   }
 
   bool _isCallDialogShowing = false;
@@ -811,6 +841,33 @@ class _MessengerScreenState extends State<MessengerScreen> {
     }
   }
 
+  bool _areSameChat(String? id1, String? id2) {
+    if (id1 == null || id2 == null) return false;
+    if (id1 == id2) return true;
+
+    final s1 = id1.toString().trim();
+    final s2 = id2.toString().trim();
+    if (s1 == s2) return true;
+
+    if (s1.startsWith('personal_') && s2.startsWith('personal_')) {
+      final parts1 = s1.replaceFirst('personal_', '').split('_');
+      final parts2 = s2.replaceFirst('personal_', '').split('_');
+      if (parts1.length == 2 && parts2.length == 2) {
+        return (parts1[0] == parts2[0] && parts1[1] == parts2[1]) ||
+               (parts1[0] == parts2[1] && parts1[1] == parts2[0]);
+      }
+    }
+
+    String norm(String s) {
+      if (s.startsWith('group_')) return s.replaceFirst('group_', '');
+      if (s.startsWith('channel_')) return s.replaceFirst('channel_', '');
+      if (s.startsWith('favorites_')) return s.replaceFirst('favorites_', '');
+      return s;
+    }
+
+    return norm(s1) == norm(s2);
+  }
+
   Future<void> _handleWebSocketMessage(Map<String, dynamic> data, String activeChatId) async {
     final type = data['type'] as String?;
 
@@ -818,9 +875,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
         type == 'todo_list_message' ||
         type == 'poll_message' ||
         type == 'voice_message' ||
-        type == 'video_message') {
+        type == 'video_message' ||
+        type == 'file_message' ||
+        type == 'file') {
       final msgChatId = data['chat_id'] as String?;
-      if (msgChatId != activeChatId) return;
+      if (!_areSameChat(msgChatId, activeChatId)) return;
 
       final dynamic rawMsgId = data['id'];
       final msgId = rawMsgId is int ? rawMsgId : int.tryParse(rawMsgId.toString());
@@ -828,6 +887,8 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
       final exists = _messages.any((m) => m['id'] == msgId);
       if (exists) return;
+
+
 
       if (type == 'todo_list_message') {
         data['message_type'] = 'todo_list';
@@ -885,13 +946,33 @@ class _MessengerScreenState extends State<MessengerScreen> {
         }
       }
       
+      // Кешируем профиль автора для отображения аватарки в группе
+      _cacheAuthorProfileFromMsg(data);
+      
       if (mounted) {
+        final isMyEcho = data['author_id']?.toString() == _myId?.toString();
+        final pendingIndex = isMyEcho
+            ? _messages.indexWhere((m) =>
+                m['is_pending'] == true ||
+                (m['id'] is int && (m['id'] as int) < 0) ||
+                m['id'].toString().startsWith('temp_'))
+            : -1;
+
         setState(() {
           _decryptedMessages[msgId] = decryptedText;
-          _messages.insert(0, data);
-          _messagesToAnimate.add(msgId);
+          if (pendingIndex != -1) {
+            final oldId = _messages[pendingIndex]['id'];
+            _messages[pendingIndex] = Map<String, dynamic>.from(data);
+            _messages[pendingIndex]['is_pending'] = false;
+            if (oldId != null && _decryptedMessages.containsKey(oldId)) {
+              _decryptedMessages.remove(oldId);
+            }
+          } else {
+            _messages.insert(0, data);
+            _messagesToAnimate.add(msgId);
+            _scrollToBottom();
+          }
         });
-        _scrollToBottom();
       }
       _loadChats(silent: true);
       
@@ -972,6 +1053,45 @@ class _MessengerScreenState extends State<MessengerScreen> {
             );
           } else {
             _activeTypingUsers.remove(userId);
+          }
+        });
+      }
+    } else if (type == 'messages_read' ||
+        type == 'message_read' ||
+        type == 'read_receipt' ||
+        type == 'read') {
+      // Собеседник прочитал сообщения — обновляем статус прямо в списке
+      final readerId = data['reader_id']?.toString() ?? data['user_id']?.toString();
+      // Не обрабатываем собственные события прочтения
+      if (readerId != null && readerId == _myId?.toString()) return;
+
+      final chatId = data['chat_id']?.toString();
+      if (!_areSameChat(chatId, activeChatId)) return;
+
+      // Список конкретных ID — если пустой, помечаем все исходящие
+      final rawIds = data['message_ids'];
+      final List<dynamic> messageIds = rawIds is List ? rawIds : [];
+
+      if (mounted) {
+        setState(() {
+          if (messageIds.isNotEmpty) {
+            for (final id in messageIds) {
+              final idx = _messages.indexWhere(
+                  (m) => m['id']?.toString() == id.toString());
+              if (idx != -1) {
+                _messages[idx]['is_read'] = true;
+                _messages[idx]['is_read_by_recipient'] = true;
+              }
+            }
+          } else {
+            // Помечаем все наши исходящие сообщения
+            for (final msg in _messages) {
+              if (msg['author_id']?.toString() == _myId?.toString() ||
+                  msg['sender_id']?.toString() == _myId?.toString()) {
+                msg['is_read'] = true;
+                msg['is_read_by_recipient'] = true;
+              }
+            }
           }
         });
       }
@@ -1251,6 +1371,104 @@ class _MessengerScreenState extends State<MessengerScreen> {
     );
   }
 
+  /// Кешируем first_name + avatar + avatar_gradient автора из любого сообщения
+  void _cacheAuthorProfileFromMsg(Map<String, dynamic> msg) {
+    final key = msg['author_username']?.toString() ??
+        msg['author_id']?.toString() ??
+        msg['sender_id']?.toString();
+    if (key == null || key.isEmpty) return;
+
+    String? firstName;
+    String? avatar;
+    String? gradient;
+
+    if (msg['author'] is Map) {
+      final authorMap = Map<String, dynamic>.from(msg['author'] as Map);
+      firstName = authorMap['first_name']?.toString();
+      avatar = authorMap['avatar']?.toString() ?? authorMap['avatar_url']?.toString();
+      gradient = authorMap['avatar_gradient']?.toString();
+    }
+
+    firstName ??= msg['author_first_name']?.toString() ?? msg['first_name']?.toString();
+    avatar ??= msg['author_avatar']?.toString() ?? msg['avatar']?.toString();
+    gradient ??= msg['author_avatar_gradient']?.toString() ?? msg['avatar_gradient']?.toString();
+
+    final existing = _msgAuthorProfiles[key];
+    firstName ??= existing?['first_name']?.toString();
+    if (avatar == null || avatar.isEmpty) avatar = existing?['avatar']?.toString();
+    if (gradient == null || gradient.isEmpty) gradient = existing?['avatar_gradient']?.toString();
+
+    if (firstName != null || avatar != null || gradient != null) {
+      _msgAuthorProfiles[key] = {
+        'first_name': (firstName != null && firstName.isNotEmpty) ? firstName : key,
+        'avatar': avatar,
+        'avatar_gradient': gradient ?? '',
+      };
+    }
+  }
+
+  /// Рендерит аватарку пользователя для группового сообщения.
+  /// Если есть png — показываем его, иначе — градиентный кружок с инициалом.
+  Widget _buildGroupAvatar(String? avatar, String? gradient, String displayName, double size) {
+    final initial = displayName.isNotEmpty ? displayName[0].toUpperCase() : '?';
+
+    // Парсим градиент из строки вида "linear-gradient(135deg, #A, #B)"
+    List<Color> gradientColors = [const Color(0xFF2563EB), const Color(0xFF7C3AED)];
+    if (gradient != null && gradient.isNotEmpty) {
+      final hexMatches = RegExp(r'#([0-9a-fA-F]{6})').allMatches(gradient);
+      final parsed = hexMatches
+          .map((m) => Color(int.parse('FF${m.group(1)}', radix: 16)))
+          .toList();
+      if (parsed.length >= 2) gradientColors = parsed;
+      else if (parsed.length == 1) gradientColors = [parsed[0], parsed[0]];
+    }
+
+    final hasRealAvatar = avatar != null &&
+        avatar.isNotEmpty &&
+        !avatar.contains('gradient') &&
+        (avatar.startsWith('http') || avatar.startsWith('/'));
+
+    if (hasRealAvatar) {
+      final url = avatar.startsWith('http') ? avatar : 'https://xaneo.ru$avatar';
+      return ClipOval(
+        child: Image.network(
+          url,
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => _buildGradientAvatar(gradientColors, initial, size),
+        ),
+      );
+    }
+
+    return _buildGradientAvatar(gradientColors, initial, size);
+  }
+
+  Widget _buildGradientAvatar(List<Color> colors, String initial, double size) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: LinearGradient(
+          colors: colors,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: Center(
+        child: Text(
+          initial,
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: size * 0.42,
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _loadMessages(String chatId, {bool silent = false}) async {
     if (!silent) {
       setState(() => _isMessagesLoading = true);
@@ -1260,6 +1478,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
     final res = await _apiService.getMessages(chatId, limit: 20, offset: 0);
     if (res.success && res.data != null) {
       final msgList = res.data!['results'] as List? ?? [];
+      for (final msg in msgList) {
+        if (msg is Map<String, dynamic>) _cacheAuthorProfileFromMsg(msg);
+      }
       if (mounted) {
         setState(() {
           _messages = msgList.toList();
@@ -1300,6 +1521,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
     if (res.success && res.data != null) {
       final msgList = res.data!['results'] as List? ?? [];
+      for (final msg in msgList) {
+        if (msg is Map<String, dynamic>) _cacheAuthorProfileFromMsg(msg);
+      }
       if (mounted) {
         setState(() {
           _messages.addAll(msgList.toList());
@@ -1500,6 +1724,16 @@ class _MessengerScreenState extends State<MessengerScreen> {
       decrypted = "[Ошибка дешифрования]";
     }
 
+    final replyTextRaw = msg['reply_text'] as String?;
+    if (replyTextRaw != null && replyTextRaw.isNotEmpty && _isBase64(replyTextRaw)) {
+      try {
+        final decryptedReply = await _decryptForChat(replyTextRaw, chatId, otherUser);
+        if (decryptedReply != replyTextRaw && !decryptedReply.startsWith('[')) {
+          msg['reply_text'] = decryptedReply;
+        }
+      } catch (_) {}
+    }
+
     if (mounted) {
       setState(() {
         _decryptedMessages[id] = decrypted;
@@ -1571,6 +1805,16 @@ class _MessengerScreenState extends State<MessengerScreen> {
         decrypted = await _decryptForChat(encryptedText, chatId, otherUser);
       } catch (_) {
         decrypted = "[Ошибка дешифрования]";
+      }
+
+      final replyTextRaw = msg['reply_text'] as String?;
+      if (replyTextRaw != null && replyTextRaw.isNotEmpty && _isBase64(replyTextRaw)) {
+        try {
+          final decryptedReply = await _decryptForChat(replyTextRaw, chatId, otherUser);
+          if (decryptedReply != replyTextRaw && !decryptedReply.startsWith('[')) {
+            msg['reply_text'] = decryptedReply;
+          }
+        } catch (_) {}
       }
 
       if (mounted) {
@@ -1662,13 +1906,48 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
     _sentPlaintexts[encryptedText] = plaintextToEncrypt;
 
+    final dynamic rawReplyId = _replyingToMessage?['id'];
+    final replyToId = rawReplyId?.toString();
+    if (_replyingToMessage != null) {
+      setState(() {
+        _replyingToMessage = null;
+      });
+    }
+
     bool sentViaWs = false;
     if (_webSocketService != null && _webSocketService!.isConnected) {
       sentViaWs = _webSocketService!.sendMessage({
         'type': 'encrypted_message',
         'encrypted_text': encryptedText,
         if (fileIdToSend != null) 'file_id': fileIdToSend,
+        if (replyToId != null) 'reply_to_id': replyToId,
       });
+    }
+
+    if (sentViaWs) {
+      final int tempId = -DateTime.now().millisecondsSinceEpoch;
+      final tempMsg = {
+        'id': tempId,
+        'is_pending': true,
+        'author_id': _myId,
+        'sender_id': _myId,
+        'author_username': _myUsername ?? 'Вы',
+        'encrypted_text': encryptedText,
+        'created_at': DateTime.now().toIso8601String(),
+        'reply_to_id': replyToId,
+        'reply_text': _replyingToMessage?['reply_text'],
+        'is_read': false,
+        'chat_id': chatId,
+      };
+
+      _decryptedMessages[tempId] = plaintextToEncrypt;
+      if (mounted) {
+        setState(() {
+          _messages.insert(0, tempMsg);
+          _messagesToAnimate.add(tempId);
+        });
+        _scrollToBottom();
+      }
     }
 
     if (!sentViaWs) {
@@ -1745,7 +2024,8 @@ class _MessengerScreenState extends State<MessengerScreen> {
       _messagesToAnimate.clear();
       _isMessagesLoading = true;
     });
-    final chatId = chat['chat_id'] as String;
+    final chatId = (chat['chat_id'] ?? chat['id'])?.toString();
+    if (chatId == null || chatId.isEmpty) return;
     _loadMessages(chatId);
     _connectWebSocket(chatId);
     _markChatAsRead(chatId);
@@ -1789,6 +2069,31 @@ class _MessengerScreenState extends State<MessengerScreen> {
     final targetUsername = user['username']?.toString() ?? 'user';
     if (_myId == null || targetId == 0) return;
 
+    // Сначала ищем, существует ли уже чат с этим пользователем в списке чатов
+    final existingChat = [..._chats, ..._archivedChats].cast<Map<String, dynamic>?>().firstWhere(
+      (c) {
+        if (c == null) return false;
+        final otherUser = c['other_user'] as Map<String, dynamic>?;
+        final otherId = otherUser?['id'] ?? c['user_id'];
+        final otherIdInt = otherId is int ? otherId : int.tryParse(otherId?.toString() ?? '');
+        return (otherIdInt != null && otherIdInt == targetId) ||
+            _areSameChat(c['chat_id']?.toString(), "personal_${_myId}_$targetId");
+      },
+      orElse: () => null,
+    );
+
+    if (existingChat != null) {
+      final customName = user['custom_name'] ?? user['display_name'];
+      if (customName != null && customName.toString().isNotEmpty) {
+        existingChat['chat_display_name'] = customName.toString();
+        if (existingChat['other_user'] is Map) {
+          (existingChat['other_user'] as Map<String, dynamic>)['first_name'] = customName.toString();
+        }
+      }
+      _selectChat(existingChat);
+      return;
+    }
+
     final rawFirstName = user['first_name']?.toString() ?? '';
     final rawLastName = user['last_name']?.toString() ?? '';
     var displayName = '$rawFirstName $rawLastName'.trim();
@@ -1826,7 +2131,6 @@ class _MessengerScreenState extends State<MessengerScreen> {
       _searchResults = [];
       _searchController.clear();
       
-      // Add to front of chats list if not already there
       final existingIndex = _chats.indexWhere((c) => c['chat_id'] == chatId);
       if (existingIndex == -1) {
         _chats.insert(0, newChat);
@@ -1836,6 +2140,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
       }
       _messages = [];
       _messagesToAnimate.clear();
+      _isMessagesLoading = true;
     });
     
     _loadMessages(chatId);
@@ -2981,13 +3286,13 @@ class _MessengerScreenState extends State<MessengerScreen> {
             ),
           ),
 
-          // Settings Modal Overlay (hidden button, modal triggered programmatically)
-          Positioned.fill(
-            child: SettingsButton(
-              key: _settingsKey,
-              showFloatingButton: false,
-            ),
-          ),
+          // Settings Modal Overlay — деактивирован, используем XaneoSettingsModal
+          // Positioned.fill(
+          //   child: SettingsButton(
+          //     key: _settingsKey,
+          //     showFloatingButton: false,
+          //   ),
+          // ),
 
           // Search Overlay
           if (_isSearching) _buildSearchOverlay(isDark, scale),
@@ -3030,7 +3335,53 @@ class _MessengerScreenState extends State<MessengerScreen> {
                   icon: Icon(Icons.menu_rounded, size: 20 * scale),
                   tooltip: 'Настройки',
                   onPressed: () {
-                    _settingsKey.currentState?.openSettings();
+                    XaneoSettingsModal.open(
+                      context,
+                      currentUser: _myProfile,
+                      onLogout: () {
+                        // вызываем логаут через AccountService как раньше
+                        _logout();
+                      },
+                      onSelectChat: (contact) {
+                        final userId = contact['contact_user_id'];
+                        final username = contact['contact_user_username'] ?? '';
+                        final firstName = contact['contact_user_first_name'] ?? '';
+                        final customName = contact['custom_name'];
+                        final displayName = (customName != null && customName.toString().isNotEmpty)
+                            ? customName.toString()
+                            : (firstName.toString().isNotEmpty ? firstName.toString() : username.toString());
+
+                        _startChatWithUser({
+                          'id': userId,
+                          'user_id': userId,
+                          'username': username,
+                          'first_name': displayName,
+                          'display_name': displayName,
+                          'avatar': contact['custom_avatar'] ?? contact['contact_user_avatar'],
+                          'avatar_gradient': contact['contact_user_avatar_gradient'],
+                        });
+                      },
+                      onStartCall: (contact) {
+                        final userId = contact['contact_user_id'];
+                        final username = contact['contact_user_username'] ?? '';
+                        final firstName = contact['contact_user_first_name'] ?? '';
+                        final customName = contact['custom_name'];
+                        final displayName = (customName != null && customName.toString().isNotEmpty)
+                            ? customName.toString()
+                            : (firstName.toString().isNotEmpty ? firstName.toString() : username.toString());
+
+                        _startChatWithUser({
+                          'id': userId,
+                          'user_id': userId,
+                          'username': username,
+                          'first_name': displayName,
+                          'display_name': displayName,
+                          'avatar': contact['custom_avatar'] ?? contact['contact_user_avatar'],
+                          'avatar_gradient': contact['contact_user_avatar_gradient'],
+                        });
+                        _startCall('audio');
+                      },
+                    ).then((_) => _loadContactsCache());
                   },
                   color: isDark ? Colors.white70 : Colors.black54,
                 ),
@@ -3763,6 +4114,25 @@ class _MessengerScreenState extends State<MessengerScreen> {
     
     if (chatType == 'personal') {
       final otherUser = chat['other_user'] as Map<String, dynamic>?;
+      final dynamic rawId = otherUser?['id'] ?? chat['user_id'];
+      final int? userId = rawId is int ? rawId : int.tryParse(rawId?.toString() ?? '');
+
+      // 1. Проверяем наличие кастомного имени в карте контактов
+      if (userId != null && _contactsMap.containsKey(userId)) {
+        final contact = _contactsMap[userId]!;
+        final customName = contact['custom_name']?.toString();
+        if (customName != null && customName.trim().isNotEmpty) {
+          return customName.trim();
+        }
+      }
+
+      // 2. Проверяем кастомное имя в свойствах объекта
+      final customName = otherUser?['custom_name']?.toString() ?? chat['custom_name']?.toString();
+      if (customName != null && customName.trim().isNotEmpty) {
+        return customName.trim();
+      }
+
+      // 3. Fallback: имя из аккаунта
       if (otherUser != null) {
         final firstName = otherUser['first_name'] as String?;
         final realName = otherUser['realname'] as String?;
@@ -4338,6 +4708,103 @@ class _MessengerScreenState extends State<MessengerScreen> {
     );
   }
 
+  void _scrollToReplyMessage(String replyId) {
+    final targetInt = int.tryParse(replyId);
+    final idx = _messages.indexWhere((m) {
+      final rawId = m['id'];
+      if (rawId == null) return false;
+      return rawId.toString() == replyId || (targetInt != null && rawId == targetInt);
+    });
+
+    if (idx != -1 && _scrollController.hasClients) {
+      final targetMsgId = _messages[idx]['id'];
+      final id = targetMsgId is int ? targetMsgId : (int.tryParse(targetMsgId.toString()) ?? 0);
+      setState(() {
+        _messagesToAnimate.add(id);
+      });
+      _scrollController.animateTo(
+        idx * 65.0,
+        duration: const Duration(milliseconds: 400),
+        curve: Curves.easeOutCubic,
+      );
+    }
+  }
+
+  Widget _buildReplyQuote(Map<String, dynamic> msg, bool isMe, bool isDark, double scale) {
+    final replyAuthor = (msg['reply_author_name'] ?? msg['reply_author'] ?? 'Сообщение').toString();
+    final replyIdStr = msg['reply_to_id']?.toString() ?? msg['reply_to_ref']?.toString() ?? msg['reply_to']?.toString();
+    final replyInt = int.tryParse(replyIdStr ?? '');
+
+    String replyText = (msg['reply_text'] ?? '').toString();
+    if (replyInt != null && _decryptedMessages.containsKey(replyInt) && _decryptedMessages[replyInt]!.isNotEmpty) {
+      replyText = _decryptedMessages[replyInt]!;
+    }
+
+    if (replyText.trim().startsWith('{')) {
+      try {
+        final parsed = jsonDecode(replyText);
+        if (parsed is Map) {
+          if (parsed['type'] == 'voice') replyText = '🎤 Голосовое сообщение';
+          else if (parsed['type'] == 'video_message') replyText = '📹 Видеосообщение';
+          else if (parsed['type'] == 'file') replyText = '📁 Файл: ${parsed['file_name'] ?? ''}';
+          else if (parsed['type'] == 'todo_list') replyText = '📋 Список задач';
+          else if (parsed['type'] == 'poll') replyText = '📊 Опрос';
+        }
+      } catch (_) {}
+    }
+    if (replyText.isEmpty) replyText = 'Вложение';
+
+    final replyId = msg['reply_to_id']?.toString() ?? msg['reply_to']?.toString();
+
+    return GestureDetector(
+      onTap: () {
+        if (replyId != null && replyId.isNotEmpty) {
+          _scrollToReplyMessage(replyId);
+        }
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: isMe ? Colors.white.withOpacity(0.15) : (isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.05)),
+          borderRadius: BorderRadius.circular(8),
+          border: Border(
+            left: BorderSide(
+              color: isMe ? Colors.white70 : const Color(0xFF2563EB),
+              width: 3 * scale,
+            ),
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              replyAuthor,
+              style: TextStyle(
+                fontSize: 11.5 * scale,
+                fontWeight: FontWeight.bold,
+                color: isMe ? Colors.white : const Color(0xFF2563EB),
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 2),
+            Text(
+              replyText,
+              style: TextStyle(
+                fontSize: 11.5 * scale,
+                color: isMe ? Colors.white70 : (isDark ? Colors.white60 : Colors.black54),
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildMessageBubble(Map<String, dynamic> msg, bool isMe, bool isDark, double scale) {
     final messageType = msg['message_type'] as String?;
     final isSystemMsg = msg['is_system'] == true ||
@@ -4411,7 +4878,15 @@ class _MessengerScreenState extends State<MessengerScreen> {
         _triggerFileMetadataFetch(attachedFileId);
       }
     }
-    final authorUsername = msg['author_username'] as String? ?? "Пользователь";
+    final authorKey = msg['author_username']?.toString() ?? msg['author_id']?.toString() ?? '';
+    final authorProfile = _msgAuthorProfiles[authorKey];
+    final authorFirstName = authorProfile?['first_name']?.toString()
+        ?? msg['author_first_name']?.toString()
+        ?? msg['author_username']?.toString()
+        ?? 'Пользователь';
+    final authorAvatar = authorProfile?['avatar']?.toString() ?? msg['author_avatar']?.toString();
+    final authorGradient = authorProfile?['avatar_gradient']?.toString() ?? msg['author_avatar_gradient']?.toString();
+    final isGroup = _selectedChat!['chat_type'] == 'group' || _selectedChat!['chat_type'] == 'channel';
 
     if (customPayload != null && customPayload['type'] == 'video_message') {
       return Align(
@@ -4419,11 +4894,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
         child: Column(
           crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
           children: [
-            if (!isMe && (_selectedChat!['chat_type'] == 'group' || _selectedChat!['chat_type'] == 'channel'))
+            if (!isMe && isGroup)
               Padding(
                 padding: const EdgeInsets.only(left: 4, bottom: 4),
                 child: Text(
-                  authorUsername,
+                  authorFirstName,
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 12,
@@ -4446,54 +4921,69 @@ class _MessengerScreenState extends State<MessengerScreen> {
         ? DateTime.parse(msg['created_at'] as String).toLocal().toString().substring(11, 16)
         : "";
 
-    return Align(
-      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.6,
-        ),
-        decoration: BoxDecoration(
-          gradient: isMe
-              ? const LinearGradient(
-                  colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                )
-              : LinearGradient(
-                  colors: isDark
-                      ? [Colors.white.withOpacity(0.08), Colors.white.withOpacity(0.12)]
-                      : [Colors.black.withOpacity(0.03), Colors.black.withOpacity(0.06)],
-                ),
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(16),
-            topRight: const Radius.circular(16),
-            bottomLeft: Radius.circular(isMe ? 16 : 2),
-            bottomRight: Radius.circular(isMe ? 2 : 16),
+    bool isReplyFieldValid(dynamic val) {
+      if (val == null) return false;
+      final str = val.toString().trim();
+      return str.isNotEmpty && str != 'null' && str != 'None' && str != '0';
+    }
+
+    final hasReply = isReplyFieldValid(msg['reply_to_id']) || isReplyFieldValid(msg['reply_to_ref']) || isReplyFieldValid(msg['reply_to']) || isReplyFieldValid(msg['reply_text']);
+
+    final bubbleContent = GestureDetector(
+        onTap: () {
+          setState(() {
+            _replyingToMessage = msg;
+          });
+        },
+        child: Container(
+          margin: const EdgeInsets.symmetric(vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          constraints: BoxConstraints(
+            maxWidth: MediaQuery.of(context).size.width * 0.6,
           ),
-          border: Border.all(
-            color: isMe 
-                ? Colors.transparent 
-                : (isDark ? Colors.white.withOpacity(0.1) : Colors.black.withOpacity(0.05)),
+          decoration: BoxDecoration(
+            gradient: isMe
+                ? const LinearGradient(
+                    colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  )
+                : LinearGradient(
+                    colors: isDark
+                        ? [Colors.white.withOpacity(0.08), Colors.white.withOpacity(0.12)]
+                        : [Colors.black.withOpacity(0.03), Colors.black.withOpacity(0.06)],
+                  ),
+            borderRadius: BorderRadius.only(
+              topLeft: const Radius.circular(16),
+              topRight: const Radius.circular(16),
+              bottomLeft: Radius.circular(isMe ? 16 : 2),
+              bottomRight: Radius.circular(isMe ? 2 : 16),
+            ),
+            border: Border.all(
+              color: isMe 
+                  ? Colors.transparent 
+                  : (isDark ? Colors.white.withOpacity(0.1) : Colors.black.withOpacity(0.05)),
+            ),
           ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Sender name (for group chats if not me)
-            if (!isMe && (_selectedChat!['chat_type'] == 'group' || _selectedChat!['chat_type'] == 'channel'))
-              Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Text(
-                  authorUsername,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 12,
-                    color: const Color(0xFF2563EB),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Sender name (for group chats if not me)
+              if (!isMe && isGroup)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text(
+                    authorFirstName,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                      color: Color(0xFF2563EB),
+                    ),
                   ),
                 ),
-              ),
+
+              if (hasReply)
+                _buildReplyQuote(msg, isMe, isDark, scale),
 
             // Decrypted Plaintext
             if (customPayload != null && customPayload['type'] == 'voice')
@@ -4506,7 +4996,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                     ? 'Вы'
                     : (_selectedChat?['chat_type'] == 'personal'
                         ? _getChatName(_selectedChat!)
-                        : authorUsername),
+                        : authorFirstName),
               )
             else if (customPayload != null && customPayload['type'] == 'video_message')
               _VideoMessageMockBubble(
@@ -4588,7 +5078,8 @@ class _MessengerScreenState extends State<MessengerScreen> {
               ),
             
             const SizedBox(height: 4),
-            // Timestamp and Lock icon
+            const SizedBox(height: 4),
+            // Timestamp and Status / Lock icon
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -4599,11 +5090,30 @@ class _MessengerScreenState extends State<MessengerScreen> {
                     fontSize: 10,
                   ),
                 ),
-                if (customPayload?['type'] != 'call') ...[
+                if (isMe && customPayload?['type'] != 'call') ...[
+                  const SizedBox(width: 4),
+                  Builder(
+                    builder: (context) {
+                      final isPending = msg['is_pending'] == true || msg['id'].toString().startsWith('temp_');
+                      final isRead = msg['is_read'] == true || msg['is_read_by_recipient'] == true;
+                      return FaIcon(
+                        isPending
+                            ? FontAwesomeIcons.clock
+                            : (isRead ? FontAwesomeIcons.checkDouble : FontAwesomeIcons.check),
+                        size: 10 * scale,
+                        color: isPending
+                            ? (isDark ? Colors.white38 : Colors.black38)
+                            : (isRead
+                                ? const Color(0xFF4ADE80)
+                                : (isDark ? Colors.white60 : Colors.black54)),
+                      );
+                    },
+                  ),
+                ] else if (customPayload?['type'] != 'call') ...[
                   const SizedBox(width: 4),
                   FaIcon(
                     FontAwesomeIcons.lock, 
-                    size: 9, 
+                    size: 9 * scale, 
                     color: isMe ? Colors.white60 : Colors.grey
                   ),
                 ],
@@ -4611,6 +5121,32 @@ class _MessengerScreenState extends State<MessengerScreen> {
             ),
           ],
         ),
+      ),
+    );
+
+    if (!isMe && isGroup) {
+      return Align(
+        alignment: Alignment.centerLeft,
+        child: Padding(
+          padding: const EdgeInsets.only(left: 2, right: 8, top: 2, bottom: 2),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildGroupAvatar(authorAvatar, authorGradient, authorFirstName, 40),
+              const SizedBox(width: 6),
+              bubbleContent,
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Align(
+      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 8),
+        child: bubbleContent,
       ),
     );
   }
@@ -4846,6 +5382,100 @@ class _MessengerScreenState extends State<MessengerScreen> {
     );
   }
 
+  Widget _buildReplyPreviewWidget(bool isDark, double scale) {
+    if (_replyingToMessage == null) return const SizedBox.shrink();
+
+    final dynamic rawAuthor = _replyingToMessage!['author_username'] ?? _replyingToMessage!['author'] ?? 'Пользователь';
+    final authorName = rawAuthor.toString();
+    final dynamic rawId = _replyingToMessage!['id'];
+    final id = rawId is int ? rawId : (int.tryParse(rawId?.toString() ?? '') ?? 0);
+    String textPreview = _decryptedMessages[id] ?? _replyingToMessage!['encrypted_text'] ?? _replyingToMessage!['text'] ?? '';
+
+    if (textPreview.trim().startsWith('{')) {
+      try {
+        final parsed = jsonDecode(textPreview);
+        if (parsed is Map) {
+          if (parsed['type'] == 'voice') textPreview = '🎤 Голосовое сообщение';
+          else if (parsed['type'] == 'video_message') textPreview = '📹 Видеосообщение';
+          else if (parsed['type'] == 'file') textPreview = '📁 Файл: ${parsed['file_name'] ?? ''}';
+          else if (parsed['type'] == 'todo_list') textPreview = '📋 Список задач';
+          else if (parsed['type'] == 'poll') textPreview = '📊 Опрос';
+        }
+      } catch (_) {}
+    }
+    if (textPreview.isEmpty && _replyingToMessage!['file_id'] != null) textPreview = '📎 Вложение';
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: isDark ? Colors.white.withOpacity(0.06) : Colors.black.withOpacity(0.03),
+        borderRadius: BorderRadius.circular(14),
+        border: Border(
+          left: BorderSide(
+            color: const Color(0xFF2563EB),
+            width: 3.5 * scale,
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          FaIcon(
+            FontAwesomeIcons.reply,
+            color: const Color(0xFF2563EB),
+            size: 13 * scale,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Ответ для $authorName',
+                  style: TextStyle(
+                    color: const Color(0xFF2563EB),
+                    fontSize: 12 * scale,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  textPreview,
+                  style: TextStyle(
+                    color: isDark ? Colors.white70 : Colors.black54,
+                    fontSize: 12 * scale,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          GestureDetector(
+            onTap: () {
+              setState(() {
+                _replyingToMessage = null;
+              });
+            },
+            child: Padding(
+              padding: const EdgeInsets.all(2.0),
+              child: Icon(
+                Icons.close,
+                color: isDark ? Colors.white54 : Colors.black45,
+                size: 16 * scale,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildMessageInput(bool isDark, double scale) {
     final showRecordTooltip = _isHoveringRecordButton && !_showSendButton && !_isRecording;
 
@@ -4933,6 +5563,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (_replyingToMessage != null) _buildReplyPreviewWidget(isDark, scale),
             if (previewWidget != null) previewWidget,
             Stack(
               clipBehavior: Clip.none,

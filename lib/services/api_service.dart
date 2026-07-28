@@ -37,6 +37,9 @@ class ApiService {
   // Геттер для базового URL
   static String get baseUrl => _baseUrl;
   
+  /// Публичный доступ к Dio для использования в виджетах
+  Dio get dio => _dio;
+  
   /// Установить базовый URL (для настройки)
   static void setBaseUrl(String url) {
     _baseUrl = url.replaceAll(RegExp(r'/$'), '');
@@ -67,8 +70,21 @@ class ApiService {
     
     _dio.interceptors.add(CookieManager(_cookieJar));
 
-    // Автоматическое обновление токенов при получении 401 (Unauthorized)
+    // Автоматическое добавление авторизации и обновление токенов при получении 401
     _dio.interceptors.add(InterceptorsWrapper(
+      onRequest: (options, handler) async {
+        final path = options.path;
+        if (!options.headers.containsKey('Authorization') &&
+            !path.contains('/auth/token/refresh/') &&
+            !path.contains('/auth/login/') &&
+            !path.contains('/auth/register/')) {
+          final token = await getAccessToken();
+          if (token != null && token.isNotEmpty) {
+            options.headers['Authorization'] = 'Bearer $token';
+          }
+        }
+        return handler.next(options);
+      },
       onResponse: (response, handler) async {
         if (response.statusCode == 401) {
           final path = response.requestOptions.path;
@@ -79,66 +95,49 @@ class ApiService {
             return handler.next(response);
           }
 
+          // Если запрос уже был ретраем — не повторяем, чтобы не зациклиться
+          if (response.requestOptions.extra['_retried'] == true) {
+            return handler.next(response);
+          }
+
           final authHeader = response.requestOptions.headers['Authorization'] as String?;
           if (authHeader != null && authHeader.startsWith('Bearer ')) {
             final requestToken = authHeader.substring(7);
             final currentToken = await getAccessToken();
             
             if (currentToken != null && requestToken != currentToken) {
-              // Токен запроса отличается от текущего активного токена.
-              // Проверим, не сменился ли аккаунт.
-              final accounts = await AccountService().getAccounts();
-              
-              bool isSameAccount = false;
-              if (accounts.isEmpty || accounts.length == 1) {
-                isSameAccount = true;
-              } else {
-                AccountInfo? requestAccount;
-                AccountInfo? currentAccount;
-                for (final a in accounts) {
-                  if (a.accessToken == requestToken) {
-                    requestAccount = a;
-                  }
-                  if (a.accessToken == currentToken) {
-                    currentAccount = a;
-                  }
-                }
-                if (requestAccount != null && currentAccount != null && requestAccount.userId == currentAccount.userId) {
-                  isSameAccount = true;
-                }
+              // Токен запроса отличается от текущего — просто повторяем с новым токеном
+              final options = response.requestOptions;
+              options.headers['Authorization'] = 'Bearer $currentToken';
+              options.extra['_retried'] = true;
+              try {
+                final retryResponse = await _dio.fetch(options);
+                return handler.resolve(retryResponse);
+              } catch (e) {
+                Logger.warning('ApiService', 'Error retrying with refreshed token: $e');
               }
-              
-              if (isSameAccount) {
-                // Это тот же самый аккаунт, токен просто обновился в другом запросе.
-                // Повторяем исходный запрос с новым токеном.
-                final options = response.requestOptions;
-                options.headers['Authorization'] = 'Bearer $currentToken';
-                try {
-                  final retryResponse = await _dio.fetch(options);
-                  return handler.resolve(retryResponse);
-                } catch (e) {
-                  print('Error retrying request with already-refreshed token: $e');
-                }
-              }
-              
-              // Если аккаунт сменился или мы не можем сопоставить, то ничего не делаем.
               return handler.next(response);
             }
           }
 
+          // Рефреш токена
           final refreshRes = await refreshToken();
-          if (refreshRes.success) {
+          if (!refreshRes.success) {
+            // Рефреш упал (429, сеть и т.д.) — прекращаем, не повторяем запрос
+            Logger.warning('ApiService', 'Token refresh failed, aborting retry: ${refreshRes.error}');
+            return handler.next(response);
+          }
+
+          final newToken = await getAccessToken();
+          if (newToken != null) {
             final options = response.requestOptions;
-            final newToken = await getAccessToken();
-            if (newToken != null) {
-              options.headers['Authorization'] = 'Bearer $newToken';
-            }
+            options.headers['Authorization'] = 'Bearer $newToken';
+            options.extra['_retried'] = true;
             try {
-              // Повторяем исходный запрос с новым токеном
               final retryResponse = await _dio.fetch(options);
               return handler.resolve(retryResponse);
             } catch (e) {
-              print('Error retrying request after token refresh: $e');
+              Logger.warning('ApiService', 'Error retrying request after token refresh: $e');
             }
           }
         }

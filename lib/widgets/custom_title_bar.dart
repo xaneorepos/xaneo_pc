@@ -28,34 +28,17 @@ class CustomTitleBar extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 16.0),
                 child: Row(
                   children: [
-                    // Маленький логотип
-                    Container(
-                      width: 20,
-                      height: 20,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: isDark
-                              ? [Colors.white, Colors.grey.shade400]
-                              : [Colors.black, Colors.grey.shade700],
-                        ),
-                      ),
-                      child: Center(
-                        child: Text(
-                          'X',
-                          style: TextStyle(
-                            color: isDark ? Colors.black : Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
+                    // Официальный логотип
+                    Image.asset(
+                      'assets/logo.png',
+                      width: 18,
+                      height: 18,
+                      color: isDark ? Colors.white : Colors.black,
+                      fit: BoxFit.contain,
                     ),
                     const SizedBox(width: 10),
                     Text(
-                      'xaneo',
+                      'Xaneo',
                       style: TextStyle(
                         color: isDark
                             ? Colors.white.withOpacity(0.7)

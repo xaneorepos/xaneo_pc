@@ -19,11 +19,13 @@ import 'package:url_launcher/url_launcher.dart';
 import '../providers/theme_provider.dart';
 import '../providers/scale_provider.dart';
 import '../providers/playback_provider.dart';
+import '../l10n/app_localizations.dart';
 import '../widgets/advanced_background.dart';
 import '../widgets/voice_waveform_slider.dart';
 import '../widgets/settings_modal.dart'; // деактивировано — используем XaneoSettingsModal
 import '../widgets/xaneo_settings_modal.dart';
 import '../widgets/global_search_modal.dart';
+import '../widgets/music_playlist_modal.dart';
 import '../services/api_service.dart';
 import '../services/crypto_service.dart';
 import '../services/account_service.dart';
@@ -447,6 +449,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
   }
 
   void _showCallChoiceModal(BuildContext context, double scale, bool isDark) {
+    final l10n = AppLocalizations.of(context);
     showGeneralDialog(
       context: context,
       barrierLabel: "CallChoiceDialog",
@@ -500,7 +503,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          'НАЧАТЬ ЗВОНОК',
+                          l10n?.startCall ?? 'Начать звонок',
                           style: TextStyle(
                             fontSize: 10 * scale,
                             fontWeight: FontWeight.w600,
@@ -562,7 +565,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
                                         Text(
-                                          'Голосовой звонок',
+                                          l10n?.audioCall ?? 'Голосовой звонок',
                                           style: TextStyle(
                                             color: isDark ? Colors.white : Colors.black87,
                                             fontSize: 13.5 * scale,
@@ -572,7 +575,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                         ),
                                         SizedBox(height: 2 * scale),
                                         Text(
-                                          'Позвонить по голосовой связи',
+                                          l10n?.audioCallDesc ?? 'Позвонить по голосовой связи',
                                           style: TextStyle(
                                             color: isDark ? Colors.white38 : Colors.black38,
                                             fontSize: 11.5 * scale,
@@ -630,7 +633,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
                                         Text(
-                                          'Видеозвонок',
+                                          l10n?.videoCall ?? 'Видеозвонок',
                                           style: TextStyle(
                                             color: isDark ? Colors.white : Colors.black87,
                                             fontSize: 13.5 * scale,
@@ -640,7 +643,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                         ),
                                         SizedBox(height: 2 * scale),
                                         Text(
-                                          'Позвонить с включенной камерой',
+                                          l10n?.videoCallDesc ?? 'Позвонить с включенной камерой',
                                           style: TextStyle(
                                             color: isDark ? Colors.white38 : Colors.black38,
                                             fontSize: 11.5 * scale,
@@ -769,8 +772,8 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
         final otherUser = newChat['other_user'] as Map<String, dynamic>?;
         final senderName = otherUser != null 
-            ? (otherUser['first_name'] ?? otherUser['username'] ?? 'Новое сообщение') 
-            : 'Новое сообщение';
+            ? (otherUser['first_name'] ?? otherUser['username'] ?? (AppLocalizations.of(context)?.novoeSoobschenie_1d49 ?? 'Fallback')) 
+            : (AppLocalizations.of(context)?.novoeSoobschenie_1d49 ?? 'Fallback');
         
         final avatar = otherUser?['avatar']?.toString();
         final gradient = otherUser?['avatar_gradient']?.toString();
@@ -779,20 +782,20 @@ class _MessengerScreenState extends State<MessengerScreen> {
         try {
           body = await _decryptForChat(encryptedText, chatId, otherUser);
         } catch (_) {
-          body = "[Зашифрованное сообщение]";
+          body = (AppLocalizations.of(context)?.zashifrovannoeSoobschenie_ca35 ?? 'Fallback');
         }
 
         if (body.startsWith('{')) {
           try {
             final parsed = jsonDecode(body);
             if (parsed['type'] == 'voice') {
-              body = "🎤 Голосовое сообщение";
+              body = (AppLocalizations.of(context)?.golosovoeSoobschenie_4a85 ?? 'Fallback');
             } else if (parsed['type'] == 'video_message') {
-              body = "🎬 Видеосообщение";
+              body = (AppLocalizations.of(context)?.videosoobschenie_d687 ?? 'Fallback');
             } else if (parsed['type'] == 'file') {
-              body = "📎 Файл";
+              body = (AppLocalizations.of(context)?.fayl_826d ?? 'Fallback');
             } else if (parsed['type'] == 'call') {
-              body = "📞 Звонок";
+              body = (AppLocalizations.of(context)?.zvonok_e8d5 ?? 'Fallback');
             }
           } catch (_) {}
         }
@@ -957,7 +960,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
           try {
             decryptedText = await _decryptForChat(encryptedText, activeChatId, otherUser);
           } catch (_) {
-            decryptedText = "[Ошибка дешифрования]";
+            decryptedText = (AppLocalizations.of(context)?.oshibkaDeshifrovaniya_4146 ?? 'Fallback');
           }
         }
       }
@@ -1002,8 +1005,8 @@ class _MessengerScreenState extends State<MessengerScreen> {
           final notificationsEnabled = prefs.getBool('settings_notifications') ?? true;
           if (notificationsEnabled) {
             final senderName = otherUser != null 
-                ? (otherUser['first_name'] ?? otherUser['username'] ?? 'Новое сообщение') 
-                : 'Новое сообщение';
+                ? (otherUser['first_name'] ?? otherUser['username'] ?? (AppLocalizations.of(context)?.novoeSoobschenie_1d49 ?? 'Fallback')) 
+                : (AppLocalizations.of(context)?.novoeSoobschenie_1d49 ?? 'Fallback');
             
             final avatar = otherUser?['avatar']?.toString();
             final gradient = otherUser?['avatar_gradient']?.toString();
@@ -1013,13 +1016,13 @@ class _MessengerScreenState extends State<MessengerScreen> {
               try {
                 final parsed = jsonDecode(body);
                 if (parsed['type'] == 'voice') {
-                  body = "🎤 Голосовое сообщение";
+                  body = (AppLocalizations.of(context)?.golosovoeSoobschenie_4a85 ?? 'Fallback');
                 } else if (parsed['type'] == 'video_message') {
-                  body = "🎬 Видеосообщение";
+                  body = (AppLocalizations.of(context)?.videosoobschenie_d687 ?? 'Fallback');
                 } else if (parsed['type'] == 'file') {
-                  body = "📎 Файл";
+                  body = (AppLocalizations.of(context)?.fayl_826d ?? 'Fallback');
                 } else if (parsed['type'] == 'call') {
-                  body = "📞 Звонок";
+                  body = (AppLocalizations.of(context)?.zvonok_e8d5 ?? 'Fallback');
                 }
               } catch (_) {}
             }
@@ -1175,26 +1178,27 @@ class _MessengerScreenState extends State<MessengerScreen> {
     
     if (_activeTypingUsers.isEmpty) return null;
     
+    final l10n = AppLocalizations.of(context);
     final chatType = targetChat['chat_type'] as String?;
     if (chatType == 'personal') {
       final state = _activeTypingUsers.values.first;
       if (state.action == 'recording_voice') {
-        return 'записывает голосовое...';
+        return l10n?.isRecordingVoice ?? 'записывает голосовое...';
       }
-      return 'печатает...';
+      return l10n?.isTyping ?? 'печатает...';
     } else {
       if (_activeTypingUsers.length == 1) {
         final state = _activeTypingUsers.values.first;
         final name = state.firstName.isNotEmpty ? state.firstName : state.username;
         if (state.action == 'recording_voice') {
-          return '$name записывает голосовое...';
+          return '$name ${l10n?.isRecordingVoice ?? "записывает голосовое..."}';
         }
-        return '$name печатает...';
+        return '$name ${l10n?.isTyping ?? "печатает..."}';
       } else {
         final names = _activeTypingUsers.values
             .map((s) => s.firstName.isNotEmpty ? s.firstName : s.username)
             .join(', ');
-        return '$names печатают...';
+        return '$names ${l10n?.areTyping ?? "печатают..."}';
       }
     }
   }
@@ -1297,7 +1301,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
     if (!res.success) {
       CustomToast.show(
         context,
-        newStatus ? 'Не удалось архивировать чат' : 'Не удалось разархивировать чат',
+        newStatus ? (AppLocalizations.of(context)?.neUdalosArhivirovatChat_ab89 ?? 'Fallback') : (AppLocalizations.of(context)?.neUdalosRazarhivirovatChat_f0d7 ?? 'Fallback'),
         type: ToastType.error,
       );
       _loadChats(silent: true);
@@ -1337,13 +1341,13 @@ class _MessengerScreenState extends State<MessengerScreen> {
                   size: 20 * scale,
                 ),
               ),
-              const SizedBox(width: 12),
+              SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Архив',
+                      (AppLocalizations.of(context)?.arhiv_56aa ?? 'Fallback'),
                       style: TextStyle(
                         fontWeight: FontWeight.w500,
                         fontSize: 13.5 * scale,
@@ -1353,7 +1357,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      'Архивированные чаты',
+                      (AppLocalizations.of(context)?.arhivirovannyeChaty_d990 ?? 'Fallback'),
                       style: TextStyle(
                         fontSize: 11 * scale,
                         color: isDark ? Colors.white30 : Colors.black38,
@@ -1631,16 +1635,16 @@ class _MessengerScreenState extends State<MessengerScreen> {
     final myUserId = _myId?.toString();
 
     if (chatId.startsWith('favorites_') || chatId == 'favorites') {
-      if (myUserId == null) return "[Нет userId]";
+      if (myUserId == null) return (AppLocalizations.of(context)?.netUserid_634a ?? 'Fallback');
       return await _cryptoService.decryptFavoritesMessage(encryptedText, myUserId);
     }
 
     if (chatId.startsWith('personal_')) {
       final peerPubKey = await _getPeerPublicKey(otherUser);
-      if (peerPubKey == null) return "[Нет ключа]";
+      if (peerPubKey == null) return (AppLocalizations.of(context)?.netKlyucha_337b ?? 'Fallback');
       if (peerPubKey == 'bot') {
         final chatKeyHex = await _getGroupChatKey(chatId);
-        if (chatKeyHex == null) return "[Нет ключа]";
+        if (chatKeyHex == null) return (AppLocalizations.of(context)?.netKlyucha_337b ?? 'Fallback');
         return await _cryptoService.decryptGroupMessage(encryptedText, chatKeyHex);
       }
       return await _cryptoService.decryptPersonalMessage(encryptedText, peerPubKey, chatId);
@@ -1648,11 +1652,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
     if (chatId.startsWith('group_') || chatId.startsWith('channel_')) {
       final chatKeyHex = await _getGroupChatKey(chatId);
-      if (chatKeyHex == null) return "[Нет ключа]";
+      if (chatKeyHex == null) return (AppLocalizations.of(context)?.netKlyucha_337b ?? 'Fallback');
       return await _cryptoService.decryptGroupMessage(encryptedText, chatKeyHex);
     }
 
-    return "[Неизвестный тип чата]";
+    return (AppLocalizations.of(context)?.neizvestnyyTipChata_2617 ?? 'Fallback');
   }
 
   Future<void> _decryptSingleMessage(dynamic msg, String chatId, Map<String, dynamic>? otherUser) async {
@@ -1737,7 +1741,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
     try {
       decrypted = await _decryptForChat(encryptedText, chatId, otherUser);
     } catch (_) {
-      decrypted = "[Ошибка дешифрования]";
+      decrypted = (AppLocalizations.of(context)?.oshibkaDeshifrovaniya_4146 ?? 'Fallback');
     }
 
     final replyTextRaw = msg['reply_text'] as String?;
@@ -1820,7 +1824,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
       try {
         decrypted = await _decryptForChat(encryptedText, chatId, otherUser);
       } catch (_) {
-        decrypted = "[Ошибка дешифрования]";
+        decrypted = (AppLocalizations.of(context)?.oshibkaDeshifrovaniya_4146 ?? 'Fallback');
       }
 
       final replyTextRaw = msg['reply_text'] as String?;
@@ -1884,7 +1888,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
         if (peerPubKey == null) {
           CustomToast.show(
             context,
-            'Не удалось получить ключ шифрования для чата',
+            (AppLocalizations.of(context)?.neUdalosPoluchitKlyuchShifrovaniya_b953 ?? 'Fallback'),
             type: ToastType.error,
           );
           return;
@@ -1894,7 +1898,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
           if (chatKeyHex == null) {
             CustomToast.show(
               context,
-              'Не удалось получить ключ шифрования для чата',
+              (AppLocalizations.of(context)?.neUdalosPoluchitKlyuchShifrovaniya_b953 ?? 'Fallback'),
               type: ToastType.error,
             );
             return;
@@ -1908,7 +1912,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
         if (chatKeyHex == null) {
           CustomToast.show(
             context,
-            'Не удалось получить ключ шифрования для чата',
+            (AppLocalizations.of(context)?.neUdalosPoluchitKlyuchShifrovaniya_b953 ?? 'Fallback'),
             type: ToastType.error,
           );
           return;
@@ -1947,7 +1951,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
         'is_pending': true,
         'author_id': _myId,
         'sender_id': _myId,
-        'author_username': _myUsername ?? 'Вы',
+        'author_username': _myUsername ?? (AppLocalizations.of(context)?.vy_0101 ?? 'Fallback'),
         'encrypted_text': encryptedText,
         'created_at': DateTime.now().toIso8601String(),
         'reply_to_id': replyToId,
@@ -2183,15 +2187,17 @@ class _MessengerScreenState extends State<MessengerScreen> {
   String _getGroupStatusText(Map<String, dynamic> chat) {
     final rawCount = chat['members_count'] ?? chat['members']?.length ?? chat['participants_count'] ?? 0;
     final count = rawCount is int ? rawCount : int.tryParse(rawCount.toString()) ?? 0;
-    if (count <= 0) return 'группа';
-    return _formatPluralCount(count, 'участник', 'участника', 'участников');
+    final l10n = AppLocalizations.of(context);
+    if (count <= 0) return l10n?.group ?? 'Группа';
+    return l10n?.membersCount(count) ?? '$count участников';
   }
 
   String _getChannelStatusText(Map<String, dynamic> chat) {
     final rawCount = chat['subscribers_count'] ?? chat['subscribers']?.length ?? 0;
     final count = rawCount is int ? rawCount : int.tryParse(rawCount.toString()) ?? 0;
-    if (count <= 0) return 'канал';
-    return _formatPluralCount(count, 'подписчик', 'подписчика', 'подписчиков');
+    final l10n = AppLocalizations.of(context);
+    if (count <= 0) return l10n?.channel ?? 'Канал';
+    return l10n?.subscribersCount(count) ?? '$count подписчиков';
   }
 
   DateTime? _parseMsgDate(dynamic createdAt) {
@@ -2208,19 +2214,30 @@ class _MessengerScreenState extends State<MessengerScreen> {
   }
 
   String _formatDateDivider(DateTime date) {
+    final l10n = AppLocalizations.of(context);
     final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final yesterday = today.subtract(const Duration(days: 1));
+    final todayDate = DateTime(now.year, now.month, now.day);
+    final yesterdayDate = todayDate.subtract(const Duration(days: 1));
     final msgDate = DateTime(date.year, date.month, date.day);
 
-    if (msgDate == today) {
-      return 'Сегодня';
-    } else if (msgDate == yesterday) {
-      return 'Вчера';
+    if (msgDate == todayDate) {
+      return l10n?.today ?? 'Сегодня';
+    } else if (msgDate == yesterdayDate) {
+      return l10n?.yesterday ?? 'Вчера';
     } else {
-      const months = [
-        'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
-        'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'
+      final months = [
+        l10n?.monthJan ?? 'января',
+        l10n?.monthFeb ?? 'февраля',
+        l10n?.monthMar ?? 'марта',
+        l10n?.monthApr ?? 'апреля',
+        l10n?.monthMay ?? 'мая',
+        l10n?.monthJun ?? 'июня',
+        l10n?.monthJul ?? 'июля',
+        l10n?.monthAug ?? 'августа',
+        l10n?.monthSep ?? 'сентября',
+        l10n?.monthOct ?? 'октября',
+        l10n?.monthNov ?? 'ноября',
+        l10n?.monthDec ?? 'декабря',
       ];
       final monthStr = months[date.month - 1];
       if (date.year == now.year) {
@@ -2316,7 +2333,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
         final isChannel = chat['chat_type'] == 'channel';
         CustomToast.show(
           context,
-          isChannel ? 'Вы подписались на канал' : 'Вы присоединились к группе',
+          isChannel ? (AppLocalizations.of(context)?.vyPodpisalisNaKanal_b2b3 ?? 'Fallback') : (AppLocalizations.of(context)?.vyPrisoedinilisKGruppe_07bd ?? 'Fallback'),
           type: ToastType.success,
         );
 
@@ -2325,7 +2342,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
       } else {
         CustomToast.show(
           context,
-          res.error ?? 'Не удалось присоединиться',
+          res.error ?? (AppLocalizations.of(context)?.neUdalosPrisoedinitsya_31e6 ?? 'Fallback'),
           type: ToastType.error,
         );
       }
@@ -2369,13 +2386,13 @@ class _MessengerScreenState extends State<MessengerScreen> {
         final isChannel = chat['chat_type'] == 'channel';
         CustomToast.show(
           context,
-          isChannel ? 'Вы отписались от канала' : 'Вы покинули группу',
+          isChannel ? (AppLocalizations.of(context)?.vyOtpisalisOtKanala_7698 ?? 'Fallback') : (AppLocalizations.of(context)?.vyPokinuliGruppu_5a52 ?? 'Fallback'),
           type: ToastType.info,
         );
       } else {
         CustomToast.show(
           context,
-          res.error ?? 'Не удалось выполнить действие',
+          res.error ?? (AppLocalizations.of(context)?.neUdalosVypolnitDeystvie_3cfd ?? 'Fallback'),
           type: ToastType.error,
         );
       }
@@ -2389,7 +2406,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
       final favChat = {
         'chat_id': chatId,
         'chat_type': 'favorites',
-        'chat_display_name': 'Избранное',
+        'chat_display_name': (AppLocalizations.of(context)?.izbrannoe_2fc4 ?? 'Fallback'),
       };
       setState(() {
         _selectedChat = favChat;
@@ -2408,7 +2425,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
       final groupChat = {
         'chat_id': chatId,
         'chat_type': 'group',
-        'chat_display_name': item['name'] ?? 'Группа',
+        'chat_display_name': item['name'] ?? (AppLocalizations.of(context)?.gruppa_99d9 ?? 'Fallback'),
         'group_id': groupId,
         'members_count': item['members_count'] ?? 0,
         'avatar_url': item['avatar'] ?? item['avatar_url'],
@@ -2435,7 +2452,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
       final channelChat = {
         'chat_id': chatId,
         'chat_type': 'channel',
-        'chat_display_name': item['name'] ?? 'Канал',
+        'chat_display_name': item['name'] ?? (AppLocalizations.of(context)?.kanal_2710 ?? 'Fallback'),
         'channel_id': channelId,
         'subscribers_count': item['subscribers_count'] ?? 0,
         'avatar_url': item['avatar'] ?? item['avatar_url'],
@@ -2517,7 +2534,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
       if (mounted) {
         CustomToast.show(
           context,
-          'Не удалось переключить аккаунт',
+          (AppLocalizations.of(context)?.neUdalosPereklyuchitAkkaunt_968b ?? 'Fallback'),
           type: ToastType.error,
         );
       }
@@ -2533,10 +2550,21 @@ class _MessengerScreenState extends State<MessengerScreen> {
   String _formatBirthday(String? iso) {
     if (iso == null || iso.isEmpty) return '';
     try {
+      final l10n = AppLocalizations.of(context);
       final d = DateTime.parse(iso);
-      const months = [
-        'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
-        'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря',
+      final months = [
+        l10n?.monthJan ?? 'января',
+        l10n?.monthFeb ?? 'февраля',
+        l10n?.monthMar ?? 'марта',
+        l10n?.monthApr ?? 'апреля',
+        l10n?.monthMay ?? 'мая',
+        l10n?.monthJun ?? 'июня',
+        l10n?.monthJul ?? 'июля',
+        l10n?.monthAug ?? 'августа',
+        l10n?.monthSep ?? 'сентября',
+        l10n?.monthOct ?? 'октября',
+        l10n?.monthNov ?? 'ноября',
+        l10n?.monthDec ?? 'декабря',
       ];
       return '${d.day} ${months[d.month - 1]} ${d.year}';
     } catch (_) {
@@ -2551,6 +2579,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
     Map<String, dynamic> otherUser,
     String fallbackName,
   ) {
+    final l10n = AppLocalizations.of(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final scaleProvider = Provider.of<ScaleProvider>(context, listen: false);
     final scale = scaleProvider.scale;
@@ -2559,10 +2588,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
     final int? userId = rawId is int ? rawId : int.tryParse(rawId?.toString() ?? '');
 
     final mockTabs = <Map<String, dynamic>>[
-      {'title': 'Медиа', 'icon': Icons.image_rounded},
-      {'title': 'Файлы', 'icon': Icons.description_rounded},
-      {'title': 'Голос', 'icon': Icons.mic_rounded},
-      {'title': 'Ссылки', 'icon': Icons.link_rounded},
+      {'title': l10n?.media ?? 'Медиа', 'icon': Icons.image_rounded},
+      {'title': l10n?.files ?? 'Файлы', 'icon': Icons.description_rounded},
+      {'title': l10n?.voice ?? 'Голосовые', 'icon': Icons.mic_rounded},
+      {'title': l10n?.links ?? 'Ссылки', 'icon': Icons.link_rounded},
     ];
 
     showGeneralDialog(
@@ -2619,7 +2648,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          'ПРОФИЛЬ',
+                          l10n?.profile ?? 'Профиль',
                           style: TextStyle(
                             fontSize: 10 * scale,
                             fontWeight: FontWeight.w600,
@@ -2725,11 +2754,442 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
                               SizedBox(height: 20 * scale),
 
-                              // Mock shared-media tabs
-                              _buildProfileMockTabs(isDark, scale, mockTabs),
+                              // Shared-media tabs (parsed from chat messages)
+                              _buildProfileSharedMediaSection(isDark, scale),
                             ],
                           );
                         },
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showGroupProfileDialog(BuildContext context, Map<String, dynamic> chat) {
+    final l10n = AppLocalizations.of(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final scaleProvider = Provider.of<ScaleProvider>(context, listen: false);
+    final scale = scaleProvider.scale;
+
+    final name = chat['chat_display_name'] ?? chat['name'] ?? (l10n?.group ?? 'Группа');
+    final membersCount = chat['members_count'] is int ? chat['members_count'] as int : (int.tryParse(chat['members_count']?.toString() ?? '') ?? 0);
+    final avatarUrl = (chat['avatar_url'] ?? chat['avatar'])?.toString();
+    final gradient = chat['avatar_gradient']?.toString();
+
+    showGeneralDialog(
+      context: context,
+      barrierLabel: 'GroupProfile',
+      barrierDismissible: true,
+      barrierColor: isDark ? Colors.black.withOpacity(0.85) : Colors.black.withOpacity(0.3),
+      transitionDuration: const Duration(milliseconds: 200),
+      transitionBuilder: (context, anim1, anim2, child) {
+        return FadeTransition(
+          opacity: anim1,
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.98, end: 1.0).animate(
+              CurvedAnimation(parent: anim1, curve: Curves.easeOut),
+            ),
+            child: child,
+          ),
+        );
+      },
+      pageBuilder: (context, anim1, anim2) {
+        final screenSize = MediaQuery.of(context).size;
+        final bgColor = isDark ? const Color(0xFF0C0C0C) : Colors.white;
+        final borderColor = isDark ? const Color(0xFF1E1E1E) : const Color(0xFFEBEBEB);
+
+        return Material(
+          type: MaterialType.transparency,
+          child: Center(
+            child: Container(
+              width: 360 * scale,
+              constraints: BoxConstraints(maxHeight: screenSize.height * 0.85),
+              margin: EdgeInsets.all(20 * scale),
+              decoration: BoxDecoration(
+                color: bgColor,
+                borderRadius: BorderRadius.circular(12 * scale),
+                border: Border.all(color: borderColor, width: 1),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(isDark ? 0.6 : 0.06),
+                    blurRadius: 24 * scale,
+                    offset: Offset(0, 8 * scale),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(20 * scale, 20 * scale, 20 * scale, 4 * scale),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          l10n?.group.toUpperCase() ?? 'ГРУППА',
+                          style: TextStyle(
+                            fontSize: 10 * scale,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 1.5 * scale,
+                            color: isDark ? Colors.white38 : Colors.black38,
+                            fontFamily: 'Inter',
+                          ),
+                        ),
+                        GestureDetector(
+                          onTap: () => Navigator.of(context).pop(),
+                          child: MouseRegion(
+                            cursor: SystemMouseCursors.click,
+                            child: Icon(
+                              Icons.close_rounded,
+                              size: 16 * scale,
+                              color: isDark ? Colors.white38 : Colors.black38,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Flexible(
+                    child: SingleChildScrollView(
+                      padding: EdgeInsets.fromLTRB(20 * scale, 8 * scale, 20 * scale, 20 * scale),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                _buildAvatar(
+                                  avatarUrl,
+                                  name,
+                                  40 * scale,
+                                  scale,
+                                  isDark,
+                                  avatarGradient: gradient,
+                                ),
+                                SizedBox(height: 14 * scale),
+                                Text(
+                                  name,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: 19 * scale,
+                                    fontWeight: FontWeight.w700,
+                                    color: isDark ? Colors.white : Colors.black87,
+                                    fontFamily: 'Inter',
+                                  ),
+                                ),
+                                SizedBox(height: 3 * scale),
+                                Text(
+                                  l10n?.membersCount(membersCount) ?? '$membersCount участников',
+                                  style: TextStyle(
+                                    fontSize: 12.5 * scale,
+                                    color: isDark ? Colors.white38 : Colors.black45,
+                                    fontFamily: 'Inter',
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          SizedBox(height: 20 * scale),
+                          _buildProfileSharedMediaSection(isDark, scale),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showChannelProfileDialog(BuildContext context, Map<String, dynamic> chat) {
+    final l10n = AppLocalizations.of(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final scaleProvider = Provider.of<ScaleProvider>(context, listen: false);
+    final scale = scaleProvider.scale;
+
+    final name = chat['chat_display_name'] ?? chat['name'] ?? (l10n?.channel ?? 'Канал');
+    final subsCount = chat['subscribers_count'] is int ? chat['subscribers_count'] as int : (int.tryParse(chat['subscribers_count']?.toString() ?? '') ?? 0);
+    final avatarUrl = (chat['avatar_url'] ?? chat['avatar'])?.toString();
+    final gradient = chat['avatar_gradient']?.toString();
+
+    showGeneralDialog(
+      context: context,
+      barrierLabel: 'ChannelProfile',
+      barrierDismissible: true,
+      barrierColor: isDark ? Colors.black.withOpacity(0.85) : Colors.black.withOpacity(0.3),
+      transitionDuration: const Duration(milliseconds: 200),
+      transitionBuilder: (context, anim1, anim2, child) {
+        return FadeTransition(
+          opacity: anim1,
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.98, end: 1.0).animate(
+              CurvedAnimation(parent: anim1, curve: Curves.easeOut),
+            ),
+            child: child,
+          ),
+        );
+      },
+      pageBuilder: (context, anim1, anim2) {
+        final screenSize = MediaQuery.of(context).size;
+        final bgColor = isDark ? const Color(0xFF0C0C0C) : Colors.white;
+        final borderColor = isDark ? const Color(0xFF1E1E1E) : const Color(0xFFEBEBEB);
+
+        return Material(
+          type: MaterialType.transparency,
+          child: Center(
+            child: Container(
+              width: 360 * scale,
+              constraints: BoxConstraints(maxHeight: screenSize.height * 0.85),
+              margin: EdgeInsets.all(20 * scale),
+              decoration: BoxDecoration(
+                color: bgColor,
+                borderRadius: BorderRadius.circular(12 * scale),
+                border: Border.all(color: borderColor, width: 1),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(isDark ? 0.6 : 0.06),
+                    blurRadius: 24 * scale,
+                    offset: Offset(0, 8 * scale),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(20 * scale, 20 * scale, 20 * scale, 4 * scale),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          l10n?.channel.toUpperCase() ?? 'КАНАЛ',
+                          style: TextStyle(
+                            fontSize: 10 * scale,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 1.5 * scale,
+                            color: isDark ? Colors.white38 : Colors.black38,
+                            fontFamily: 'Inter',
+                          ),
+                        ),
+                        GestureDetector(
+                          onTap: () => Navigator.of(context).pop(),
+                          child: MouseRegion(
+                            cursor: SystemMouseCursors.click,
+                            child: Icon(
+                              Icons.close_rounded,
+                              size: 16 * scale,
+                              color: isDark ? Colors.white38 : Colors.black38,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Flexible(
+                    child: SingleChildScrollView(
+                      padding: EdgeInsets.fromLTRB(20 * scale, 8 * scale, 20 * scale, 20 * scale),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                _buildAvatar(
+                                  avatarUrl,
+                                  name,
+                                  40 * scale,
+                                  scale,
+                                  isDark,
+                                  avatarGradient: gradient,
+                                ),
+                                SizedBox(height: 14 * scale),
+                                Text(
+                                  name,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: 19 * scale,
+                                    fontWeight: FontWeight.w700,
+                                    color: isDark ? Colors.white : Colors.black87,
+                                    fontFamily: 'Inter',
+                                  ),
+                                ),
+                                SizedBox(height: 3 * scale),
+                                Text(
+                                  l10n?.subscribersCount(subsCount) ?? '$subsCount подписчиков',
+                                  style: TextStyle(
+                                    fontSize: 12.5 * scale,
+                                    color: isDark ? Colors.white38 : Colors.black45,
+                                    fontFamily: 'Inter',
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          SizedBox(height: 20 * scale),
+                          _buildProfileSharedMediaSection(isDark, scale),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showFavoritesProfileDialog(BuildContext context, Map<String, dynamic> chat) {
+    final l10n = AppLocalizations.of(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final scaleProvider = Provider.of<ScaleProvider>(context, listen: false);
+    final scale = scaleProvider.scale;
+
+    final name = l10n?.savedMessages ?? 'Избранное';
+
+    showGeneralDialog(
+      context: context,
+      barrierLabel: 'FavoritesProfile',
+      barrierDismissible: true,
+      barrierColor: isDark ? Colors.black.withOpacity(0.85) : Colors.black.withOpacity(0.3),
+      transitionDuration: const Duration(milliseconds: 200),
+      transitionBuilder: (context, anim1, anim2, child) {
+        return FadeTransition(
+          opacity: anim1,
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.98, end: 1.0).animate(
+              CurvedAnimation(parent: anim1, curve: Curves.easeOut),
+            ),
+            child: child,
+          ),
+        );
+      },
+      pageBuilder: (context, anim1, anim2) {
+        final screenSize = MediaQuery.of(context).size;
+        final bgColor = isDark ? const Color(0xFF0C0C0C) : Colors.white;
+        final borderColor = isDark ? const Color(0xFF1E1E1E) : const Color(0xFFEBEBEB);
+
+        return Material(
+          type: MaterialType.transparency,
+          child: Center(
+            child: Container(
+              width: 360 * scale,
+              constraints: BoxConstraints(maxHeight: screenSize.height * 0.85),
+              margin: EdgeInsets.all(20 * scale),
+              decoration: BoxDecoration(
+                color: bgColor,
+                borderRadius: BorderRadius.circular(12 * scale),
+                border: Border.all(color: borderColor, width: 1),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(isDark ? 0.6 : 0.06),
+                    blurRadius: 24 * scale,
+                    offset: Offset(0, 8 * scale),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(20 * scale, 20 * scale, 20 * scale, 4 * scale),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          l10n?.savedMessages.toUpperCase() ?? 'ИЗБРАННОЕ',
+                          style: TextStyle(
+                            fontSize: 10 * scale,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 1.5 * scale,
+                            color: isDark ? Colors.white38 : Colors.black38,
+                            fontFamily: 'Inter',
+                          ),
+                        ),
+                        GestureDetector(
+                          onTap: () => Navigator.of(context).pop(),
+                          child: MouseRegion(
+                            cursor: SystemMouseCursors.click,
+                            child: Icon(
+                              Icons.close_rounded,
+                              size: 16 * scale,
+                              color: isDark ? Colors.white38 : Colors.black38,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Flexible(
+                    child: SingleChildScrollView(
+                      padding: EdgeInsets.fromLTRB(20 * scale, 8 * scale, 20 * scale, 20 * scale),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  width: 80 * scale,
+                                  height: 80 * scale,
+                                  decoration: const BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: [Color(0xFF2563EB), Color(0xFF60A5FA)],
+                                    ),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: Icon(
+                                    Icons.bookmark_rounded,
+                                    size: 40 * scale,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                                SizedBox(height: 14 * scale),
+                                Text(
+                                  name,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: 19 * scale,
+                                    fontWeight: FontWeight.w700,
+                                    color: isDark ? Colors.white : Colors.black87,
+                                    fontFamily: 'Inter',
+                                  ),
+                                ),
+                                SizedBox(height: 4 * scale),
+                                Text(
+                                  l10n?.savedMessagesDesc ?? 'Ваше личное хранилище для заметок, файлов и сообщений',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: 12 * scale,
+                                    color: isDark ? Colors.white38 : Colors.black45,
+                                    fontFamily: 'Inter',
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          SizedBox(height: 20 * scale),
+                          _buildProfileSharedMediaSection(isDark, scale),
+                        ],
                       ),
                     ),
                   ),
@@ -2751,6 +3211,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
     required int? age,
   }) {
     final tiles = <Widget>[];
+    final l10n = AppLocalizations.of(context);
 
     void addTile(IconData icon, String value, String label, {bool copyable = true}) {
       if (tiles.isNotEmpty) {
@@ -2763,13 +3224,13 @@ class _MessengerScreenState extends State<MessengerScreen> {
       tiles.add(_buildProfileInfoTile(isDark, scale, icon, value, label, copyable: copyable));
     }
 
-    if (bio.isNotEmpty) addTile(Icons.info_outline_rounded, bio, 'О себе', copyable: false);
+    if (bio.isNotEmpty) addTile(Icons.info_outline_rounded, bio, l10n?.bio ?? 'О себе', copyable: false);
     if (username.isNotEmpty) {
-      addTile(Icons.alternate_email_rounded, '@$username', 'Имя пользователя');
+      addTile(Icons.alternate_email_rounded, '@$username', l10n?.username ?? 'Имя пользователя');
     }
     if (birthday.isNotEmpty) {
       final ageStr = age != null ? ' • $age ${_pluralizeYears(age)}' : '';
-      addTile(Icons.cake_outlined, '$birthday$ageStr', 'День рождения', copyable: false);
+      addTile(Icons.cake_outlined, '$birthday$ageStr', l10n?.birthday ?? 'День рождения', copyable: false);
     }
 
     if (tiles.isEmpty) {
@@ -2777,7 +3238,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
         padding: EdgeInsets.symmetric(vertical: 8 * scale),
         child: Center(
           child: Text(
-            'Пользователь скрыл информацию о себе',
+            l10n?.userHidInfo ?? 'Пользователь скрыл информацию о себе',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 12 * scale,
@@ -2803,9 +3264,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
   }
 
   String _pluralizeYears(int n) {
-    if (n % 10 == 1 && n % 100 != 11) return 'год';
-    if ([2, 3, 4].contains(n % 10) && ![12, 13, 14].contains(n % 100)) return 'года';
-    return 'лет';
+    if (n % 10 == 1 && n % 100 != 11) return (AppLocalizations.of(context)?.god_6270 ?? 'Fallback');
+    if ([2, 3, 4].contains(n % 10) && ![12, 13, 14].contains(n % 100)) return (AppLocalizations.of(context)?.goda_7443 ?? 'Fallback');
+    return (AppLocalizations.of(context)?.let_257a ?? 'Fallback');
   }
 
   Widget _buildProfileInfoTile(
@@ -2821,8 +3282,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
       child: InkWell(
         onTap: copyable
             ? () {
+                final l10n = AppLocalizations.of(context);
                 Clipboard.setData(ClipboardData(text: value));
-                CustomToast.show(context, 'Скопировано', type: ToastType.success);
+                CustomToast.show(context, l10n?.copied ?? 'Скопировано', type: ToastType.success);
               }
             : null,
         borderRadius: BorderRadius.circular(8 * scale),
@@ -2889,56 +3351,287 @@ class _MessengerScreenState extends State<MessengerScreen> {
     );
   }
 
-  Widget _buildProfileMockTabs(
-    bool isDark,
-    double scale,
-    List<Map<String, dynamic>> tabs,
-  ) {
-    return Row(
-      children: tabs.map((tab) {
-        return Expanded(
-          child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: 3 * scale),
-            child: Container(
-              height: 42 * scale,
-              decoration: BoxDecoration(
-                color: isDark ? Colors.white.withOpacity(0.03) : Colors.black.withOpacity(0.02),
-                borderRadius: BorderRadius.circular(10 * scale),
-                border: Border.all(
-                  color: isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.04),
-                ),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    tab['icon'] as IconData,
-                    size: 14 * scale,
-                    color: isDark ? Colors.white38 : Colors.black38,
-                  ),
-                  SizedBox(width: 5 * scale),
-                  Flexible(
-                    child: Text(
-                      tab['title'] as String,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 9.5 * scale,
-                        color: isDark ? Colors.white38 : Colors.black38,
-                        fontFamily: 'Inter',
+  Widget _buildProfileSharedMediaSection(bool isDark, double scale) {
+    final l10n = AppLocalizations.of(context);
+
+    final mediaList = <Map<String, dynamic>>[];
+    final filesList = <Map<String, dynamic>>[];
+    final musicList = <Map<String, dynamic>>[];
+    final voiceList = <Map<String, dynamic>>[];
+    final linksList = <Map<String, dynamic>>[];
+
+    final urlRegExp = RegExp(r'https?://[^\s]+', caseSensitive: false);
+
+    for (final msg in _messages) {
+      final customPayload = _getCustomPayload(msg);
+      final attachedFileId = msg['attached_file_id']?.toString() ?? msg['file_id']?.toString();
+      
+      final payload = customPayload ?? (attachedFileId != null ? {
+        'type': msg['attached_file_type'] ?? msg['file_type'] ?? 'file',
+        'file_id': attachedFileId,
+        'file_name': msg['attached_file_name'] ?? msg['file_name'] ?? (l10n?.file ?? 'Файл'),
+        'file_url': msg['attached_file_url'] ?? msg['file_url'],
+        'mime_type': msg['attached_file_type'] ?? msg['mime_type'] ?? '',
+      } : null);
+
+      final msgType = (payload?['type'] ?? payload?['message_type'] ?? msg['message_type'] ?? msg['type'])?.toString().toLowerCase() ?? '';
+      
+      String fileUrl = (payload?['file_url'] ?? payload?['media_url'] ?? payload?['url'] ?? msg['file_url'] ?? msg['media_url'] ?? msg['url'])?.toString() ?? '';
+      if (fileUrl.isEmpty && payload?['file_id'] != null) {
+        final fileId = payload!['file_id'].toString();
+        final uri = Uri.parse(ApiService.baseUrl);
+        final port = uri.hasPort ? ':${uri.port}' : '';
+        final host = '${uri.scheme}://${uri.host}$port';
+        fileUrl = '$host/api/files/download/$fileId/';
+      }
+
+      final fileName = (payload?['file_name'] ?? payload?['name'] ?? msg['file_name'] ?? msg['name'])?.toString() ?? '';
+      final rawText = (msg['content'] ?? msg['text'] ?? msg['decrypted_text'])?.toString() ?? '';
+      final decryptedText = _decryptedMessages[msg['id']] ?? rawText;
+      final text = decryptedText.trim().startsWith('{') ? '' : decryptedText;
+
+      final lowerUrl = fileUrl.toLowerCase();
+      final lowerName = fileName.toLowerCase();
+      final mimeType = (payload?['mime_type'] ?? msg['mime_type'])?.toString().toLowerCase() ?? '';
+
+      final isMediaExt = lowerUrl.endsWith('.jpg') || lowerUrl.endsWith('.jpeg') || lowerUrl.endsWith('.png') || lowerUrl.endsWith('.webp') || lowerUrl.endsWith('.gif') || lowerUrl.endsWith('.mp4') || lowerUrl.endsWith('.mov') ||
+                         lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg') || lowerName.endsWith('.png') || lowerName.endsWith('.webp') || lowerName.endsWith('.gif') || lowerName.endsWith('.mp4') || lowerName.endsWith('.mov');
+      
+      final isVoiceMsg = msgType == 'voice' || msgType == 'recording_voice' || msgType == 'recording_video' || mimeType.contains('opus');
+      
+      final isMusicMsg = msgType == 'audio' || (payload != null && _isAudioFile(payload)) || _isAudioFile(msg) ||
+                         lowerUrl.endsWith('.mp3') || lowerUrl.endsWith('.m4a') || lowerUrl.endsWith('.flac') || lowerUrl.endsWith('.aac') || lowerUrl.endsWith('.ogg') || lowerUrl.endsWith('.wav') ||
+                         lowerName.endsWith('.mp3') || lowerName.endsWith('.m4a') || lowerName.endsWith('.flac') || lowerName.endsWith('.aac') || lowerName.endsWith('.ogg') || lowerName.endsWith('.wav');
+
+      if (fileUrl.isNotEmpty || payload != null) {
+        if (isVoiceMsg) {
+          voiceList.add({'url': fileUrl, 'name': fileName.isNotEmpty ? fileName : (l10n?.voiceMessage ?? 'Голосовое сообщение'), 'msg': msg});
+        } else if (isMusicMsg) {
+          musicList.add({'url': fileUrl, 'name': fileName.isNotEmpty ? fileName : (l10n?.music ?? 'Аудиозапись'), 'msg': msg});
+        } else if (isMediaExt || msgType == 'image' || msgType == 'video' || msgType == 'photo') {
+          mediaList.add({'url': fileUrl, 'name': fileName.isNotEmpty ? fileName : (l10n?.media ?? 'Медиафайлы'), 'msg': msg});
+        } else {
+          filesList.add({'url': fileUrl, 'name': fileName.isNotEmpty ? fileName : (l10n?.file ?? 'Файл'), 'msg': msg});
+        }
+      }
+
+      if (text.isNotEmpty) {
+        final matches = urlRegExp.allMatches(text);
+        for (final match in matches) {
+          linksList.add({'url': match.group(0)!, 'msg': msg});
+        }
+      }
+    }
+
+    final tabs = [
+      {'title': l10n?.media ?? 'Медиа', 'icon': Icons.image_rounded, 'count': mediaList.length, 'items': mediaList},
+      {'title': l10n?.files ?? 'Файлы', 'icon': Icons.description_rounded, 'count': filesList.length, 'items': filesList},
+      {'title': l10n?.music ?? 'Музыка', 'icon': Icons.music_note_rounded, 'count': musicList.length, 'items': musicList},
+      {'title': l10n?.voice ?? 'Голосовые', 'icon': Icons.mic_rounded, 'count': voiceList.length, 'items': voiceList},
+      {'title': l10n?.links ?? 'Ссылки', 'icon': Icons.link_rounded, 'count': linksList.length, 'items': linksList},
+    ];
+
+    int activeTabIndex = 0;
+
+    return StatefulBuilder(
+      builder: (context, setTabState) {
+        final activeTab = tabs[activeTabIndex];
+        final items = activeTab['items'] as List<Map<String, dynamic>>;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: List.generate(tabs.length, (i) {
+                final tab = tabs[i];
+                final isSelected = i == activeTabIndex;
+                return Expanded(
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 2.0 * scale),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: () {
+                          setTabState(() {
+                            activeTabIndex = i;
+                          });
+                        },
+                        borderRadius: BorderRadius.circular(10 * scale),
+                        child: Container(
+                          height: 44 * scale,
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? (isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.06))
+                                : (isDark ? Colors.white.withOpacity(0.02) : Colors.black.withOpacity(0.01)),
+                            borderRadius: BorderRadius.circular(10 * scale),
+                            border: Border.all(
+                              color: isSelected
+                                  ? const Color(0xFF2563EB)
+                                  : (isDark ? Colors.white.withOpacity(0.04) : Colors.black.withOpacity(0.04)),
+                              width: isSelected ? 1.5 : 1.0,
+                            ),
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    tab['icon'] as IconData,
+                                    size: 12 * scale,
+                                    color: isSelected
+                                        ? const Color(0xFF2563EB)
+                                        : (isDark ? Colors.white38 : Colors.black38),
+                                  ),
+                                  SizedBox(width: 3 * scale),
+                                  Flexible(
+                                    child: Text(
+                                      '${tab['title']}',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontSize: 9.0 * scale,
+                                        fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+                                        color: isSelected
+                                            ? (isDark ? Colors.white : Colors.black87)
+                                            : (isDark ? Colors.white38 : Colors.black38),
+                                        fontFamily: 'Inter',
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              if ((tab['count'] as int) > 0) ...[
+                                SizedBox(height: 2 * scale),
+                                Text(
+                                  '${tab['count']}',
+                                  style: TextStyle(
+                                    fontSize: 8.0 * scale,
+                                    color: isSelected
+                                        ? const Color(0xFF2563EB)
+                                        : (isDark ? Colors.white24 : Colors.black26),
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
                       ),
                     ),
                   ),
-                ],
-              ),
+                );
+              }),
             ),
-          ),
+            SizedBox(height: 12 * scale),
+            Container(
+              constraints: BoxConstraints(minHeight: 80 * scale, maxHeight: 200 * scale),
+              width: double.infinity,
+              padding: EdgeInsets.all(8 * scale),
+              decoration: BoxDecoration(
+                color: isDark ? Colors.white.withOpacity(0.02) : Colors.black.withOpacity(0.015),
+                borderRadius: BorderRadius.circular(10 * scale),
+                border: Border.all(
+                  color: isDark ? Colors.white.withOpacity(0.04) : Colors.black.withOpacity(0.04),
+                ),
+              ),
+              child: items.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            activeTab['icon'] as IconData,
+                            size: 24 * scale,
+                            color: isDark ? Colors.white24 : Colors.black26,
+                          ),
+                          SizedBox(height: 6 * scale),
+                          Text(
+                            activeTabIndex == 0
+                                ? (l10n?.noSharedMedia ?? 'Нет медиафайлов')
+                                : activeTabIndex == 1
+                                    ? (l10n?.noSharedFiles ?? 'Нет файлов')
+                                    : activeTabIndex == 2
+                                        ? (l10n?.noSharedMusic ?? 'Нет музыкальных треков')
+                                        : activeTabIndex == 3
+                                            ? (l10n?.noSharedVoice ?? 'Нет голосовых сообщений')
+                                            : (l10n?.noSharedLinks ?? 'Нет ссылок'),
+                            style: TextStyle(
+                              fontSize: 11 * scale,
+                              color: isDark ? Colors.white38 : Colors.black38,
+                              fontFamily: 'Inter',
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : SingleChildScrollView(
+                      child: Column(
+                        children: items.map((item) {
+                          final url = item['url']?.toString() ?? '';
+                          final name = item['name']?.toString() ?? url;
+
+                          return Padding(
+                            padding: EdgeInsets.symmetric(vertical: 4 * scale),
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: () {
+                                  Clipboard.setData(ClipboardData(text: url));
+                                  CustomToast.show(
+                                    context,
+                                    l10n?.copied ?? 'Скопировано',
+                                    type: ToastType.success,
+                                  );
+                                },
+                                borderRadius: BorderRadius.circular(6 * scale),
+                                child: Padding(
+                                  padding: EdgeInsets.all(6 * scale),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        activeTab['icon'] as IconData,
+                                        size: 16 * scale,
+                                        color: const Color(0xFF2563EB),
+                                      ),
+                                      SizedBox(width: 8 * scale),
+                                      Expanded(
+                                        child: Text(
+                                          name,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontSize: 12 * scale,
+                                            color: isDark ? Colors.white70 : Colors.black87,
+                                            fontFamily: 'Inter',
+                                          ),
+                                        ),
+                                      ),
+                                      Icon(
+                                        Icons.copy_rounded,
+                                        size: 13 * scale,
+                                        color: isDark ? Colors.white24 : Colors.black26,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+            ),
+          ],
         );
-      }).toList(),
+      },
     );
   }
 
   void _showAccountSwitcherDialog(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final scaleProvider = Provider.of<ScaleProvider>(context, listen: false);
     final scale = scaleProvider.scale;
@@ -3002,7 +3695,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Text(
-                              'АККАУНТЫ',
+                              l10n?.accountsTitle ?? 'АККАУНТЫ',
                               style: TextStyle(
                                 fontSize: 10 * scale,
                                 fontWeight: FontWeight.w600,
@@ -3180,7 +3873,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                             Navigator.of(context).pushNamed('/login');
                                           },
                                           child: Text(
-                                            'Добавить аккаунт',
+                                            l10n?.addAccount ?? 'Добавить аккаунт',
                                             style: TextStyle(
                                               fontWeight: FontWeight.w500,
                                               fontSize: 12 * scale,
@@ -3195,7 +3888,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                       padding: EdgeInsets.symmetric(vertical: 12 * scale),
                                       child: Center(
                                         child: Text(
-                                          'Лимит: 5 аккаунтов',
+                                          l10n?.accountLimitNotice ?? 'Лимит 5 аккаунтов',
                                           style: TextStyle(
                                             color: isDark ? Colors.white38 : Colors.black38,
                                             fontSize: 11 * scale,
@@ -3226,6 +3919,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
   Widget build(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
     final scaleProvider = Provider.of<ScaleProvider>(context);
+    final l10n = AppLocalizations.of(context);
     final isDark = themeProvider.isDarkMode;
     final scale = scaleProvider.scale;
 
@@ -3338,7 +4032,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
               if (_viewingArchive)
                 IconButton(
                   icon: Icon(Icons.arrow_back_rounded, size: 20 * scale),
-                  tooltip: 'Назад к чатам',
+                  tooltip: (AppLocalizations.of(context)?.nazadKChatam_7edb ?? 'Fallback'),
                   onPressed: () {
                     setState(() {
                       _viewingArchive = false;
@@ -3349,7 +4043,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
               else
                 IconButton(
                   icon: Icon(Icons.menu_rounded, size: 20 * scale),
-                  tooltip: 'Настройки',
+                  tooltip: (AppLocalizations.of(context)?.nastroyki_c919 ?? 'Fallback'),
                   onPressed: () {
                     XaneoSettingsModal.open(
                       context,
@@ -3357,6 +4051,13 @@ class _MessengerScreenState extends State<MessengerScreen> {
                       onLogout: () {
                         // вызываем логаут через AccountService как раньше
                         _logout();
+                      },
+                      onUpdateFound: (update) {
+                        if (mounted) {
+                          setState(() {
+                            _availableUpdate = update;
+                          });
+                        }
                       },
                       onSelectChat: (contact) {
                         final userId = contact['contact_user_id'];
@@ -3401,9 +4102,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
                   },
                   color: isDark ? Colors.white70 : Colors.black54,
                 ),
-              const SizedBox(width: 8),
+              SizedBox(width: 8),
               Text(
-                _viewingArchive ? 'Архив' : 'Чаты',
+                _viewingArchive
+                    ? (AppLocalizations.of(context)?.archive ?? (AppLocalizations.of(context)?.arhiv_56aa ?? 'Fallback'))
+                    : (AppLocalizations.of(context)?.chats ?? (AppLocalizations.of(context)?.chaty_19ad ?? 'Fallback')),
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 18 * scale,
@@ -3414,7 +4117,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
               if (!_viewingArchive)
                 IconButton(
                   icon: Icon(Icons.search_rounded, size: 20 * scale),
-                  tooltip: 'Глобальный поиск',
+                  tooltip: (AppLocalizations.of(context)?.globalnyyPoisk_7ff2 ?? 'Fallback'),
                   onPressed: () {
                     GlobalSearchModal.show(
                       context: context,
@@ -3431,12 +4134,12 @@ class _MessengerScreenState extends State<MessengerScreen> {
         // Chats List
         Expanded(
           child: _isChatsLoading
-              ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
+              ? Center(child: CircularProgressIndicator(strokeWidth: 2))
               : _viewingArchive
                   ? (_archivedChats.isEmpty
                       ? Center(
                           child: Text(
-                            'Архив пуст',
+                            AppLocalizations.of(context)?.archiveEmpty ?? (AppLocalizations.of(context)?.arhivPust_3e22 ?? 'Fallback'),
                             style: TextStyle(
                               color: isDark ? Colors.white38 : Colors.black38,
                               fontSize: 13 * scale,
@@ -3525,7 +4228,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
             onTap: () => _showAccountSwitcherDialog(context),
             child: AnimatedScale(
               scale: isPressed ? 0.97 : (isHovered ? 1.02 : 1.0),
-              duration: const Duration(milliseconds: 100),
+              duration: Duration(milliseconds: 100),
               child: AnimatedOpacity(
                 opacity: isPressed ? 0.85 : 1.0,
                 duration: const Duration(milliseconds: 100),
@@ -3610,7 +4313,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                           ),
                           child: Row(
                             children: [
-                              // Avatar (smaller, e.g. 30 * scale width/height)
+                              // Avatar (smaller, e.g.loc_30 * scale width/height)
                               _buildAvatar(
                                 _myProfile != null ? (_myProfile!['avatar'] as String? ?? _myProfile!['avatar_url'] as String?) : null,
                                 realName,
@@ -3649,7 +4352,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                               // Logout action icon
                               IconButton(
                                 icon: Icon(Icons.logout_rounded, size: 16 * scale),
-                                tooltip: 'Выйти из аккаунта',
+                                tooltip: (AppLocalizations.of(context)?.vyytiIzAkkaunta_6d41 ?? 'Fallback'),
                                 onPressed: _logout,
                                 color: isDark ? Colors.white54 : Colors.black54,
                                 constraints: const BoxConstraints(),
@@ -3677,7 +4380,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
     final unreadCount = rawUnread is int ? rawUnread : int.tryParse(rawUnread.toString()) ?? 0;
     final lastMsg = chat['last_message'];
     
-    String lastMsgText = "Нет сообщений";
+    String lastMsgText = (AppLocalizations.of(context)?.netSoobscheniy_29d4 ?? 'Fallback');
     if (chatType == 'group') {
       lastMsgText = _getGroupStatusText(chat);
     } else if (chatType == 'channel') {
@@ -3690,36 +4393,36 @@ class _MessengerScreenState extends State<MessengerScreen> {
       final msgType = lastMsg['message_type'] as String?;
 
       if (msgType == 'user_joined_group' || msgType == 'user_joined') {
-        final authorName = lastMsg['author_first_name'] ?? lastMsg['author_username'] ?? 'Пользователь';
+        final authorName = lastMsg['author_first_name'] ?? lastMsg['author_username'] ?? (AppLocalizations.of(context)?.polzovatel_f154 ?? 'Fallback');
         lastMsgText = "$authorName присоединился к чату";
       } else if (msgType == 'user_left_group' || msgType == 'user_left') {
-        final authorName = lastMsg['author_first_name'] ?? lastMsg['author_username'] ?? 'Пользователь';
+        final authorName = lastMsg['author_first_name'] ?? lastMsg['author_username'] ?? (AppLocalizations.of(context)?.polzovatel_f154 ?? 'Fallback');
         lastMsgText = "$authorName покинул чат";
       } else if (msgType == 'user_subscribed_channel') {
-        final authorName = lastMsg['author_first_name'] ?? lastMsg['author_username'] ?? 'Пользователь';
+        final authorName = lastMsg['author_first_name'] ?? lastMsg['author_username'] ?? (AppLocalizations.of(context)?.polzovatel_f154 ?? 'Fallback');
         lastMsgText = "$authorName подписался на канал";
       } else if (msgType == 'user_unsubscribed_channel') {
-        final authorName = lastMsg['author_first_name'] ?? lastMsg['author_username'] ?? 'Пользователь';
+        final authorName = lastMsg['author_first_name'] ?? lastMsg['author_username'] ?? (AppLocalizations.of(context)?.polzovatel_f154 ?? 'Fallback');
         lastMsgText = "$authorName отписался от канала";
       } else if (msgType == 'todo_list') {
-        lastMsgText = "📋 To-Do лист";
+        lastMsgText = (AppLocalizations.of(context)?.toDoList_27e1 ?? 'Fallback');
       } else if (msgType == 'poll') {
-        lastMsgText = "🗳️ Опрос";
+        lastMsgText = (AppLocalizations.of(context)?.opros_6ff1 ?? 'Fallback');
       } else if (msgType == 'call') {
-        lastMsgText = "📞 Звонок";
+        lastMsgText = (AppLocalizations.of(context)?.zvonok_e8d5 ?? 'Fallback');
       } else if (msgId != null) {
-        lastMsgText = _decryptedMessages[msgId] ?? "[Зашифрованное сообщение]";
+        lastMsgText = _decryptedMessages[msgId] ?? (AppLocalizations.of(context)?.zashifrovannoeSoobschenie_ca35 ?? 'Fallback');
         if (lastMsgText.isEmpty) {
-          lastMsgText = "📎 Файл";
+          lastMsgText = (AppLocalizations.of(context)?.fayl_826d ?? 'Fallback');
         }
       } else if (lastMsg['files'] != null && (lastMsg['files'] as List).isNotEmpty) {
         final List files = lastMsg['files'] as List;
         final firstFile = files.first;
         final fileType = firstFile['file_type'] as String? ?? '';
         if (fileType == 'image') {
-          lastMsgText = "📷 Фотография";
+          lastMsgText = (AppLocalizations.of(context)?.fotografiya_5709 ?? 'Fallback');
         } else {
-          lastMsgText = "📎 Файл";
+          lastMsgText = (AppLocalizations.of(context)?.fayl_826d ?? 'Fallback');
         }
       }
 
@@ -3733,19 +4436,19 @@ class _MessengerScreenState extends State<MessengerScreen> {
           
           if (hasFiles) {
             if (parsed['type'] == 'voice') {
-              lastMsgText = "🎤 Голосовое сообщение";
+              lastMsgText = (AppLocalizations.of(context)?.golosovoeSoobschenie_4a85 ?? 'Fallback');
             } else if (parsed['type'] == 'video_message') {
-              lastMsgText = "🎬 Видеосообщение";
+              lastMsgText = (AppLocalizations.of(context)?.videosoobschenie_d687 ?? 'Fallback');
             } else if (parsed['type'] == 'file') {
-              lastMsgText = "📎 Файл";
+              lastMsgText = (AppLocalizations.of(context)?.fayl_826d ?? 'Fallback');
             }
           }
           if (parsed['type'] == 'todo_list' && (lastMsg['message_type'] == 'todo_list' || lastMsg['message_type'] == 'todo_list_message')) {
-            lastMsgText = "📋 To-Do лист";
+            lastMsgText = (AppLocalizations.of(context)?.toDoList_27e1 ?? 'Fallback');
           } else if (parsed['type'] == 'poll' && lastMsg['message_type'] == 'poll') {
-            lastMsgText = "🗳️ Опрос";
+            lastMsgText = (AppLocalizations.of(context)?.opros_6ff1 ?? 'Fallback');
           } else if (parsed['type'] == 'call') {
-            lastMsgText = "📞 Звонок";
+            lastMsgText = (AppLocalizations.of(context)?.zvonok_e8d5 ?? 'Fallback');
           }
         } catch (_) {}
       }
@@ -3817,7 +4520,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
                   isArchived ? FontAwesomeIcons.boxOpen : FontAwesomeIcons.boxArchive,
                   size: 16 * scale,
                 ),
-                label: isArchived ? 'Разархивировать' : 'В архив',
+                label: isArchived
+                    ? (AppLocalizations.of(context)?.unarchive ?? (AppLocalizations.of(context)?.razarhivirovat_416b ?? 'Fallback'))
+                    : (AppLocalizations.of(context)?.toArchive ?? (AppLocalizations.of(context)?.vArhiv_ce22 ?? 'Fallback')),
                 onTap: () => _toggleArchive(chat),
               ),
             ],
@@ -4138,7 +4843,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
   String _getChatName(Map<String, dynamic> chat) {
     final chatType = chat['chat_type'] as String?;
     if (chatType == 'favorites') {
-      return "Избранное";
+      return AppLocalizations.of(context)?.savedMessages ?? (AppLocalizations.of(context)?.izbrannoe_2fc4 ?? 'Fallback');
     }
     
     if (chatType == 'personal') {
@@ -4167,11 +4872,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
         final realName = otherUser['realname'] as String?;
         if (firstName != null && firstName.trim().isNotEmpty) return firstName;
         if (realName != null && realName.trim().isNotEmpty) return realName;
-        return otherUser['username'] as String? ?? "Пользователь";
+        return otherUser['username'] as String? ?? (AppLocalizations.of(context)?.polzovatel_f154 ?? 'Fallback');
       }
     }
     
-    return chat['chat_display_name'] as String? ?? "Чат";
+    return chat['chat_display_name'] as String? ?? (AppLocalizations.of(context)?.chat_c52b ?? 'Fallback');
   }
 
   String _formatMessageTime(String? createdAtStr) {
@@ -4202,9 +4907,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(Icons.chat_bubble_outline_rounded, size: 64 * scale, color: isDark ? Colors.white24 : Colors.black26),
-            const SizedBox(height: 16),
+            SizedBox(height: 16),
             Text(
-              'Выберите чат для начала общения',
+              AppLocalizations.of(context)?.selectChatToStart ?? (AppLocalizations.of(context)?.vyberiteChatDlyaNachalaObscheniya_36a5 ?? 'Fallback'),
               style: TextStyle(
                 color: isDark ? Colors.white54 : Colors.black54,
                 fontSize: 16 * scale,
@@ -4221,12 +4926,13 @@ class _MessengerScreenState extends State<MessengerScreen> {
     final otherUser = _selectedChat!['other_user'] as Map<String, dynamic>?;
     final isOnline = otherUser != null && (otherUser['is_online'] as bool? ?? false);
     final isBot = otherUser != null && (otherUser['is_bot'] == true || otherUser['bot'] == true || (otherUser['username']?.toString().toLowerCase().endsWith('bot') ?? false));
+    final l10n = AppLocalizations.of(context);
 
     String statusText = "";
     if (chatType == 'favorites') {
-      statusText = "Избранные сообщения";
+      statusText = l10n?.savedMessages ?? (AppLocalizations.of(context)?.izbrannoe_2fc4 ?? 'Fallback');
     } else if (chatType == 'personal') {
-      statusText = isBot ? "бот" : (isOnline ? "в сети" : "не в сети");
+      statusText = isBot ? (AppLocalizations.of(context)?.bot_2712 ?? 'Fallback') : (isOnline ? (l10n?.online ?? (AppLocalizations.of(context)?.vSeti_d902 ?? 'Fallback')) : (l10n?.offline ?? (AppLocalizations.of(context)?.neVSeti_ee01 ?? 'Fallback')));
     } else if (chatType == 'group') {
       statusText = _getGroupStatusText(_selectedChat!);
     } else if (chatType == 'channel') {
@@ -4261,31 +4967,31 @@ class _MessengerScreenState extends State<MessengerScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    if (chatType == 'personal' && otherUser != null)
-                      MouseRegion(
-                        cursor: SystemMouseCursors.click,
-                        child: GestureDetector(
-                          onTap: () => _showUserProfileDialog(context, otherUser, displayName),
-                          child: Text(
-                            displayName,
-                            style: TextStyle(
-                              fontSize: 16 * scale,
-                              fontWeight: FontWeight.bold,
-                              color: isDark ? Colors.white : Colors.black87,
-                            ),
+                    MouseRegion(
+                      cursor: SystemMouseCursors.click,
+                      child: GestureDetector(
+                        onTap: () {
+                          if (chatType == 'personal' && otherUser != null) {
+                            _showUserProfileDialog(context, otherUser, displayName);
+                          } else if (chatType == 'group') {
+                            _showGroupProfileDialog(context, _selectedChat!);
+                          } else if (chatType == 'channel') {
+                            _showChannelProfileDialog(context, _selectedChat!);
+                          } else if (chatType == 'favorites') {
+                            _showFavoritesProfileDialog(context, _selectedChat!);
+                          }
+                        },
+                        child: Text(
+                          displayName,
+                          style: TextStyle(
+                            fontSize: 16 * scale,
+                            fontWeight: FontWeight.bold,
+                            color: isDark ? Colors.white : Colors.black87,
                           ),
                         ),
-                      )
-                    else
-                      Text(
-                        displayName,
-                        style: TextStyle(
-                          fontSize: 16 * scale,
-                          fontWeight: FontWeight.bold,
-                          color: isDark ? Colors.white : Colors.black87,
-                        ),
                       ),
-                    const SizedBox(height: 2),
+                    ),
+                    SizedBox(height: 2),
                     if (typingAction != null)
                       Row(
                         children: [
@@ -4306,7 +5012,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                           ),
                           const SizedBox(width: 4),
                           Text(
-                            _getTypingStatusText() ?? 'печатает...',
+                            _getTypingStatusText() ?? (AppLocalizations.of(context)?.pechataet_812c ?? 'Fallback'),
                             style: TextStyle(
                               fontSize: 11 * scale,
                               color: const Color(0xFF2563EB),
@@ -4334,7 +5040,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
               if (_canMakeCallInCurrentChat())
                 IconButton(
                   icon: Icon(Icons.phone_rounded, size: 20 * scale),
-                  tooltip: 'Позвонить',
+                  tooltip: l10n?.call ?? 'Позвонить',
                   onPressed: () {
                     _showCallChoiceModal(context, scale, isDark);
                   },
@@ -4343,7 +5049,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
               IconButton(
                 key: _headerSettingsKey,
                 icon: Icon(Icons.settings_rounded, size: 20 * scale),
-                tooltip: 'Настройки чата',
+                tooltip: l10n?.chatSettings ?? 'Настройки чата',
                 onPressed: () {
                   final renderBox = _headerSettingsKey.currentContext?.findRenderObject() as RenderBox?;
                   if (renderBox != null) {
@@ -4363,7 +5069,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                         items.add(
                           CustomContextMenuItem(
                             icon: FaIcon(FontAwesomeIcons.rightFromBracket, size: 14 * scale, color: Colors.redAccent),
-                            label: 'Покинуть группу',
+                            label: l10n?.leaveGroup ?? 'Покинуть группу',
                             onTap: () => _handleLeaveChat(_selectedChat!),
                           ),
                         );
@@ -4371,7 +5077,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                         items.add(
                           CustomContextMenuItem(
                             icon: FaIcon(FontAwesomeIcons.userPlus, size: 14 * scale, color: const Color(0xFF2563EB)),
-                            label: 'Присоединиться к группе',
+                            label: l10n?.joinGroup ?? 'Присоединиться к группе',
                             onTap: () => _handleJoinChat(_selectedChat!),
                           ),
                         );
@@ -4381,7 +5087,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                         items.add(
                           CustomContextMenuItem(
                             icon: FaIcon(FontAwesomeIcons.bellSlash, size: 14 * scale, color: Colors.redAccent),
-                            label: 'Отписаться от канала',
+                            label: l10n?.unsubscribeChannel ?? 'Отписаться от канала',
                             onTap: () => _handleLeaveChat(_selectedChat!),
                           ),
                         );
@@ -4389,7 +5095,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                         items.add(
                           CustomContextMenuItem(
                             icon: FaIcon(FontAwesomeIcons.bullhorn, size: 14 * scale, color: const Color(0xFF2563EB)),
-                            label: 'Подписаться на канал',
+                            label: l10n?.subscribeChannel ?? 'Подписаться на канал',
                             onTap: () => _handleJoinChat(_selectedChat!),
                           ),
                         );
@@ -4399,7 +5105,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
                     items.add(
                       CustomContextMenuItem(
                         icon: FaIcon(FontAwesomeIcons.boxArchive, size: 14 * scale),
-                        label: (_selectedChat!['is_archived'] == true) ? 'Разархивировать' : 'В архив',
+                        label: (_selectedChat!['is_archived'] == true)
+                            ? (l10n?.unarchive ?? 'Разать')
+                            : (l10n?.toArchive ?? 'В архив'),
                         onTap: () => _toggleArchive(_selectedChat!),
                       ),
                     );
@@ -4422,14 +5130,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
           child: Stack(
             children: [
               _isMessagesLoading
-                  ? const Center(child: CircularProgressIndicator())
+                  ? Center(child: CircularProgressIndicator())
                   : _messages.isEmpty
-                      ? Center(
-                          child: Text(
-                            'Нет сообщений. Напишите что-нибудь!',
-                            style: TextStyle(color: isDark ? Colors.white38 : Colors.black38),
-                          ),
-                        )
+                      ? _buildEmptyMessagesPlaceholder(isDark, scale)
                       : ListView.builder(
                           controller: _scrollController,
                           reverse: true,
@@ -4523,13 +5226,131 @@ class _MessengerScreenState extends State<MessengerScreen> {
     );
   }
 
+  Widget _buildEmptyMessagesPlaceholder(bool isDark, double scale) {
+    final l10n = AppLocalizations.of(context);
+    final title = l10n?.noMessagesTitle ?? 'Нет сообщений';
+    final subtitle = l10n?.noMessagesSubtitle ?? 'Напишите первыми, чтобы начать общение в Xaneo Connect!';
+
+    final cardBg = isDark ? const Color(0xFF121212) : const Color(0xFFFFFFFF);
+    final borderColor = isDark ? const Color(0xFF262626) : const Color(0xFFE5E5E5);
+    final iconBg = isDark ? const Color(0xFF1E1E1E) : const Color(0xFFF4F4F5);
+    final primaryTextColor = isDark ? Colors.white : Colors.black;
+    final secondaryTextColor = isDark ? Colors.white60 : Colors.black54;
+
+    return Center(
+      child: SingleChildScrollView(
+        padding: EdgeInsets.all(24 * scale),
+        child: Container(
+          constraints: BoxConstraints(maxWidth: 360 * scale),
+          padding: EdgeInsets.symmetric(horizontal: 28 * scale, vertical: 36 * scale),
+          decoration: BoxDecoration(
+            color: cardBg,
+            borderRadius: BorderRadius.circular(20 * scale),
+            border: Border.all(
+              color: borderColor,
+              width: 1,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: isDark ? 0.4 : 0.04),
+                blurRadius: 16 * scale,
+                offset: Offset(0, 4 * scale),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Clean Minimal Icon Container
+              Container(
+                width: 64 * scale,
+                height: 64 * scale,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: iconBg,
+                  border: Border.all(
+                    color: borderColor,
+                    width: 1,
+                  ),
+                ),
+                child: Icon(
+                  Icons.chat_bubble_outline_rounded,
+                  size: 28 * scale,
+                  color: primaryTextColor,
+                ),
+              ),
+              SizedBox(height: 18 * scale),
+
+              // Title
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 17 * scale,
+                  fontWeight: FontWeight.w700,
+                  color: primaryTextColor,
+                  fontFamily: 'Inter',
+                  letterSpacing: -0.2,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              SizedBox(height: 8 * scale),
+
+              // Subtitle
+              Text(
+                subtitle,
+                style: TextStyle(
+                  fontSize: 13 * scale,
+                  height: 1.4,
+                  color: secondaryTextColor,
+                  fontFamily: 'Inter',
+                ),
+                textAlign: TextAlign.center,
+              ),
+              SizedBox(height: 20 * scale),
+
+              // Clean Neutral Badge
+              Container(
+                padding: EdgeInsets.symmetric(horizontal: 14 * scale, vertical: 6 * scale),
+                decoration: BoxDecoration(
+                  color: iconBg,
+                  borderRadius: BorderRadius.circular(20 * scale),
+                  border: Border.all(
+                    color: borderColor,
+                    width: 1,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.edit_note_rounded,
+                      size: 15 * scale,
+                      color: primaryTextColor,
+                    ),
+                    SizedBox(width: 6 * scale),
+                    Text(
+                      '👋 Xaneo Connect',
+                      style: TextStyle(
+                        fontSize: 11 * scale,
+                        fontWeight: FontWeight.w600,
+                        color: primaryTextColor,
+                        fontFamily: 'Inter',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildVoicePlaybackBar(bool isDark, double scale) {
     return Consumer<PlaybackProvider>(
       builder: (context, playback, child) {
         final isVisible = playback.currentAudioUrl != null;
-        final isPlaying = playback.isPlaying;
-        final title = playback.title;
-        final subtitle = playback.subtitle;
 
         return AnimatedSwitcher(
           duration: const Duration(milliseconds: 280),
@@ -4552,111 +5373,100 @@ class _MessengerScreenState extends State<MessengerScreen> {
               : Align(
                   key: const ValueKey('voice_bar_visible'),
                   alignment: Alignment.topCenter,
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 460),
-                    child: Container(
-                      height: 42 * scale,
-                      padding: EdgeInsets.symmetric(horizontal: 8 * scale),
-                      decoration: BoxDecoration(
-                        color: isDark ? const Color(0xE61C1C20) : const Color(0xF2FFFFFF),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: isDark
-                              ? Colors.white.withOpacity(0.08)
-                              : Colors.black.withOpacity(0.06),
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(isDark ? 0.4 : 0.12),
-                            blurRadius: 14,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: Row(
-                        children: [
-                          SizedBox(width: 6 * scale),
-                          // Play / Pause
-                          GestureDetector(
-                            onTap: () {
-                              if (isPlaying) {
-                                playback.pause();
-                              } else {
-                                playback.resume();
-                              }
-                            },
-                            child: Container(
-                              width: 30 * scale,
-                              height: 30 * scale,
-                              decoration: BoxDecoration(
-                                color: isDark
-                                    ? Colors.white.withOpacity(0.12)
-                                    : Colors.black.withOpacity(0.06),
-                                shape: BoxShape.circle,
-                              ),
-                              child: Center(
-                                child: FaIcon(
-                                  isPlaying ? FontAwesomeIcons.pause : FontAwesomeIcons.play,
-                                  color: isDark ? Colors.white : Colors.black87,
-                                  size: 14 * scale,
-                                ),
-                              ),
-                            ),
-                          ),
-                          SizedBox(width: 12 * scale),
-                          // Title + subtitle
-                          Expanded(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  title.isEmpty ? 'Голосовое сообщение' : title,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: isDark ? Colors.white : Colors.black87,
-                                    fontSize: 13 * scale,
-                                    fontWeight: FontWeight.w600,
-                                    fontFamily: 'Inter',
-                                  ),
-                                ),
-                                if (subtitle.isNotEmpty) ...[
-                                  SizedBox(height: 1 * scale),
-                                  Text(
-                                    subtitle,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: isDark ? Colors.white38 : Colors.black45,
-                                      fontSize: 11 * scale,
-                                      fontFamily: 'Inter',
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                          ),
-                          // Close
-                          GestureDetector(
-                            onTap: () => playback.stop(),
-                            child: Padding(
-                              padding: EdgeInsets.symmetric(horizontal: 10 * scale, vertical: 8 * scale),
-                              child: Icon(
-                                Icons.close_rounded,
-                                color: isDark ? Colors.white38 : Colors.black38,
-                                size: 18 * scale,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                  child: _TopAudioPlaybackBar(
+                    playback: playback,
+                    isDark: isDark,
+                    scale: scale,
+                    onTapTitle: () => _showMusicPlaylistModal(context, isDark, scale),
                   ),
                 ),
         );
       },
     );
+  }
+
+  Map<String, dynamic>? _getCustomPayload(Map<String, dynamic> msg) {
+    final dynamic rawId = msg['id'];
+    final id = rawId is int ? rawId : (int.tryParse(rawId.toString()) ?? 0);
+    final decryptedText = _decryptedMessages[id] ?? msg['encrypted_text'] ?? "";
+    if (decryptedText.trim().startsWith('{')) {
+      try {
+        final parsed = jsonDecode(decryptedText);
+        if (parsed is Map<String, dynamic>) {
+          return parsed;
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  List<PlaybackItem> _getMusicPlaylistFromChat() {
+    final playlist = <PlaybackItem>[];
+    if (_selectedChat == null) return playlist;
+    
+    for (final msg in _messages) {
+      final customPayload = _getCustomPayload(msg);
+      final attachedFileId = msg['attached_file_id']?.toString() ?? msg['file_id']?.toString();
+      
+      final payload = customPayload ?? (attachedFileId != null ? {
+        'type': msg['attached_file_type'] == 'audio' || msg['file_type'] == 'audio' ? 'audio' : 'file',
+        'file_id': attachedFileId,
+        'file_name': msg['attached_file_name'] ?? msg['file_name'] ?? (AppLocalizations.of(context)?.audiozapis_867d ?? 'Fallback'),
+        'file_size': msg['attached_file_size'] ?? msg['file_size'] ?? 0,
+        'mime_type': msg['attached_file_type'] ?? 'audio/mp3',
+      } : null);
+
+      if (payload == null) continue;
+
+      final type = payload['type']?.toString().toLowerCase() ?? '';
+      if (type == 'voice' || type == 'video_message') continue;
+
+      if (type == 'audio' || _isAudioFile(payload)) {
+        final fileName = payload['file_name']?.toString() ?? payload['name']?.toString() ?? (AppLocalizations.of(context)?.muzykalnyyTrek_b15d ?? 'Fallback');
+        final fileSize = payload['file_size'] as int? ?? 0;
+        final mimeType = payload['mime_type']?.toString() ?? 'audio/mp3';
+        
+        final fileId = payload['file_id']?.toString() ?? '';
+        final uri = Uri.parse(ApiService.baseUrl);
+        final port = uri.hasPort ? ':${uri.port}' : '';
+        final host = '${uri.scheme}://${uri.host}$port';
+        String? fileUrl = payload['file_url']?.toString();
+        if (fileUrl != null && fileUrl.trim().isEmpty) fileUrl = null;
+        final suffix = fileUrl ?? '/api/files/download/$fileId/';
+        String audioUrl = suffix.startsWith('http') ? suffix : '$host${suffix.startsWith('/') ? '' : '/'}$suffix';
+        final lowerName = fileName.toLowerCase();
+        if (lowerName.endsWith('.mp3')) audioUrl += audioUrl.contains('?') ? '&ext=.mp3' : '?ext=.mp3';
+        else if (lowerName.endsWith('.flac')) audioUrl += audioUrl.contains('?') ? '&ext=.flac' : '?ext=.flac';
+        else if (lowerName.endsWith('.wav')) audioUrl += audioUrl.contains('?') ? '&ext=.wav' : '?ext=.wav';
+        else if (lowerName.endsWith('.m4a') || lowerName.endsWith('.aac')) audioUrl += audioUrl.contains('?') ? '&ext=.m4a' : '?ext=.m4a';
+
+        playlist.add(PlaybackItem(
+          url: audioUrl,
+          title: fileName,
+          subtitle: _formatBytes(fileSize),
+          mimeType: mimeType,
+          payload: payload,
+        ));
+      }
+    }
+    return playlist;
+  }
+
+  String _formatBytes(int bytes) {
+    if (bytes <= 0) return (AppLocalizations.of(context)?.loc_0B_5a4d ?? 'Fallback');
+    var suffixes = [(AppLocalizations.of(context)?.b_3b67 ?? 'Fallback'), (AppLocalizations.of(context)?.kb_419d ?? 'Fallback'), (AppLocalizations.of(context)?.mb_b808 ?? 'Fallback'), (AppLocalizations.of(context)?.gb_e572 ?? 'Fallback')];
+    var i = (log(bytes) / log(1024)).floor();
+    if (i >= suffixes.length) i = suffixes.length - 1;
+    return ((bytes / pow(1024, i)).toStringAsFixed(1)) + ' ' + suffixes[i];
+  }
+
+  void _showMusicPlaylistModal(BuildContext context, bool isDark, double scale) {
+    final playlist = _getMusicPlaylistFromChat();
+    final playbackProvider = context.read<PlaybackProvider>();
+    if (playlist.isNotEmpty && playbackProvider.playlist.isEmpty) {
+      playbackProvider.setPlaylist(playlist, initialUrl: playbackProvider.currentAudioUrl);
+    }
+    MusicPlaylistModal.show(context, _messages);
   }
 
   Widget _buildSystemMessageBubble(Map<String, dynamic> msg, String text, bool isDark, double scale) {
@@ -4669,29 +5479,31 @@ class _MessengerScreenState extends State<MessengerScreen> {
         '';
     final messageData = msg['message_data'] as Map<String, dynamic>? ?? {};
 
+    final l10n = AppLocalizations.of(context);
+    final userLabel = (AppLocalizations.of(context)?.polzovatel_f154 ?? 'Fallback');
     String displayText = '';
 
     if (messageType == 'user_joined_group' || messageType == 'user_joined') {
-      final name = authorName.isNotEmpty ? authorName : 'Пользователь';
-      displayText = '$name присоединился к чату';
+      final name = authorName.isNotEmpty ? authorName : userLabel;
+      displayText = '$name ${l10n?.joinedChat ?? (AppLocalizations.of(context)?.prisoedinilsyaKChatu_f623 ?? 'Fallback')}';
     } else if (messageType == 'user_left_group' || messageType == 'user_left') {
-      final name = authorName.isNotEmpty ? authorName : 'Пользователь';
-      displayText = '$name покинул чат';
+      final name = authorName.isNotEmpty ? authorName : userLabel;
+      displayText = '$name ${l10n?.leftChat ?? (AppLocalizations.of(context)?.pokinulChat_d567 ?? 'Fallback')}';
     } else if (messageType == 'user_subscribed_channel') {
-      final name = authorName.isNotEmpty ? authorName : 'Пользователь';
-      displayText = '$name подписался на канал';
+      final name = authorName.isNotEmpty ? authorName : userLabel;
+      displayText = '$name ${l10n?.subscribedChannel ?? (AppLocalizations.of(context)?.podpisalsyaNaKanal_0673 ?? 'Fallback')}';
     } else if (messageType == 'user_unsubscribed_channel') {
-      final name = authorName.isNotEmpty ? authorName : 'Пользователь';
-      displayText = '$name отписался от канала';
+      final name = authorName.isNotEmpty ? authorName : userLabel;
+      displayText = '$name ${l10n?.unsubscribedChannel ?? (AppLocalizations.of(context)?.otpisalsyaOtKanala_fa13 ?? 'Fallback')}';
     } else if (messageType == 'user_invited_group' || messageType == 'user_invited_channel') {
-      final inviter = authorName.isNotEmpty ? authorName : 'Пользователь';
-      final invited = messageData['invited_name'] ?? messageData['subject_user_name'] ?? 'пользователя';
-      displayText = '$inviter пригласил $invited';
+      final inviter = authorName.isNotEmpty ? authorName : userLabel;
+      final invited = messageData['invited_name'] ?? messageData['subject_user_name'] ?? (AppLocalizations.of(context)?.polzovatelya_1083 ?? 'Fallback');
+      displayText = '$inviter ${l10n?.invited ?? (AppLocalizations.of(context)?.priglasil_47ae ?? 'Fallback')} $invited';
     } else {
-      if (text.isNotEmpty && !text.startsWith('{') && text != '[Расшифровка...]') {
+      if (text.isNotEmpty && !text.startsWith('{') && text != (AppLocalizations.of(context)?.rasshifrovka_e47f ?? 'Fallback')) {
         displayText = text;
       } else {
-        displayText = 'Системное сообщение';
+        displayText = l10n?.systemMessage ?? (AppLocalizations.of(context)?.sistemnoeSoobschenie_d2bd ?? 'Fallback');
       }
     }
 
@@ -4760,7 +5572,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
   }
 
   Widget _buildReplyQuote(Map<String, dynamic> msg, bool isMe, bool isDark, double scale) {
-    final replyAuthor = (msg['reply_author_name'] ?? msg['reply_author'] ?? 'Сообщение').toString();
+    final replyAuthor = (msg['reply_author_name'] ?? msg['reply_author'] ?? (AppLocalizations.of(context)?.soobschenie_3715 ?? 'Fallback')).toString();
     final replyIdStr = msg['reply_to_id']?.toString() ?? msg['reply_to_ref']?.toString() ?? msg['reply_to']?.toString();
     final replyInt = int.tryParse(replyIdStr ?? '');
 
@@ -4773,15 +5585,15 @@ class _MessengerScreenState extends State<MessengerScreen> {
       try {
         final parsed = jsonDecode(replyText);
         if (parsed is Map) {
-          if (parsed['type'] == 'voice') replyText = '🎤 Голосовое сообщение';
-          else if (parsed['type'] == 'video_message') replyText = '📹 Видеосообщение';
+          if (parsed['type'] == 'voice') replyText = (AppLocalizations.of(context)?.golosovoeSoobschenie_4a85 ?? 'Fallback');
+          else if (parsed['type'] == 'video_message') replyText = (AppLocalizations.of(context)?.videosoobschenie_57f1 ?? 'Fallback');
           else if (parsed['type'] == 'file') replyText = '📁 Файл: ${parsed['file_name'] ?? ''}';
-          else if (parsed['type'] == 'todo_list') replyText = '📋 Список задач';
-          else if (parsed['type'] == 'poll') replyText = '📊 Опрос';
+          else if (parsed['type'] == 'todo_list') replyText = (AppLocalizations.of(context)?.spisokZadach_cfa4 ?? 'Fallback');
+          else if (parsed['type'] == 'poll') replyText = (AppLocalizations.of(context)?.opros_5902 ?? 'Fallback');
         }
       } catch (_) {}
     }
-    if (replyText.isEmpty) replyText = 'Вложение';
+    if (replyText.isEmpty) replyText = (AppLocalizations.of(context)?.vlozhenie_ef44 ?? 'Fallback');
 
     final replyId = msg['reply_to_id']?.toString() ?? msg['reply_to']?.toString();
 
@@ -4895,7 +5707,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
         customPayload = {
           'type': 'file',
           'file_id': attachedFileId,
-          'file_name': cache['original_filename'] ?? cache['file_name'] ?? 'Файл',
+          'file_name': cache['original_filename'] ?? cache['file_name'] ?? (AppLocalizations.of(context)?.fayl_2d46 ?? 'Fallback'),
           'file_size': cache['file_size'] ?? 0,
           'mime_type': cache['mime_type'] ?? cache['file_type'] ?? 'application/octet-stream',
         };
@@ -4912,7 +5724,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
     final authorFirstName = authorProfile?['first_name']?.toString()
         ?? msg['author_first_name']?.toString()
         ?? msg['author_username']?.toString()
-        ?? 'Пользователь';
+        ?? (AppLocalizations.of(context)?.polzovatel_f154 ?? 'Fallback');
     final authorAvatar = authorProfile?['avatar']?.toString() ?? msg['author_avatar']?.toString();
     final authorGradient = authorProfile?['avatar_gradient']?.toString() ?? msg['author_avatar_gradient']?.toString();
     final isGroup = _selectedChat!['chat_type'] == 'group' || _selectedChat!['chat_type'] == 'channel';
@@ -4972,7 +5784,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
           ),
           decoration: BoxDecoration(
             gradient: isMe
-                ? const LinearGradient(
+                ? LinearGradient(
                     colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
@@ -5022,7 +5834,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                 isDark: isDark,
                 scale: scale,
                 senderName: isMe
-                    ? 'Вы'
+                    ? (AppLocalizations.of(context)?.vy_0101 ?? 'Fallback')
                     : (_selectedChat?['chat_type'] == 'personal'
                         ? _getChatName(_selectedChat!)
                         : authorFirstName),
@@ -5035,6 +5847,29 @@ class _MessengerScreenState extends State<MessengerScreen> {
                 isDark: isDark,
                 scale: scale,
               )
+            else if (customPayload != null && (customPayload['type'] == 'audio' || _isAudioFile(customPayload))) ...[
+              _MusicMessageBubblePlayer(
+                payload: customPayload,
+                isMe: isMe,
+                isDark: isDark,
+                scale: scale,
+                onDownload: () {
+                  final fileId = customPayload!['file_id']?.toString() ?? '';
+                  final fileName = customPayload!['file_name']?.toString() ?? 'audio.mp3';
+                  _downloadFile(fileId, fileName);
+                },
+              ),
+              if (decryptedText.trim().isNotEmpty && !decryptedText.trim().startsWith('{')) ...[
+                SizedBox(height: 8),
+                Text(
+                  decryptedText,
+                  style: TextStyle(
+                    color: isMe ? Colors.white : (isDark ? Colors.white.withOpacity(0.9) : Colors.black87),
+                    fontSize: 15 * scale,
+                  ),
+                ),
+              ],
+            ]
             else if (customPayload != null && customPayload['type'] == 'file') ...[
               _buildFileAttachmentWidget(customPayload, isMe, isDark, scale),
               if (decryptedText.trim().isNotEmpty && !decryptedText.trim().startsWith('{')) ...[
@@ -5066,7 +5901,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                     ),
                     const SizedBox(width: 10),
                     Text(
-                      'Загрузка файла...',
+                      (AppLocalizations.of(context)?.zagruzkaFayla_f817 ?? 'Fallback'),
                       style: TextStyle(
                         color: isMe ? Colors.white70 : (isDark ? Colors.white54 : Colors.black54),
                         fontSize: 12.5 * scale,
@@ -5194,7 +6029,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
     if (isMe) {
       // Outgoing
-      callTitle = 'Исходящий звонок';
+      callTitle = (AppLocalizations.of(context)?.ishodyaschiyZvonok_8381 ?? 'Fallback');
       if (status == 'connected') {
         iconColor = const Color(0xFF10B981);
         iconBg = const Color(0xFF10B981).withOpacity(0.15);
@@ -5208,12 +6043,12 @@ class _MessengerScreenState extends State<MessengerScreen> {
       } else {
         iconColor = const Color(0xFF9CA3AF);
         iconBg = const Color(0xFF9CA3AF).withOpacity(0.15);
-        callSubtext = 'Разговор не состоялся';
+        callSubtext = (AppLocalizations.of(context)?.razgovorNeSostoyalsya_67fb ?? 'Fallback');
       }
     } else {
       // Incoming
       if (status == 'connected') {
-        callTitle = 'Входящий звонок';
+        callTitle = (AppLocalizations.of(context)?.vhodyaschiyZvonok_5ce9 ?? 'Fallback');
         iconColor = const Color(0xFF10B981);
         iconBg = const Color(0xFF10B981).withOpacity(0.15);
         final mins = duration ~/ 60;
@@ -5224,17 +6059,17 @@ class _MessengerScreenState extends State<MessengerScreen> {
           callSubtext = '$secs сек';
         }
       } else if (status == 'rejected') {
-        callTitle = 'Отклонённый звонок';
+        callTitle = (AppLocalizations.of(context)?.otklonennyyZvonok_d499 ?? 'Fallback');
         iconColor = const Color(0xFFEF4444);
         iconBg = const Color(0xFFEF4444).withOpacity(0.15);
         callIcon = isVideo ? FontAwesomeIcons.videoSlash : FontAwesomeIcons.phoneSlash;
-        callSubtext = 'Вы отклонили вызов';
+        callSubtext = (AppLocalizations.of(context)?.vyOtkloniliVyzov_8d1d ?? 'Fallback');
       } else {
-        callTitle = 'Пропущенный звонок';
+        callTitle = (AppLocalizations.of(context)?.propuschennyyZvonok_e98d ?? 'Fallback');
         iconColor = const Color(0xFFEF4444);
         iconBg = const Color(0xFFEF4444).withOpacity(0.15);
         callIcon = isVideo ? FontAwesomeIcons.videoSlash : FontAwesomeIcons.phoneSlash;
-        callSubtext = 'Вы пропустили вызов';
+        callSubtext = (AppLocalizations.of(context)?.vyPropustiliVyzov_f17a ?? 'Fallback');
       }
     }
 
@@ -5292,6 +6127,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
   Widget _buildBottomPanel(bool isDark, double scale) {
     if (_selectedChat == null) return const SizedBox.shrink();
 
+    final l10n = AppLocalizations.of(context);
     final chatType = _selectedChat!['chat_type'] as String?;
     final isSubscribedOrJoined = _isUserSubscribedOrJoined(_selectedChat);
 
@@ -5300,7 +6136,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
         return _buildJoinSubscribeBar(
           isDark: isDark,
           scale: scale,
-          label: 'Присоединиться к группе',
+          label: l10n?.joinGroup ?? 'Присоединиться к группе',
           icon: Icons.group_add_rounded,
           color: const Color(0xFF2563EB),
           onPressed: () => _handleJoinChat(_selectedChat!),
@@ -5313,7 +6149,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
         return _buildJoinSubscribeBar(
           isDark: isDark,
           scale: scale,
-          label: 'Подписаться на канал',
+          label: l10n?.subscribeChannel ?? 'Подписаться на канал',
           icon: Icons.campaign_rounded,
           color: const Color(0xFF2563EB),
           onPressed: () => _handleJoinChat(_selectedChat!),
@@ -5326,7 +6162,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
           return _buildJoinSubscribeBar(
             isDark: isDark,
             scale: scale,
-            label: 'Отписаться от канала',
+            label: l10n?.unsubscribeChannel ?? 'Отписаться от канала',
             icon: Icons.notifications_off_rounded,
             color: isDark ? const Color(0xFF2A2A2A) : const Color(0xFFEFEFEF),
             textColor: isDark ? Colors.redAccent : const Color(0xFFDC2626),
@@ -5414,7 +6250,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
   Widget _buildReplyPreviewWidget(bool isDark, double scale) {
     if (_replyingToMessage == null) return const SizedBox.shrink();
 
-    final dynamic rawAuthor = _replyingToMessage!['author_username'] ?? _replyingToMessage!['author'] ?? 'Пользователь';
+    final dynamic rawAuthor = _replyingToMessage!['author_username'] ?? _replyingToMessage!['author'] ?? (AppLocalizations.of(context)?.polzovatel_f154 ?? 'Fallback');
     final authorName = rawAuthor.toString();
     final dynamic rawId = _replyingToMessage!['id'];
     final id = rawId is int ? rawId : (int.tryParse(rawId?.toString() ?? '') ?? 0);
@@ -5424,15 +6260,15 @@ class _MessengerScreenState extends State<MessengerScreen> {
       try {
         final parsed = jsonDecode(textPreview);
         if (parsed is Map) {
-          if (parsed['type'] == 'voice') textPreview = '🎤 Голосовое сообщение';
-          else if (parsed['type'] == 'video_message') textPreview = '📹 Видеосообщение';
+          if (parsed['type'] == 'voice') textPreview = (AppLocalizations.of(context)?.golosovoeSoobschenie_4a85 ?? 'Fallback');
+          else if (parsed['type'] == 'video_message') textPreview = (AppLocalizations.of(context)?.videosoobschenie_57f1 ?? 'Fallback');
           else if (parsed['type'] == 'file') textPreview = '📁 Файл: ${parsed['file_name'] ?? ''}';
-          else if (parsed['type'] == 'todo_list') textPreview = '📋 Список задач';
-          else if (parsed['type'] == 'poll') textPreview = '📊 Опрос';
+          else if (parsed['type'] == 'todo_list') textPreview = (AppLocalizations.of(context)?.spisokZadach_cfa4 ?? 'Fallback');
+          else if (parsed['type'] == 'poll') textPreview = (AppLocalizations.of(context)?.opros_5902 ?? 'Fallback');
         }
       } catch (_) {}
     }
-    if (textPreview.isEmpty && _replyingToMessage!['file_id'] != null) textPreview = '📎 Вложение';
+    if (textPreview.isEmpty && _replyingToMessage!['file_id'] != null) textPreview = (AppLocalizations.of(context)?.vlozhenie_2474 ?? 'Fallback');
 
     return Container(
       width: double.infinity,
@@ -5506,6 +6342,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
   }
 
   Widget _buildMessageInput(bool isDark, double scale) {
+    final l10n = AppLocalizations.of(context);
     final showRecordTooltip = _isHoveringRecordButton && !_showSendButton && !_isRecording;
 
     Widget? previewWidget;
@@ -5515,7 +6352,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
       
       String formatBytes(int bytes, int decimals) {
         if (bytes <= 0) return '0 B';
-        const suffixes = ['Б', 'КБ', 'МБ', 'ГБ', 'ТБ'];
+        var suffixes = [(AppLocalizations.of(context)?.b_3b67 ?? 'Fallback'), (AppLocalizations.of(context)?.kb_419d ?? 'Fallback'), (AppLocalizations.of(context)?.mb_b808 ?? 'Fallback'), (AppLocalizations.of(context)?.gb_e572 ?? 'Fallback'), (AppLocalizations.of(context)?.tb_0e05 ?? 'Fallback')];
         var i = (log(bytes) / log(1024)).floor();
         return ((bytes / pow(1024, i)).toStringAsFixed(decimals)) + ' ' + suffixes[i];
       }
@@ -5585,7 +6422,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
       child: Container(
         constraints: BoxConstraints(maxWidth: 600 * scale),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           color: Colors.transparent,
         ),
         child: Column(
@@ -5627,7 +6464,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                         const _BlinkingRedDot(),
                         const SizedBox(width: 10),
                         Text(
-                          _isVoiceMode ? 'Запись голосового...' : 'Запись видео...',
+                          _isVoiceMode ? (l10n?.recordingVoice ?? 'Запись голосового...') : (l10n?.recordingVideo ?? 'Запись видео...'),
                           style: TextStyle(
                             color: isDark ? Colors.white70 : Colors.black87,
                             fontSize: 13.5 * scale,
@@ -5645,7 +6482,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                         ),
                         const Spacer(),
                         Text(
-                          'Отпустите для отправки',
+                          l10n?.releaseToSend ?? 'Отпустите для отправки',
                           style: TextStyle(
                             color: isDark ? Colors.white30 : Colors.black38,
                             fontSize: 12 * scale,
@@ -5660,11 +6497,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
                             color: isDark ? Colors.white70 : Colors.black54,
                             size: 20,
                           ),
-                          tooltip: 'Эмодзи',
+                          tooltip: l10n?.emoji ?? 'Эмодзи',
                           onPressed: () {
                             CustomToast.show(
                               context,
-                              'Панель эмодзи в разработке',
+                              l10n?.emojiPanelInDev ?? 'Панель эмодзи в разработке',
                               type: ToastType.info,
                             );
                           },
@@ -5678,7 +6515,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                             maxLines: 3,
                             keyboardType: TextInputType.multiline,
                             decoration: InputDecoration(
-                              hintText: 'Написать сообщение...',
+                              hintText: l10n?.typeMessage ?? 'Написать сообщение...',
                               hintStyle: TextStyle(
                                 color: isDark ? Colors.white.withOpacity(0.35) : Colors.black.withOpacity(0.35),
                                 fontSize: 13.5 * scale,
@@ -5701,10 +6538,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
                             },
                           ),
                         ),
-                        const SizedBox(width: 4),
+                        SizedBox(width: 4),
                         // Attach button with dropdown menu (TODO and POLL options), positioned next to send button
                         Tooltip(
-                          message: 'Добавить вложение',
+                          message: l10n?.addAttachment ?? 'Добавить вложение',
                           child: GestureDetector(
                             key: _attachmentKey,
                             onTap: () {
@@ -5721,17 +6558,17 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                   items: [
                                     CustomContextMenuItem(
                                       icon: FaIcon(FontAwesomeIcons.fileLines, size: 14 * scale),
-                                      label: 'Файл',
+                                      label: l10n?.file ?? 'Файл',
                                       onTap: _pickAndStageFile,
                                     ),
                                     CustomContextMenuItem(
                                       icon: FaIcon(FontAwesomeIcons.listCheck, size: 14 * scale),
-                                      label: 'Список задач',
+                                      label: l10n?.todoList ?? 'Список задач',
                                       onTap: _showTodoSendDialog,
                                     ),
                                     CustomContextMenuItem(
                                       icon: FaIcon(FontAwesomeIcons.squarePollVertical, size: 14 * scale),
-                                      label: 'Опрос',
+                                      label: l10n?.poll ?? 'Опрос',
                                       onTap: _showPollSendDialog,
                                     ),
                                   ],
@@ -5788,7 +6625,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                           onLongPressEnd: _showSendButton ? null : (_) => _stopAndSendRecording(),
                           onLongPressCancel: _showSendButton ? null : () => _cancelRecording(),
                           child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 200),
+                            duration: Duration(milliseconds: 200),
                             width: (_isRecording ? 34 : 30) * scale,
                             height: (_isRecording ? 34 : 30) * scale,
                             margin: const EdgeInsets.only(right: 4),
@@ -5871,8 +6708,8 @@ class _MessengerScreenState extends State<MessengerScreen> {
                       children: [
                         Text(
                           _isVoiceMode
-                              ? 'Запись голосового (ГС)'
-                              : 'Запись видео (ВС)',
+                              ? (l10n?.voiceRecordTitle ?? 'Запись голосового (ГС)')
+                              : (l10n?.videoRecordTitle ?? 'Запись видео (ВC)'),
                           style: TextStyle(
                             color: isDark ? Colors.white : Colors.black87,
                             fontSize: 11.5 * scale,
@@ -5881,7 +6718,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                         ),
                         const SizedBox(height: 3),
                         Text(
-                          '• Удерживайте кнопку для записи\n• Нажмите для переключения режима',
+                          l10n?.holdToRecordHint ?? 'Удерживайте кнопку для записи\nНажмите для смены режима',
                           style: TextStyle(
                             color: isDark ? Colors.white60 : Colors.black54,
                             fontSize: 10.5 * scale,
@@ -5933,7 +6770,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      'Новый чат',
+                      (AppLocalizations.of(context)?.novyyChat_f775 ?? 'Fallback'),
                       style: TextStyle(
                         fontSize: 20 * scale,
                         fontWeight: FontWeight.bold,
@@ -5952,7 +6789,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 16),
+                SizedBox(height: 16),
                 
                 // Search Input
                 TextField(
@@ -5960,7 +6797,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                   autofocus: true,
                   decoration: InputDecoration(
                     prefixIcon: const Icon(Icons.search_rounded),
-                    hintText: 'Имя пользователя (мин. 5 символов)',
+                    hintText: (AppLocalizations.of(context)?.imyaPolzovatelyaMin5Simvolov_1232 ?? 'Fallback'),
                     hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.black38),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
@@ -5975,7 +6812,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                     }
                   },
                 ),
-                const SizedBox(height: 16),
+                SizedBox(height: 16),
                 
                 // Results List
                 Expanded(
@@ -5985,8 +6822,8 @@ class _MessengerScreenState extends State<MessengerScreen> {
                           ? Center(
                               child: Text(
                                 _searchController.text.length < 5
-                                    ? 'Введите 5 или более символов'
-                                    : 'Пользователи не найдены',
+                                    ? (AppLocalizations.of(context)?.vvedite5IliBoleeSimvolov_f983 ?? 'Fallback')
+                                    : (AppLocalizations.of(context)?.polzovateliNeNaydeny_c01a ?? 'Fallback'),
                                 style: TextStyle(color: isDark ? Colors.white38 : Colors.black38),
                               ),
                             )
@@ -6080,7 +6917,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
   }
 
   Widget _buildTodoWidget(Map<String, dynamic> msg, Map<String, dynamic> payload, bool isMe, bool isDark, double scale) {
-    final title = payload['title']?.toString() ?? 'Список задач';
+    final title = payload['title']?.toString() ?? (AppLocalizations.of(context)?.spisokZadach_1852 ?? 'Fallback');
     final items = payload['items'] as List? ?? [];
     final todoMsgId = msg['message_id']?.toString() ?? '';
 
@@ -6193,7 +7030,8 @@ class _MessengerScreenState extends State<MessengerScreen> {
   }
 
   Widget _buildPollWidget(Map<String, dynamic> msg, Map<String, dynamic> payload, bool isMe, bool isDark, double scale) {
-    final question = payload['question']?.toString() ?? 'Опрос';
+    final l10n = AppLocalizations.of(context);
+    final question = payload['question']?.toString() ?? (l10n?.poll ?? 'Опрос');
     final options = payload['options'] as List? ?? [];
     final isMultipleChoice = payload['is_multiple_choice'] == true;
     final pollMsgId = msg['message_id']?.toString() ?? '';
@@ -6240,9 +7078,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
               fontFamily: 'Inter',
             ),
           ),
-          const SizedBox(height: 2),
+          SizedBox(height: 2),
           Text(
-            isMultipleChoice ? 'Множественный выбор' : 'Одиночный выбор',
+            isMultipleChoice ? (l10n?.allowMultipleAnswers ?? 'Выбор нескольких вариантов') : (l10n?.singleChoice ?? 'Одиночный выбор'),
             style: TextStyle(
               color: isMe ? Colors.white54 : (isDark ? Colors.white38 : Colors.black45),
               fontSize: 10.5 * scale,
@@ -6365,10 +7203,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
               ),
             );
           }),
-          const SizedBox(height: 8),
+          SizedBox(height: 8),
           Text(
             totalVotes == 0
-                ? 'Нет голосов'
+                ? (AppLocalizations.of(context)?.netGolosov_17d0 ?? 'Fallback')
                 : '$totalVotes ${_formatVotesCountText(totalVotes)}',
             style: TextStyle(
               color: isMe ? Colors.white54 : (isDark ? Colors.white38 : Colors.black45),
@@ -6382,14 +7220,14 @@ class _MessengerScreenState extends State<MessengerScreen> {
   }
 
   Widget _buildFileAttachmentWidget(Map<String, dynamic> payload, bool isMe, bool isDark, double scale) {
-    final fileName = payload['file_name']?.toString() ?? 'Файл';
+    final fileName = payload['file_name']?.toString() ?? (AppLocalizations.of(context)?.fayl_2d46 ?? 'Fallback');
     final fileSize = payload['file_size'] as int? ?? 0;
     final fileId = payload['file_id']?.toString() ?? '';
     
     // Nice byte formatting
     String formatBytes(int bytes, int decimals) {
-      if (bytes <= 0) return "0 Б";
-      const suffixes = ["Б", "КБ", "МБ", "ГБ", "ТБ"];
+      if (bytes <= 0) return (AppLocalizations.of(context)?.loc_0B_5a4d ?? 'Fallback');
+      var suffixes = [(AppLocalizations.of(context)?.b_3b67 ?? 'Fallback'), (AppLocalizations.of(context)?.kb_419d ?? 'Fallback'), (AppLocalizations.of(context)?.mb_b808 ?? 'Fallback'), (AppLocalizations.of(context)?.gb_e572 ?? 'Fallback'), (AppLocalizations.of(context)?.tb_0e05 ?? 'Fallback')];
       var i = (log(bytes) / log(1024)).floor();
       return ((bytes / pow(1024, i)).toStringAsFixed(decimals)) + ' ' + suffixes[i];
     }
@@ -6460,13 +7298,24 @@ class _MessengerScreenState extends State<MessengerScreen> {
     );
   }
 
+  bool _isAudioFile(Map<String, dynamic> payload) {
+    final type = payload['type']?.toString().toLowerCase() ?? '';
+    if (type == 'audio') return true;
+    final fileName = (payload['file_name'] ?? payload['attached_file_name'] ?? payload['name'] ?? '').toString().toLowerCase();
+    final mimeType = (payload['mime_type'] ?? payload['attached_file_type'] ?? '').toString().toLowerCase();
+    const audioExtensions = ['.mp3', '.wav', '.ogg', '.m4a', '.flac', '.aac', '.opus', '.wma'];
+    if (audioExtensions.any((ext) => fileName.endsWith(ext))) return true;
+    if (mimeType.contains('audio/') || mimeType.contains('audio') || mimeType.contains('mp3') || mimeType.contains('mpeg')) return true;
+    return false;
+  }
+
   String _formatVotesCountText(int count) {
     if (count % 10 == 1 && count % 100 != 11) {
-      return 'голос';
+      return (AppLocalizations.of(context)?.golos_6b94 ?? 'Fallback');
     } else if ((count % 10 >= 2 && count % 10 <= 4) && (count % 100 < 10 || count % 100 >= 20)) {
-      return 'голоса';
+      return (AppLocalizations.of(context)?.golosa_bb8d ?? 'Fallback');
     } else {
-      return 'голосов';
+      return (AppLocalizations.of(context)?.golosov_7f51 ?? 'Fallback');
     }
   }
 
@@ -6502,7 +7351,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
       if (uploadRes.success && uploadRes.data != null) {
         final fileId = uploadRes.data!['file_id']?.toString() ?? uploadRes.data!['id']?.toString();
-        if (fileId == null) throw Exception('Не получен ID файла от сервера');
+        if (fileId == null) throw Exception((AppLocalizations.of(context)?.nePoluchenIdFaylaOt_86c8 ?? 'Fallback'));
 
         setState(() {
           _attachedFile = {
@@ -6515,13 +7364,13 @@ class _MessengerScreenState extends State<MessengerScreen> {
         });
         
         if (mounted) {
-          CustomToast.show(context, 'Файл загружен и прикреплен', type: ToastType.success);
+          CustomToast.show(context, (AppLocalizations.of(context)?.faylZagruzhenIPrikreplen_dc24 ?? 'Fallback'), type: ToastType.success);
         }
       } else {
-        throw Exception(uploadRes.error ?? 'Неизвестная ошибка загрузки');
+        throw Exception(uploadRes.error ?? (AppLocalizations.of(context)?.neizvestnayaOshibkaZagruzki_68cb ?? 'Fallback'));
       }
     } catch (e) {
-      Logger.error('MessengerScreen', 'Ошибка загрузки файла', e);
+      Logger.error('MessengerScreen', (AppLocalizations.of(context)?.oshibkaZagruzkiFayla_86e5 ?? 'Fallback'), e);
       if (mounted) {
         CustomToast.show(context, 'Ошибка загрузки файла: $e', type: ToastType.error);
       }
@@ -6553,7 +7402,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
       final dir = await getDownloadsDirectory();
       
       String? outputFilePath = await FilePicker.saveFile(
-        dialogTitle: 'Сохранить файл как',
+        dialogTitle: (AppLocalizations.of(context)?.sohranitFaylKak_0f93 ?? 'Fallback'),
         fileName: fileName,
         initialDirectory: dir?.path,
       );
@@ -6588,7 +7437,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
         throw Exception('Код сервера: ${response.statusCode}');
       }
     } catch (e) {
-      Logger.error('MessengerScreen', 'Ошибка скачивания файла', e);
+      Logger.error('MessengerScreen', (AppLocalizations.of(context)?.oshibkaSkachivaniyaFayla_34ac ?? 'Fallback'), e);
       if (mounted) {
         CustomToast.show(context, 'Ошибка при скачивании файла: $e', type: ToastType.error);
       }
@@ -6665,7 +7514,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
       } catch (_) {}
 
       if (parsedJson != null && parsedJson['type'] == 'todo_list') {
-        final title = parsedJson['title'] as String? ?? 'Без названия';
+        final title = parsedJson['title'] as String? ?? (AppLocalizations.of(context)?.bezNazvaniya_6584 ?? 'Fallback');
         final encryptedTitle = await encryptString(title);
         sentViaWs = _webSocketService!.sendMessage({
           'type': 'todo_list_message',
@@ -6675,7 +7524,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
           'chat_id': chatId,
         });
       } else if (parsedJson != null && parsedJson['type'] == 'poll') {
-        final question = parsedJson['question'] as String? ?? 'Без вопроса';
+        final question = parsedJson['question'] as String? ?? (AppLocalizations.of(context)?.bezVoprosa_d390 ?? 'Fallback');
         final encryptedQuestion = await encryptString(question);
         sentViaWs = _webSocketService!.sendMessage({
           'type': 'poll_message',
@@ -6781,7 +7630,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
             print('❌ AudioRecorder start error: $e');
           }
         } else {
-          CustomToast.show(context, 'Нет доступа к микрофону', type: ToastType.warning);
+          CustomToast.show(context, (AppLocalizations.of(context)?.netDostupaKMikrofonu_a4ef ?? 'Fallback'), type: ToastType.warning);
           setState(() { _isRecording = false; });
           return;
         }
@@ -6817,7 +7666,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
             '-f', 'tee',
             '-map', '0:v',
             '-map', '1:a',
-            '[f=mpegts]udp://127.0.0.1:44444?pkt_size=1316|[f=mp4]${_recordingPath!}',
+            '[f=mpegts]udp://127.0.loc_0.1:44444?pkt_size=1316|[f=mp4]${_recordingPath!}',
           ]);
           print('📹 Запись ffmpeg запущена (pid: ${_ffmpegProcess!.pid})');
         } catch (e) {
@@ -6830,7 +7679,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
         if (_cameraController != null && _cameraController!.value.isInitialized) {
           try {
             await _cameraController!.startVideoRecording();
-            print('📹 Запись видео через плагин camera запущена');
+            print((AppLocalizations.of(context)?.zapisVideoCherezPlaginCamera_b9dd ?? 'Fallback'));
           } catch (e) {
             print('Ошибка записи camera: $e');
             CustomToast.show(context, 'Не удалось запустить камеру: $e', type: ToastType.error);
@@ -6838,13 +7687,13 @@ class _MessengerScreenState extends State<MessengerScreen> {
             return;
           }
         } else {
-          print('📹 Камера не инициализирована на этой платформе.');
-          CustomToast.show(context, 'Камера не готова', type: ToastType.error);
+          print((AppLocalizations.of(context)?.kameraNeInitsializirovanaNaEtoy_21e0 ?? 'Fallback'));
+          CustomToast.show(context, (AppLocalizations.of(context)?.kameraNeGotova_9f09 ?? 'Fallback'), type: ToastType.error);
           setState(() { _isRecording = false; });
           return;
         }
       } else {
-        print('📹 Запись видеосообщения на этой платформе недоступна напрямую.');
+        print((AppLocalizations.of(context)?.zapisVideosoobscheniyaNaEtoyPlatforme_a561 ?? 'Fallback'));
       }
     }
 
@@ -6879,7 +7728,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
           _arecordProcess!.kill(ProcessSignal.sigint); // SIGINT для корректного завершения WAV
           await _arecordProcess!.exitCode; // Ждём завершения
           _arecordProcess = null;
-          print('🎙️ arecord остановлен');
+          print((AppLocalizations.of(context)?.arecordOstanovlen_edf2 ?? 'Fallback'));
         }
         path = _recordingPath;
       } else {
@@ -6898,7 +7747,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
           _ffmpegProcess!.kill(ProcessSignal.sigint); // SIGINT для корректного завершения MP4
           await _ffmpegProcess!.exitCode; // Ждём завершения
           _ffmpegProcess = null;
-          print('📹 ffmpeg остановлен');
+          print((AppLocalizations.of(context)?.ffmpegOstanovlen_63a0 ?? 'Fallback'));
         }
         path = _recordingPath;
       } else if (Platform.isWindows || Platform.isMacOS) {
@@ -6923,7 +7772,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
       if (mounted) {
         CustomToast.show(
           context,
-          'Запись слишком короткая',
+          (AppLocalizations.of(context)?.zapisSlishkomKorotkaya_5cda ?? 'Fallback'),
           type: ToastType.warning,
         );
       }
@@ -6961,7 +7810,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
       } else {
         print('❌ Файл записи пуст или не существует: $path');
         if (mounted) {
-          CustomToast.show(context, 'Ошибка записи: файл пуст', type: ToastType.error);
+          CustomToast.show(context, (AppLocalizations.of(context)?.oshibkaZapisiFaylPust_106b ?? 'Fallback'), type: ToastType.error);
         }
       }
     } else if (!_isVoiceMode) {
@@ -7010,7 +7859,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
           if (mounted) {
             CustomToast.show(
               context,
-              'Видеосообщение отправлено (симуляция)',
+              (AppLocalizations.of(context)?.videosoobschenieOtpravlenoSimulyatsiya_fb29 ?? 'Fallback'),
               type: ToastType.success,
             );
           }
@@ -7060,7 +7909,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
     CustomToast.show(
       context,
-      'Запись отменена',
+      (AppLocalizations.of(context)?.zapisOtmenena_1609 ?? 'Fallback'),
       type: ToastType.info,
     );
   }
@@ -7100,12 +7949,12 @@ class _MessengerScreenState extends State<MessengerScreen> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Отправить голосовое сообщение'),
+        title: Text((AppLocalizations.of(context)?.otpravitGolosovoeSoobschenie_2481 ?? 'Fallback')),
         content: StatefulBuilder(
           builder: (context, setDialogState) => Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('Имитация записи голосового сообщения.'),
+              Text((AppLocalizations.of(context)?.imitatsiyaZapisiGolosovogoSoobscheniya_81e7 ?? 'Fallback')),
               const SizedBox(height: 16),
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -7134,7 +7983,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Отмена'),
+            child: Text((AppLocalizations.of(context)?.otmena_987b ?? 'Fallback')),
           ),
           ElevatedButton(
             onPressed: () {
@@ -7148,7 +7997,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
               });
               _sendCustomMessage(payload);
             },
-            child: const Text('Отправить'),
+            child: Text((AppLocalizations.of(context)?.otpravit_6da0 ?? 'Fallback')),
           ),
         ],
       ),
@@ -7158,6 +8007,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
   }
 
   void _showTodoSendDialog() {
+    final l10n = AppLocalizations.of(context);
     final titleController = TextEditingController();
     final List<TextEditingController> itemsControllers = [
       TextEditingController(),
@@ -7222,7 +8072,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Text(
-                              'СОЗДАТЬ TO-DO',
+                              l10n?.createTodo ?? 'СОЗДАТЬ TO-DO',
                               style: TextStyle(
                                 fontSize: 10 * scale,
                                 fontWeight: FontWeight.w600,
@@ -7252,12 +8102,12 @@ class _MessengerScreenState extends State<MessengerScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const SizedBox(height: 12),
+                              SizedBox(height: 12),
                               TextField(
                                 controller: titleController,
                                 style: TextStyle(fontSize: 14 * scale),
                                 decoration: InputDecoration(
-                                  labelText: 'Название списка',
+                                  labelText: l10n?.listName ?? 'Название списка',
                                   labelStyle: TextStyle(fontSize: 12 * scale),
                                   border: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(8 * scale),
@@ -7271,7 +8121,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                               ),
                               const SizedBox(height: 16),
                               Text(
-                                'Пункты:',
+                                l10n?.todoItems ?? 'Пункты',
                                 style: TextStyle(
                                   fontSize: 12 * scale,
                                   fontWeight: FontWeight.w600,
@@ -7291,7 +8141,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                           controller: controller,
                                           style: TextStyle(fontSize: 14 * scale),
                                           decoration: InputDecoration(
-                                            hintText: 'Пункт ${i + 1}',
+                                            hintText: '${l10n?.itemHintPrefix ?? "Пункт"} ${i + 1}',
                                             contentPadding: EdgeInsets.symmetric(horizontal: 12 * scale, vertical: 10 * scale),
                                             border: OutlineInputBorder(
                                               borderRadius: BorderRadius.circular(8 * scale),
@@ -7329,13 +8179,13 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                   });
                                 },
                                 icon: Icon(Icons.add, size: 18 * scale),
-                                label: Text('Добавить пункт', style: TextStyle(fontSize: 13 * scale)),
+                                label: Text(l10n?.addTodoItem ?? '+ Добавить пункт', style: TextStyle(fontSize: 13 * scale)),
                                 style: TextButton.styleFrom(
                                   foregroundColor: activeBrandColor,
                                   padding: EdgeInsets.symmetric(vertical: 8 * scale, horizontal: 12 * scale),
                                 ),
                               ),
-                              const SizedBox(height: 20),
+                              SizedBox(height: 20),
                             ],
                           ),
                         ),
@@ -7356,7 +8206,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                 foregroundColor: isDark ? Colors.white70 : Colors.black87,
                                 padding: EdgeInsets.symmetric(horizontal: 16 * scale, vertical: 12 * scale),
                               ),
-                              child: Text('Отмена', style: TextStyle(fontSize: 13 * scale)),
+                              child: Text((AppLocalizations.of(context)?.otmena_987b ?? 'Fallback'), style: TextStyle(fontSize: 13 * scale)),
                             ),
                             const SizedBox(width: 8),
                             ElevatedButton(
@@ -7390,7 +8240,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                   borderRadius: BorderRadius.circular(8 * scale),
                                 ),
                               ),
-                              child: Text('Создать', style: TextStyle(fontSize: 13 * scale, fontWeight: FontWeight.w600)),
+                              child: Text((AppLocalizations.of(context)?.sozdat_b059 ?? 'Fallback'), style: TextStyle(fontSize: 13 * scale, fontWeight: FontWeight.w600)),
                             ),
                           ],
                         ),
@@ -7407,6 +8257,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
   }
 
   void _showPollSendDialog() {
+    final l10n = AppLocalizations.of(context);
     final questionController = TextEditingController();
     final List<TextEditingController> optionsControllers = [
       TextEditingController(),
@@ -7473,7 +8324,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Text(
-                              'СОЗДАТЬ ОПРОС',
+                              l10n?.createPoll ?? 'СОЗДАТЬ ОПРОС',
                               style: TextStyle(
                                 fontSize: 10 * scale,
                                 fontWeight: FontWeight.w600,
@@ -7503,12 +8354,12 @@ class _MessengerScreenState extends State<MessengerScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const SizedBox(height: 12),
+                              SizedBox(height: 12),
                               TextField(
                                 controller: questionController,
                                 style: TextStyle(fontSize: 14 * scale),
                                 decoration: InputDecoration(
-                                  labelText: 'Вопрос',
+                                  labelText: l10n?.pollQuestion ?? 'Вопрос',
                                   labelStyle: TextStyle(fontSize: 12 * scale),
                                   border: OutlineInputBorder(
                                     borderRadius: BorderRadius.circular(8 * scale),
@@ -7522,7 +8373,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                               ),
                               const SizedBox(height: 16),
                               Text(
-                                'Варианты ответа:',
+                                l10n?.pollOptions ?? 'Варианты ответа',
                                 style: TextStyle(
                                   fontSize: 12 * scale,
                                   fontWeight: FontWeight.w600,
@@ -7542,7 +8393,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                           controller: controller,
                                           style: TextStyle(fontSize: 14 * scale),
                                           decoration: InputDecoration(
-                                            hintText: 'Вариант ${i + 1}',
+                                            hintText: '${l10n?.optionHintPrefix ?? "Вариант"} ${i + 1}',
                                             contentPadding: EdgeInsets.symmetric(horizontal: 12 * scale, vertical: 10 * scale),
                                             border: OutlineInputBorder(
                                               borderRadius: BorderRadius.circular(8 * scale),
@@ -7580,19 +8431,19 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                   });
                                 },
                                 icon: Icon(Icons.add, size: 18 * scale),
-                                label: Text('Добавить вариант', style: TextStyle(fontSize: 13 * scale)),
+                                label: Text(l10n?.addPollOption ?? '+ Добавить вариант', style: TextStyle(fontSize: 13 * scale)),
                                 style: TextButton.styleFrom(
                                   foregroundColor: activeBrandColor,
                                   padding: EdgeInsets.symmetric(vertical: 8 * scale, horizontal: 12 * scale),
                                 ),
                               ),
-                              const SizedBox(height: 12),
+                              SizedBox(height: 12),
                               Theme(
                                 data: ThemeData(
                                   unselectedWidgetColor: isDark ? Colors.white54 : Colors.black54,
                                 ),
                                 child: CheckboxListTile(
-                                  title: Text('Множественный выбор', style: TextStyle(fontSize: 13 * scale)),
+                                  title: Text(l10n?.allowMultipleAnswers ?? 'Выбор нескольких вариантов', style: TextStyle(fontSize: 13 * scale)),
                                   value: isMultipleChoice,
                                   activeColor: activeBrandColor,
                                   contentPadding: EdgeInsets.zero,
@@ -7604,7 +8455,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                   },
                                 ),
                               ),
-                              const SizedBox(height: 12),
+                              SizedBox(height: 12),
                             ],
                           ),
                         ),
@@ -7625,7 +8476,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                 foregroundColor: isDark ? Colors.white70 : Colors.black87,
                                 padding: EdgeInsets.symmetric(horizontal: 16 * scale, vertical: 12 * scale),
                               ),
-                              child: Text('Отмена', style: TextStyle(fontSize: 13 * scale)),
+                              child: Text((AppLocalizations.of(context)?.otmena_987b ?? 'Fallback'), style: TextStyle(fontSize: 13 * scale)),
                             ),
                             const SizedBox(width: 8),
                             ElevatedButton(
@@ -7661,7 +8512,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                   borderRadius: BorderRadius.circular(8 * scale),
                                 ),
                               ),
-                              child: Text('Создать', style: TextStyle(fontSize: 13 * scale, fontWeight: FontWeight.w600)),
+                              child: Text((AppLocalizations.of(context)?.sozdat_b059 ?? 'Fallback'), style: TextStyle(fontSize: 13 * scale, fontWeight: FontWeight.w600)),
                             ),
                           ],
                         ),
@@ -7872,7 +8723,7 @@ class _VoiceMessageBubblePlayer extends StatelessWidget {
                   if (isLoading) return;
                   context.read<PlaybackProvider>().play(
                         audioUrl,
-                        'Голосовое сообщение',
+                        (AppLocalizations.of(context)?.golosovoeSoobschenie_33d5 ?? 'Fallback'),
                         senderName,
                         mimeType: mimeType,
                         duration: fallbackDuration,
@@ -7949,6 +8800,316 @@ class _VoiceMessageBubblePlayer extends StatelessWidget {
                     ),
                   ],
                 ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _MusicMessageBubblePlayer extends StatefulWidget {
+  final Map<String, dynamic> payload;
+  final bool isMe;
+  final bool isDark;
+  final double scale;
+  final VoidCallback? onDownload;
+
+  const _MusicMessageBubblePlayer({
+    super.key,
+    required this.payload,
+    required this.isMe,
+    required this.isDark,
+    required this.scale,
+    this.onDownload,
+  });
+
+  @override
+  State<_MusicMessageBubblePlayer> createState() => _MusicMessageBubblePlayerState();
+}
+
+class _MusicMessageBubblePlayerState extends State<_MusicMessageBubblePlayer> {
+  double? _dragValue;
+
+  String _buildAudioUrl() {
+    final fileId = widget.payload['file_id']?.toString() ?? '';
+    final uri = Uri.parse(ApiService.baseUrl);
+    final port = uri.hasPort ? ':${uri.port}' : '';
+    final host = '${uri.scheme}://${uri.host}$port';
+    
+    String? fileUrl = widget.payload['file_url']?.toString();
+    if (fileUrl != null && fileUrl.trim().isEmpty) fileUrl = null;
+    
+    final suffix = fileUrl ?? '/api/files/download/$fileId/';
+    
+    String finalUrl = suffix.startsWith('http') 
+        ? suffix 
+        : '$host${suffix.startsWith('/') ? '' : '/'}$suffix';
+
+    final fileName = (widget.payload['file_name'] ?? widget.payload['name'] ?? '').toString().toLowerCase();
+    if (fileName.endsWith('.mp3')) {
+      finalUrl += finalUrl.contains('?') ? '&ext=.mp3' : '?ext=.mp3';
+    } else if (fileName.endsWith('.flac')) {
+      finalUrl += finalUrl.contains('?') ? '&ext=.flac' : '?ext=.flac';
+    } else if (fileName.endsWith('.wav')) {
+      finalUrl += finalUrl.contains('?') ? '&ext=.wav' : '?ext=.wav';
+    } else if (fileName.endsWith('.m4a') || fileName.endsWith('.aac')) {
+      finalUrl += finalUrl.contains('?') ? '&ext=.m4a' : '?ext=.m4a';
+    }
+    
+    return finalUrl;
+  }
+
+  String _formatBytes(int bytes) {
+    if (bytes <= 0) return (AppLocalizations.of(context)?.loc_0B_5a4d ?? 'Fallback');
+    var suffixes = [(AppLocalizations.of(context)?.b_3b67 ?? 'Fallback'), (AppLocalizations.of(context)?.kb_419d ?? 'Fallback'), (AppLocalizations.of(context)?.mb_b808 ?? 'Fallback'), (AppLocalizations.of(context)?.gb_e572 ?? 'Fallback')];
+    var i = (log(bytes) / log(1024)).floor();
+    if (i >= suffixes.length) i = suffixes.length - 1;
+    return ((bytes / pow(1024, i)).toStringAsFixed(1)) + ' ' + suffixes[i];
+  }
+
+  String _formatDuration(Duration d) {
+    final m = d.inMinutes;
+    final s = d.inSeconds % 60;
+    return '$m:${s.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final payload = widget.payload;
+    final isMe = widget.isMe;
+    final isDark = widget.isDark;
+    final scale = widget.scale;
+
+    final fileName = payload['file_name']?.toString() ?? payload['name']?.toString() ?? (AppLocalizations.of(context)?.audiozapis_867d ?? 'Fallback');
+    final fileSize = payload['file_size'] as int? ?? 0;
+    final mimeType = payload['mime_type']?.toString() ?? 'audio/mp3';
+    final audioUrl = _buildAudioUrl();
+
+    final rawDuration = payload['duration'];
+    final fallbackSeconds = rawDuration is num
+        ? rawDuration.toInt()
+        : (int.tryParse(rawDuration?.toString() ?? '') ?? 0);
+    final fallbackDuration = Duration(seconds: fallbackSeconds);
+
+    return Selector<PlaybackProvider, _VoicePlaybackState>(
+      selector: (_, provider) => _VoicePlaybackState(
+        currentAudioUrl: provider.currentAudioUrl,
+        isPlaying: provider.isPlaying,
+        isInitialized: provider.isInitialized,
+        isLoading: provider.isLoading,
+        position: provider.position,
+        duration: provider.duration,
+      ),
+      shouldRebuild: (prev, next) {
+        final isCurrent = next.currentAudioUrl == audioUrl;
+        final wasCurrent = prev.currentAudioUrl == audioUrl;
+        if (!isCurrent && !wasCurrent) return false;
+        return prev != next;
+      },
+      builder: (context, state, child) {
+        final isCurrent = state.currentAudioUrl == audioUrl;
+        final isPlaying = isCurrent && state.isPlaying;
+        final isLoading = isCurrent && state.isLoading;
+        final isInitialized = isCurrent && state.isInitialized;
+
+        final position = isCurrent ? state.position : Duration.zero;
+        final totalDuration = isCurrent && state.isInitialized && state.duration > Duration.zero
+            ? state.duration
+            : fallbackDuration;
+
+        final currentSliderPos = _dragValue ?? (
+          totalDuration > Duration.zero
+              ? (position.inMilliseconds / totalDuration.inMilliseconds).clamp(0.0, 1.0)
+              : 0.0
+        );
+
+        final displayPos = _dragValue != null && totalDuration > Duration.zero
+            ? Duration(milliseconds: (_dragValue! * totalDuration.inMilliseconds).round())
+            : position;
+
+        return Container(
+          width: 290 * scale,
+          padding: EdgeInsets.all(10 * scale),
+          decoration: BoxDecoration(
+            color: isMe 
+                ? Colors.white.withOpacity(0.12)
+                : (isDark ? Colors.white.withOpacity(0.04) : Colors.black.withOpacity(0.03)),
+            borderRadius: BorderRadius.circular(14 * scale),
+            border: Border.all(
+              color: isMe 
+                  ? Colors.white.withOpacity(0.2) 
+                  : (isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.05)),
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Top Row: Play button, Track info, Download button
+              Row(
+                children: [
+                  GestureDetector(
+                    onTap: () {
+                      if (isLoading) return;
+                      context.read<PlaybackProvider>().play(
+                        audioUrl,
+                        fileName,
+                        _formatBytes(fileSize),
+                        mimeType: mimeType,
+                        duration: totalDuration > Duration.zero ? totalDuration : null,
+                      );
+                    },
+                    child: Container(
+                      width: 42 * scale,
+                      height: 42 * scale,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: isMe ? Colors.white : (isDark ? Colors.blue.shade600 : Colors.blue.shade500),
+                        boxShadow: [
+                          BoxShadow(
+                            color: (isMe ? Colors.black : Colors.blue).withOpacity(0.15),
+                            blurRadius: 6,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: Center(
+                        child: isLoading
+                            ? SizedBox(
+                                width: 18 * scale,
+                                height: 18 * scale,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    isMe ? Colors.blue.shade700 : Colors.white,
+                                  ),
+                                ),
+                              )
+                            : FaIcon(
+                                isPlaying ? FontAwesomeIcons.pause : FontAwesomeIcons.play,
+                                color: isMe ? Colors.blue.shade700 : Colors.white,
+                                size: 16 * scale,
+                              ),
+                      ),
+                    ),
+                  ),
+                  SizedBox(width: 10 * scale),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          fileName,
+                          style: TextStyle(
+                            color: isMe ? Colors.white : (isDark ? Colors.white.withOpacity(0.95) : Colors.black87),
+                            fontSize: 13.5 * scale,
+                            fontWeight: FontWeight.w600,
+                            fontFamily: 'Inter',
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        SizedBox(height: 2 * scale),
+                        Row(
+                          children: [
+                            FaIcon(
+                              FontAwesomeIcons.music,
+                              size: 10 * scale,
+                              color: isMe ? Colors.white70 : (isDark ? Colors.white54 : Colors.black54),
+                            ),
+                            SizedBox(width: 4 * scale),
+                            Text(
+                              _formatBytes(fileSize),
+                              style: TextStyle(
+                                color: isMe ? Colors.white70 : (isDark ? Colors.white54 : Colors.black54),
+                                fontSize: 11 * scale,
+                                fontFamily: 'Inter',
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (widget.onDownload != null) ...[
+                    SizedBox(width: 6 * scale),
+                    IconButton(
+                      icon: FaIcon(
+                        FontAwesomeIcons.download,
+                        color: isMe ? Colors.white70 : (isDark ? Colors.white54 : Colors.black54),
+                        size: 14 * scale,
+                      ),
+                      onPressed: widget.onDownload,
+                      padding: EdgeInsets.zero,
+                      constraints: BoxConstraints.tightFor(width: 28 * scale, height: 28 * scale),
+                    ),
+                  ],
+                ],
+              ),
+              
+              SizedBox(height: 8 * scale),
+
+              // Bottom Row: Interactive Slider & Time Display
+              Row(
+                children: [
+                  Expanded(
+                    child: SliderTheme(
+                      data: SliderThemeData(
+                        trackHeight: 4 * scale,
+                        thumbShape: RoundSliderThumbShape(enabledThumbRadius: 6 * scale),
+                        overlayShape: RoundSliderOverlayShape(overlayRadius: 14 * scale),
+                        activeTrackColor: isMe ? Colors.white : Colors.blue.shade500,
+                        inactiveTrackColor: isMe ? Colors.white30 : (isDark ? Colors.white24 : Colors.black12),
+                        thumbColor: isMe ? Colors.white : (isDark ? Colors.blue.shade400 : Colors.blue.shade600),
+                      ),
+                      child: Slider(
+                        value: currentSliderPos.clamp(0.0, 1.0),
+                        onChanged: (val) {
+                          setState(() {
+                            _dragValue = val;
+                          });
+                          if (isInitialized && totalDuration > Duration.zero) {
+                            final targetMs = (val * totalDuration.inMilliseconds).round();
+                            context.read<PlaybackProvider>().seekPreview(Duration(milliseconds: targetMs));
+                          }
+                        },
+                        onChangeEnd: (val) async {
+                          final targetVal = val;
+                          setState(() {
+                            _dragValue = null;
+                          });
+                          if (totalDuration > Duration.zero) {
+                            final targetMs = (targetVal * totalDuration.inMilliseconds).round();
+                            final targetDuration = Duration(milliseconds: targetMs);
+                            if (!isInitialized || !isCurrent) {
+                              await context.read<PlaybackProvider>().play(
+                                audioUrl,
+                                fileName,
+                                _formatBytes(fileSize),
+                                mimeType: mimeType,
+                                duration: totalDuration,
+                              );
+                            }
+                            context.read<PlaybackProvider>().seek(targetDuration);
+                          }
+                        },
+                      ),
+                    ),
+                  ),
+                  SizedBox(width: 8 * scale),
+                  Text(
+                    totalDuration > Duration.zero 
+                        ? '${_formatDuration(displayPos)} / ${_formatDuration(totalDuration)}'
+                        : _formatDuration(displayPos),
+                    style: TextStyle(
+                      color: isMe ? Colors.white70 : (isDark ? Colors.white54 : Colors.black54),
+                      fontSize: 11 * scale,
+                      fontFamily: 'Inter',
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -8055,6 +9216,245 @@ class _NewMessageAnimatorState extends State<NewMessageAnimator> with SingleTick
   }
 }
 
+class _TopAudioPlaybackBar extends StatefulWidget {
+  final PlaybackProvider playback;
+  final bool isDark;
+  final double scale;
+  final VoidCallback? onTapTitle;
+
+  const _TopAudioPlaybackBar({
+    required this.playback,
+    required this.isDark,
+    required this.scale,
+    this.onTapTitle,
+  });
+
+  @override
+  State<_TopAudioPlaybackBar> createState() => _TopAudioPlaybackBarState();
+}
+
+class _TopAudioPlaybackBarState extends State<_TopAudioPlaybackBar> {
+  double? _dragValue;
+
+  String _formatDuration(Duration d) {
+    final m = d.inMinutes;
+    final s = d.inSeconds % 60;
+    return '$m:${s.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final playback = widget.playback;
+    final isDark = widget.isDark;
+    final scale = widget.scale;
+
+    final isPlaying = playback.isPlaying;
+    final title = playback.title.isEmpty ? (AppLocalizations.of(context)?.golosovoeSoobschenie_33d5 ?? 'Fallback') : playback.title;
+    final subtitle = playback.subtitle;
+    final position = playback.position;
+    final duration = playback.duration;
+
+    final sliderValue = _dragValue ?? (
+      duration > Duration.zero 
+          ? (position.inMilliseconds / duration.inMilliseconds).clamp(0.0, 1.0)
+          : 0.0
+    );
+
+    final displayPos = _dragValue != null && duration > Duration.zero
+        ? Duration(milliseconds: (_dragValue! * duration.inMilliseconds).round())
+        : position;
+
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: 520 * scale),
+      child: Container(
+        padding: EdgeInsets.symmetric(horizontal: 10 * scale, vertical: 8 * scale),
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xF01C1C20) : const Color(0xF5FFFFFF),
+          borderRadius: BorderRadius.circular(16 * scale),
+          border: Border.all(
+            color: isDark ? Colors.white.withOpacity(0.1) : Colors.black.withOpacity(0.08),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(isDark ? 0.45 : 0.12),
+              blurRadius: 16,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Row 1: Controls (Prev, Play/Pause, Next), Title & Subtitle, Time Text, Close button
+            Row(
+              children: [
+                // Previous button
+                IconButton(
+                  icon: FaIcon(
+                    FontAwesomeIcons.backwardStep,
+                    color: playback.hasPrevious
+                        ? (isDark ? Colors.white : Colors.black87)
+                        : (isDark ? Colors.white24 : Colors.black26),
+                    size: 12 * scale,
+                  ),
+                  onPressed: playback.hasPrevious ? () => playback.playPrevious() : null,
+                  padding: EdgeInsets.zero,
+                  constraints: BoxConstraints.tightFor(width: 24 * scale, height: 24 * scale),
+                ),
+                SizedBox(width: 2 * scale),
+                // Play / Pause
+                GestureDetector(
+                  onTap: () {
+                    if (isPlaying) {
+                      playback.pause();
+                    } else {
+                      playback.resume();
+                    }
+                  },
+                  child: Container(
+                    width: 32 * scale,
+                    height: 32 * scale,
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? Colors.blue.shade600
+                          : Colors.blue.shade500,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.blue.withOpacity(0.3),
+                          blurRadius: 6,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Center(
+                      child: FaIcon(
+                        isPlaying ? FontAwesomeIcons.pause : FontAwesomeIcons.play,
+                        color: Colors.white,
+                        size: 13 * scale,
+                      ),
+                    ),
+                  ),
+                ),
+                SizedBox(width: 2 * scale),
+                // Next button
+                IconButton(
+                  icon: FaIcon(
+                    FontAwesomeIcons.forwardStep,
+                    color: playback.hasNext
+                        ? (isDark ? Colors.white : Colors.black87)
+                        : (isDark ? Colors.white24 : Colors.black26),
+                    size: 12 * scale,
+                  ),
+                  onPressed: playback.hasNext ? () => playback.playNext() : null,
+                  padding: EdgeInsets.zero,
+                  constraints: BoxConstraints.tightFor(width: 24 * scale, height: 24 * scale),
+                ),
+                SizedBox(width: 10 * scale),
+                // Track Info - Tapping opens playlist modal
+                Expanded(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: widget.onTapTitle,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: isDark ? Colors.white : Colors.black87,
+                            fontSize: 13 * scale,
+                            fontWeight: FontWeight.w600,
+                            fontFamily: 'Inter',
+                          ),
+                        ),
+                        if (subtitle.isNotEmpty) ...[
+                          SizedBox(height: 1 * scale),
+                          Text(
+                            subtitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: isDark ? Colors.white54 : Colors.black54,
+                              fontSize: 11 * scale,
+                              fontFamily: 'Inter',
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+                SizedBox(width: 8 * scale),
+                Text(
+                  duration > Duration.zero
+                      ? '${_formatDuration(displayPos)} / ${_formatDuration(duration)}'
+                      : _formatDuration(displayPos),
+                  style: TextStyle(
+                    color: isDark ? Colors.white70 : Colors.black87,
+                    fontSize: 11 * scale,
+                    fontWeight: FontWeight.w500,
+                    fontFamily: 'Inter',
+                  ),
+                ),
+                SizedBox(width: 4 * scale),
+                GestureDetector(
+                  onTap: () => playback.stop(),
+                  child: Padding(
+                    padding: EdgeInsets.all(4 * scale),
+                    child: Icon(
+                      Icons.close_rounded,
+                      color: isDark ? Colors.white54 : Colors.black45,
+                      size: 18 * scale,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            SizedBox(height: 4 * scale),
+
+            // Row 2: Interactive Slider Progress Bar
+            SliderTheme(
+              data: SliderThemeData(
+                trackHeight: 3.5 * scale,
+                thumbShape: RoundSliderThumbShape(enabledThumbRadius: 5.5 * scale),
+                overlayShape: RoundSliderOverlayShape(overlayRadius: 12 * scale),
+                activeTrackColor: Colors.blue.shade500,
+                inactiveTrackColor: isDark ? Colors.white24 : Colors.black12,
+                thumbColor: isDark ? Colors.blue.shade400 : Colors.blue.shade600,
+              ),
+              child: Slider(
+                value: sliderValue.clamp(0.0, 1.0),
+                onChanged: (val) {
+                  setState(() {
+                    _dragValue = val;
+                  });
+                  if (duration > Duration.zero) {
+                    final targetMs = (val * duration.inMilliseconds).round();
+                    playback.seekPreview(Duration(milliseconds: targetMs));
+                  }
+                },
+                onChangeEnd: (val) {
+                  setState(() {
+                    _dragValue = null;
+                  });
+                  if (duration > Duration.zero) {
+                    final targetMs = (val * duration.inMilliseconds).round();
+                    playback.seek(Duration(milliseconds: targetMs));
+                  }
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _BlinkingRedDot extends StatefulWidget {
   const _BlinkingRedDot();
 
@@ -8145,7 +9545,7 @@ class _VideoRecordingPreviewState extends State<_VideoRecordingPreview> with Sin
     });
 
     try {
-      await _player!.open(Media('udp://127.0.0.1:44444'));
+      await _player!.open(Media('udp://127.0.loc_0.1:44444'));
       print('MEDIA_KIT: Opened UDP stream');
     } catch (e) {
       print('MEDIA_KIT_OPEN_ERROR: $e');
@@ -8503,8 +9903,8 @@ class _VideoMessageMockBubbleState extends State<_VideoMessageMockBubble> {
 
         await playbackProvider.playVideo(
           videoUrl,
-          'Видеосообщение',
-          'Видео',
+          (AppLocalizations.of(context)?.videosoobschenie_2951 ?? 'Fallback'),
+          (AppLocalizations.of(context)?.video_a095 ?? 'Fallback'),
           duration: _videoDuration,
         );
       } else {
@@ -8521,8 +9921,8 @@ class _VideoMessageMockBubbleState extends State<_VideoMessageMockBubble> {
 
       await playbackProvider.playVideo(
         videoUrl,
-        'Видеосообщение',
-        'Видео',
+        (AppLocalizations.of(context)?.videosoobschenie_2951 ?? 'Fallback'),
+        (AppLocalizations.of(context)?.video_a095 ?? 'Fallback'),
         duration: _videoDuration,
       );
     }

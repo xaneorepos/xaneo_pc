@@ -6,6 +6,7 @@ import 'package:livekit_client/livekit_client.dart';
 
 import 'base_call_screen.dart';
 import '../../services/webrtc/call_manager.dart';
+import 'package:xaneo/l10n/app_localizations.dart';
 
 /// Экран активного ГРУППОВОГО звонка в стиле веб-версии
 class GroupActiveCallScreen extends BaseCallScreen {
@@ -31,11 +32,11 @@ class _GroupActiveCallScreenState extends BaseCallScreenState<GroupActiveCallScr
       return const Scaffold(backgroundColor: Colors.black);
     }
 
-    final groupName = callManager.targetName ?? 'Групповой звонок';
+    final groupName = callManager.targetName ?? (AppLocalizations.of(context)?.gruppovoyZvonok_dac1 ?? 'Fallback');
     final isConnected = callManager.state == CallState.connected;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0F172A), // Modern Slate-900 background
+      backgroundColor: Color(0xFF0F172A), // Modern Slate-900 background
       body: Stack(
         children: [
           // ==========================================
@@ -62,7 +63,7 @@ class _GroupActiveCallScreenState extends BaseCallScreenState<GroupActiveCallScr
           buildCallHeader(
             context: context,
             title: groupName,
-            subtitle: isConnected ? 'Групповой звонок' : 'Подключение к звонку...',
+            subtitle: isConnected ? (AppLocalizations.of(context)?.gruppovoyZvonok_dac1 ?? 'Fallback') : (AppLocalizations.of(context)?.podklyuchenieKZvonku_e2cf ?? 'Fallback'),
             onMinimize: () {
               Navigator.of(context).pop();
             },
@@ -97,7 +98,7 @@ class _GroupActiveCallScreenState extends BaseCallScreenState<GroupActiveCallScr
               size: 110,
             ),
           ),
-          const SizedBox(height: 24),
+          SizedBox(height: 24),
           Text(
             groupName,
             style: const TextStyle(
@@ -108,7 +109,7 @@ class _GroupActiveCallScreenState extends BaseCallScreenState<GroupActiveCallScr
           ),
           const SizedBox(height: 8),
           Text(
-            'Подключение к вещанию...',
+            (AppLocalizations.of(context)?.podklyuchenieKVeschaniyu_038b ?? 'Fallback'),
             style: TextStyle(
               color: Colors.white.withOpacity(0.6),
               fontSize: 14,
@@ -125,7 +126,7 @@ class _GroupActiveCallScreenState extends BaseCallScreenState<GroupActiveCallScr
 
     // 1. Локальный тайл (Собственная камера / Видеопоток пользователя)
     participantTiles.add(_buildParticipantCard(
-      name: 'Вы',
+      name: (AppLocalizations.of(context)?.vy_0101 ?? 'Fallback'),
       isLocal: true,
       isVideoOn: !callManager.isCameraOff,
       videoTrack: callManager.localVideoTrack,
@@ -151,7 +152,7 @@ class _GroupActiveCallScreenState extends BaseCallScreenState<GroupActiveCallScr
     } else {
       // Плейсхолдер вещания при входящем/исходящем звонке до получения списка участников
       participantTiles.add(_buildParticipantCard(
-        name: callManager.targetName ?? 'Участник',
+        name: callManager.targetName ?? (AppLocalizations.of(context)?.uchastnik_cffb ?? 'Fallback'),
         isLocal: false,
         isVideoOn: callManager.remoteVideoTrack != null,
         videoTrack: callManager.remoteVideoTrack,
@@ -229,7 +230,7 @@ class _GroupActiveCallScreenState extends BaseCallScreenState<GroupActiveCallScr
   }) {
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF1E293B),
+        color: Color(0xFF1E293B),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: Colors.white.withOpacity(0.08)),
         boxShadow: [
@@ -292,7 +293,7 @@ class _GroupActiveCallScreenState extends BaseCallScreenState<GroupActiveCallScr
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      if (isLocal && name != 'Вы') ...[
+                      if (isLocal && name != (AppLocalizations.of(context)?.vy_0101 ?? 'Fallback')) ...[
                         const SizedBox(width: 4),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
@@ -300,8 +301,8 @@ class _GroupActiveCallScreenState extends BaseCallScreenState<GroupActiveCallScr
                             color: const Color(0xFF3B82F6),
                             borderRadius: BorderRadius.circular(4),
                           ),
-                          child: const Text(
-                            'ВЫ',
+                          child: Text(
+                            (AppLocalizations.of(context)?.vy_479c ?? 'Fallback'),
                             style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold),
                           ),
                         ),

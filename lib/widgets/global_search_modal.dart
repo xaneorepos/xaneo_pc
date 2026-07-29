@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../services/api_service.dart';
 import 'base_custom_modal.dart';
+import 'package:xaneo/l10n/app_localizations.dart';
 
 /// Модальное окно глобального поиска для Xaneo PC.
 /// Построено на кастомной базовой модалке BaseCustomModal (в точности повторяющей модалку смены аккаунтов).
@@ -11,9 +12,9 @@ class GlobalSearchModal extends BaseCustomModal {
   final ApiService apiService;
   final Function(Map<String, dynamic> item, String type) onResultSelected;
 
-  const GlobalSearchModal({
+  GlobalSearchModal({
     super.key,
-    super.modalTag = 'ГЛОБАЛЬНЫЙ ПОИСК',
+    super.modalTag = 'Fallback',
     required this.apiService,
     required this.onResultSelected,
   });
@@ -147,7 +148,7 @@ class _GlobalSearchModalState extends BaseCustomModalState<GlobalSearchModal> {
         Container(
           height: 42 * scale,
           decoration: BoxDecoration(
-            color: isDark ? const Color(0xFF141414) : const Color(0xFFF5F5F5),
+            color: isDark ? Color(0xFF141414) : const Color(0xFFF5F5F5),
             borderRadius: BorderRadius.circular(8 * scale),
             border: Border.all(
               color: borderColor,
@@ -164,7 +165,7 @@ class _GlobalSearchModalState extends BaseCustomModalState<GlobalSearchModal> {
               fontFamily: 'Inter',
             ),
             decoration: InputDecoration(
-              hintText: 'Поиск контактов, чатов, каналов, ботов...',
+              hintText: (AppLocalizations.of(context)?.poiskKontaktovChatovKanalovBotov_db66 ?? 'Fallback'),
               hintStyle: TextStyle(
                 color: isDark ? Colors.white38 : Colors.black38,
                 fontSize: 13 * scale,
@@ -200,12 +201,12 @@ class _GlobalSearchModalState extends BaseCustomModalState<GlobalSearchModal> {
           scrollDirection: Axis.horizontal,
           child: Row(
             children: [
-              _buildFilterChip('all', 'Все', isDark, scale),
-              _buildFilterChip('users', 'Люди', isDark, scale),
-              _buildFilterChip('groups', 'Группы', isDark, scale),
-              _buildFilterChip('channels', 'Каналы', isDark, scale),
-              _buildFilterChip('bots', 'Боты', isDark, scale),
-              _buildFilterChip('favorites', 'Избранное', isDark, scale),
+              _buildFilterChip('all', (AppLocalizations.of(context)?.vse_984b ?? 'Fallback'), isDark, scale),
+              _buildFilterChip('users', (AppLocalizations.of(context)?.lyudi_c7ae ?? 'Fallback'), isDark, scale),
+              _buildFilterChip('groups', (AppLocalizations.of(context)?.gruppy_ebc4 ?? 'Fallback'), isDark, scale),
+              _buildFilterChip('channels', (AppLocalizations.of(context)?.kanaly_0c11 ?? 'Fallback'), isDark, scale),
+              _buildFilterChip('bots', (AppLocalizations.of(context)?.boty_d6e4 ?? 'Fallback'), isDark, scale),
+              _buildFilterChip('favorites', (AppLocalizations.of(context)?.izbrannoe_2fc4 ?? 'Fallback'), isDark, scale),
             ],
           ),
         ),
@@ -290,7 +291,7 @@ class _GlobalSearchModalState extends BaseCustomModalState<GlobalSearchModal> {
             ),
             SizedBox(height: 10 * scale),
             Text(
-              'Введите запрос для поиска по всей сети Xaneo',
+              (AppLocalizations.of(context)?.vvediteZaprosDlyaPoiskaPo_9955 ?? 'Fallback'),
               style: TextStyle(
                 color: isDark ? Colors.white38 : Colors.black38,
                 fontSize: 13 * scale,
@@ -320,7 +321,7 @@ class _GlobalSearchModalState extends BaseCustomModalState<GlobalSearchModal> {
             ),
             SizedBox(height: 10 * scale),
             Text(
-              'Ничего не найдено',
+              (AppLocalizations.of(context)?.nichegoNeNaydeno_8767 ?? 'Fallback'),
               style: TextStyle(
                 color: isDark ? Colors.white38 : Colors.black38,
                 fontSize: 13 * scale,
@@ -334,26 +335,26 @@ class _GlobalSearchModalState extends BaseCustomModalState<GlobalSearchModal> {
 
     return ListView(
       controller: scrollController,
-      physics: const BouncingScrollPhysics(),
+      physics: BouncingScrollPhysics(),
       children: [
         if (hasFavorites) ...[
-          _buildSectionHeader('ИЗБРАННОЕ', isDark, scale),
+          _buildSectionHeader((AppLocalizations.of(context)?.izbrannoe_b637 ?? 'Fallback'), isDark, scale),
           ..._favorites.map((item) => _buildResultItem(item, 'favorites', isDark, scale)),
         ],
         if (hasBots) ...[
-          _buildSectionHeader('БОТЫ', isDark, scale),
+          _buildSectionHeader((AppLocalizations.of(context)?.boty_800d ?? 'Fallback'), isDark, scale),
           ..._bots.map((item) => _buildResultItem(item, 'bot', isDark, scale)),
         ],
         if (hasChannels) ...[
-          _buildSectionHeader('КАНАЛЫ', isDark, scale),
+          _buildSectionHeader((AppLocalizations.of(context)?.kanaly_ccec ?? 'Fallback'), isDark, scale),
           ..._channels.map((item) => _buildResultItem(item, 'channel', isDark, scale)),
         ],
         if (hasGroups) ...[
-          _buildSectionHeader('ГРУППЫ', isDark, scale),
+          _buildSectionHeader((AppLocalizations.of(context)?.gruppy_cfd6 ?? 'Fallback'), isDark, scale),
           ..._groups.map((item) => _buildResultItem(item, 'group', isDark, scale)),
         ],
         if (hasUsers) ...[
-          _buildSectionHeader('ПОЛЬЗОВАТЕЛИ', isDark, scale),
+          _buildSectionHeader((AppLocalizations.of(context)?.polzovateli_e0ec ?? 'Fallback'), isDark, scale),
           ..._users.map((item) => _buildResultItem(item, 'user', isDark, scale)),
         ],
       ],
@@ -383,8 +384,8 @@ class _GlobalSearchModalState extends BaseCustomModalState<GlobalSearchModal> {
     Color iconColor = const Color(0xFF2563EB);
 
     if (type == 'favorites') {
-      name = 'Избранное';
-      subtitle = 'Сохраненные сообщения';
+      name = (AppLocalizations.of(context)?.izbrannoe_2fc4 ?? 'Fallback');
+      subtitle = (AppLocalizations.of(context)?.sohranennyeSoobscheniya_6b62 ?? 'Fallback');
       iconData = Icons.bookmark_rounded;
       iconColor = const Color(0xFF8B5CF6);
     } else if (type == 'user') {
@@ -397,20 +398,20 @@ class _GlobalSearchModalState extends BaseCustomModalState<GlobalSearchModal> {
       iconData = Icons.person_rounded;
       iconColor = const Color(0xFF2563EB);
     } else if (type == 'bot') {
-      name = item['first_name']?.toString() ?? item['username']?.toString() ?? 'Бот';
-      subtitle = '@${item['username'] ?? ''} • Бот';
+      name = item['first_name']?.toString() ?? item['username']?.toString() ?? (AppLocalizations.of(context)?.bot_0ae1 ?? 'Bot');
+      subtitle = '@${item['username'] ?? (AppLocalizations.of(context)?.bot_0f46 ?? 'bot')}';
       iconData = Icons.smart_toy_rounded;
       iconColor = const Color(0xFF10B981);
     } else if (type == 'group') {
-      name = item['name']?.toString() ?? 'Группа';
-      final count = item['members_count'] ?? 0;
-      subtitle = '$count участников';
+      name = item['name']?.toString() ?? (AppLocalizations.of(context)?.gruppa_99d9 ?? 'Group');
+      final count = item['members_count'] is int ? item['members_count'] as int : int.tryParse(item['members_count']?.toString() ?? '0') ?? 0;
+      subtitle = AppLocalizations.of(context)?.membersCount(count) ?? '$count members';
       iconData = Icons.groups_rounded;
       iconColor = const Color(0xFFA855F7);
     } else if (type == 'channel') {
-      name = item['name']?.toString() ?? 'Канал';
-      final count = item['subscribers_count'] ?? 0;
-      subtitle = '$count подписчиков';
+      name = item['name']?.toString() ?? (AppLocalizations.of(context)?.kanal_2710 ?? 'Channel');
+      final count = item['subscribers_count'] is int ? item['subscribers_count'] as int : int.tryParse(item['subscribers_count']?.toString() ?? '0') ?? 0;
+      subtitle = AppLocalizations.of(context)?.subscribersCount(count) ?? '$count subscribers';
       iconData = Icons.campaign_rounded;
       iconColor = const Color(0xFFF59E0B);
     }

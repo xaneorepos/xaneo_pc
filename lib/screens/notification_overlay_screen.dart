@@ -6,6 +6,7 @@ import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:flutter/services.dart';
+import 'package:xaneo/l10n/app_localizations.dart';
 class NotificationOverlayScreen extends StatefulWidget {
   final int windowId;
   final Map<String, dynamic> arguments;
@@ -47,7 +48,7 @@ class _NotificationOverlayScreenState extends State<NotificationOverlayScreen> w
     _isCall = type == 'call_incoming';
     
     _chatId = widget.arguments['chat_id']?.toString() ?? '';
-    _title = widget.arguments['title']?.toString() ?? (_isCall ? 'Входящий вызов' : 'Новое сообщение');
+    _title = widget.arguments['title']?.toString() ?? (_isCall ? (AppLocalizations.of(context)?.vhodyaschiyVyzov_d2f3 ?? 'Fallback') : (AppLocalizations.of(context)?.novoeSoobschenie_1d49 ?? 'Fallback'));
     _body = widget.arguments['body']?.toString() ?? '';
     _avatar = widget.arguments['avatar']?.toString();
     _gradient = widget.arguments['gradient']?.toString();
@@ -284,11 +285,11 @@ class _NotificationOverlayScreenState extends State<NotificationOverlayScreen> w
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                           decoration: BoxDecoration(
-                            color: const Color(0xFF2563EB),
+                            color: Color(0xFF2563EB),
                             borderRadius: BorderRadius.circular(12),
                           ),
-                          child: const Text(
-                            'Ответить',
+                          child: Text(
+                            (AppLocalizations.of(context)?.otvetit_e568 ?? 'Fallback'),
                             style: TextStyle(
                               color: Colors.white,
                               fontSize: 11,
@@ -325,7 +326,7 @@ class _NotificationOverlayScreenState extends State<NotificationOverlayScreen> w
                       focusNode: _replyFocusNode,
                       style: const TextStyle(color: Colors.white, fontSize: 13),
                       decoration: InputDecoration(
-                        hintText: 'Ваш ответ...',
+                        hintText: (AppLocalizations.of(context)?.vashOtvet_40c2 ?? 'Fallback'),
                         hintStyle: TextStyle(color: Colors.white.withOpacity(0.35), fontSize: 13),
                         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                         border: InputBorder.none,
@@ -370,7 +371,7 @@ class _NotificationOverlayScreenState extends State<NotificationOverlayScreen> w
   }
 
   Widget _buildCallLayout() {
-    final typeText = _callType == 'video' ? 'Видеовызов...' : 'Аудиовызов...';
+    final typeText = _callType == 'video' ? (AppLocalizations.of(context)?.videovyzov_3353 ?? 'Fallback') : (AppLocalizations.of(context)?.audiovyzov_bbb5 ?? 'Fallback');
     final callIcon = _callType == 'video' ? Icons.videocam_rounded : Icons.phone_in_talk_rounded;
 
     return Padding(
@@ -380,7 +381,7 @@ class _NotificationOverlayScreenState extends State<NotificationOverlayScreen> w
           Row(
             children: [
               _buildAvatar(),
-              const SizedBox(width: 12),
+              SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -433,13 +434,13 @@ class _NotificationOverlayScreenState extends State<NotificationOverlayScreen> w
                         width: 1,
                       ),
                     ),
-                    child: const Row(
+                    child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(Icons.call_end_rounded, color: Color(0xFFEF4444), size: 16),
                         SizedBox(width: 6),
                         Text(
-                          'Отклонить',
+                          (AppLocalizations.of(context)?.otklonit_8b0d ?? 'Fallback'),
                           style: TextStyle(
                             color: Color(0xFFEF4444),
                             fontWeight: FontWeight.bold,
@@ -465,13 +466,13 @@ class _NotificationOverlayScreenState extends State<NotificationOverlayScreen> w
                         width: 1,
                       ),
                     ),
-                    child: const Row(
+                    child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(Icons.phone_rounded, color: Color(0xFF10B981), size: 16),
                         SizedBox(width: 6),
                         Text(
-                          'Ответить',
+                          (AppLocalizations.of(context)?.otvetit_e568 ?? 'Fallback'),
                           style: TextStyle(
                             color: Color(0xFF10B981),
                             fontWeight: FontWeight.bold,

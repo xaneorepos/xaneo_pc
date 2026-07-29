@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/theme_provider.dart';
 import '../styles/app_styles.dart';
+import 'package:xaneo/l10n/app_localizations.dart';
 
 /// Модальное окно "О приложении"
 class AboutAppModal extends StatefulWidget {
@@ -235,10 +236,10 @@ class _AboutAppModalState extends State<AboutAppModal>
               size: 24,
             ),
           ),
-          const SizedBox(width: 16),
+          SizedBox(width: 16),
           Expanded(
             child: Text(
-              'О приложении',
+              (AppLocalizations.of(context)?.oPrilozhenii_322e ?? 'Fallback'),
               style: TextStyle(
                 color: isDark ? Colors.white : Colors.black,
                 fontSize: 22,
@@ -386,7 +387,7 @@ class _AboutAppModalState extends State<AboutAppModal>
               ),
               const SizedBox(width: 10),
               Text(
-                'v1.0.0',
+                'v1.0.loc_0',
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w500,
@@ -451,7 +452,7 @@ class _AboutAppModalState extends State<AboutAppModal>
       child: Column(
         children: [
           Text(
-            'Современное десктопное приложение\nс красивым интерфейсом и 3D эффектами',
+            (AppLocalizations.of(context)?.sovremennoeDesktopnoePrilozheniensKrasivymInterfeysom_8a4e ?? 'Fallback'),
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 14,
@@ -580,7 +581,7 @@ class _AboutAppModalState extends State<AboutAppModal>
     return Column(
       children: [
         Text(
-          'Технологии',
+          (AppLocalizations.of(context)?.tehnologii_6332 ?? 'Fallback'),
           style: TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w500,
@@ -734,8 +735,8 @@ class _ConfettiOverlayState extends State<_ConfettiOverlay>
                             ),
                           ],
                         ),
-                        child: const Text(
-                          '🎉 Вы нашли пасхалку! 🎉',
+                        child: Text(
+                          (AppLocalizations.of(context)?.vyNashliPashalku_1a57 ?? 'Fallback'),
                           style: TextStyle(
                             fontSize: 24,
                             fontWeight: FontWeight.bold,
@@ -747,8 +748,8 @@ class _ConfettiOverlayState extends State<_ConfettiOverlay>
                         ),
                       ),
                       const SizedBox(height: 16),
-                      const Text(
-                        'Спасибо за использование xaneo!',
+                      Text(
+                        (AppLocalizations.of(context)?.spasiboZaIspolzovanieXaneo_d079 ?? 'Fallback'),
                         style: TextStyle(
                           fontSize: 16,
                           color: Colors.white,

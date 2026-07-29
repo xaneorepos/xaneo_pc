@@ -4,6 +4,7 @@ import '../../services/webrtc/call_manager.dart';
 import '../../services/api_service.dart';
 import 'active_call_screen.dart';
 import 'package:xaneo/main.dart';
+import 'package:xaneo/l10n/app_localizations.dart';
 
 class IncomingCallDialog extends StatefulWidget {
   const IncomingCallDialog({super.key});
@@ -66,7 +67,7 @@ class _IncomingCallDialogState extends State<IncomingCallDialog> with SingleTick
               BoxShadow(
                 color: Colors.black.withOpacity(isDark ? 0.6 : 0.06),
                 blurRadius: 24,
-                offset: const Offset(0, 8),
+                offset: Offset(0, 8),
               ),
             ],
           ),
@@ -75,7 +76,7 @@ class _IncomingCallDialogState extends State<IncomingCallDialog> with SingleTick
             children: [
               // Title / Tag
               Text(
-                'ВХОДЯЩИЙ ВЫЗОВ',
+                (AppLocalizations.of(context)?.vhodyaschiyVyzov_905e ?? 'Fallback'),
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.w600,
@@ -117,11 +118,11 @@ class _IncomingCallDialogState extends State<IncomingCallDialog> with SingleTick
                   ),
                 ),
               ),
-              const SizedBox(height: 20),
+              SizedBox(height: 20),
 
               // Caller Name
               Text(
-                callManager.targetName ?? 'Неизвестный',
+                callManager.targetName ?? (AppLocalizations.of(context)?.neizvestnyy_be89 ?? 'Fallback'),
                 style: TextStyle(
                   color: isDark ? Colors.white : Colors.black87,
                   fontSize: 17,
@@ -133,7 +134,7 @@ class _IncomingCallDialogState extends State<IncomingCallDialog> with SingleTick
 
               // Call Type Description
               Text(
-                isVideo ? 'Видеозвонок...' : 'Голосовой звонок...',
+                isVideo ? (AppLocalizations.of(context)?.videozvonok_dd18 ?? 'Fallback') : (AppLocalizations.of(context)?.golosovoyZvonok_5410 ?? 'Fallback'),
                 style: TextStyle(
                   color: isDark ? Colors.white38 : Colors.black38,
                   fontSize: 11.5,
@@ -156,20 +157,20 @@ class _IncomingCallDialogState extends State<IncomingCallDialog> with SingleTick
                         child: Container(
                           height: 38,
                           decoration: BoxDecoration(
-                            color: const Color(0xFFEF4444).withOpacity(0.12),
+                            color: Color(0xFFEF4444).withOpacity(0.12),
                             borderRadius: BorderRadius.circular(10),
                             border: Border.all(
                               color: const Color(0xFFEF4444).withOpacity(0.3),
                               width: 1,
                             ),
                           ),
-                          child: const Row(
+                          child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               Icon(Icons.call_end_rounded, color: Color(0xFFEF4444), size: 15),
                               SizedBox(width: 6),
                               Text(
-                                'Отклонить',
+                                (AppLocalizations.of(context)?.otklonit_8b0d ?? 'Fallback'),
                                 style: TextStyle(
                                   color: Color(0xFFEF4444),
                                   fontWeight: FontWeight.bold,
@@ -223,7 +224,7 @@ class _IncomingCallDialogState extends State<IncomingCallDialog> with SingleTick
                         child: Container(
                           height: 38,
                           decoration: BoxDecoration(
-                            color: const Color(0xFF10B981).withOpacity(0.15),
+                            color: Color(0xFF10B981).withOpacity(0.15),
                             borderRadius: BorderRadius.circular(10),
                             border: Border.all(
                               color: const Color(0xFF10B981).withOpacity(0.3),
@@ -239,8 +240,8 @@ class _IncomingCallDialogState extends State<IncomingCallDialog> with SingleTick
                                 size: 15,
                               ),
                               const SizedBox(width: 6),
-                              const Text(
-                                'Ответить',
+                              Text(
+                                (AppLocalizations.of(context)?.otvetit_e568 ?? 'Fallback'),
                                 style: TextStyle(
                                   color: Color(0xFF10B981),
                                   fontWeight: FontWeight.bold,

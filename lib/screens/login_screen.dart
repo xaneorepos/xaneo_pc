@@ -32,6 +32,7 @@ class _LoginScreenState extends State<LoginScreen>
   final _passwordController = TextEditingController();
   
   bool _isLoading = false;
+  bool _hasAccounts = false;
   int _currentStep = 0; // 0: login/username, 1: password
 
   late AnimationController _fadeController;
@@ -47,6 +48,7 @@ class _LoginScreenState extends State<LoginScreen>
   @override
   void initState() {
     super.initState();
+    _checkAccounts();
     
     _fadeController = AnimationController(
       duration: const Duration(milliseconds: 800),
@@ -103,6 +105,15 @@ class _LoginScreenState extends State<LoginScreen>
 
   // API сервис
   final _apiService = ApiService();
+
+  Future<void> _checkAccounts() async {
+    final accounts = await AccountService().getAccounts();
+    if (mounted) {
+      setState(() {
+        _hasAccounts = accounts.isNotEmpty;
+      });
+    }
+  }
 
   void _nextStep() {
     if (_formKey.currentState!.validate()) {
@@ -164,7 +175,7 @@ class _LoginScreenState extends State<LoginScreen>
                   if (mounted) {
                     CustomToast.show(
                       context,
-                      uploadResponse.error ?? 'Ошибка восстановления ключей (не удалось перезаписать)',
+                      uploadResponse.error ?? (AppLocalizations.of(context)?.oshibkaVosstanovleniyaKlyucheyNeUdalos_fe7b ?? 'Fallback'),
                       type: ToastType.error,
                     );
                   }
@@ -174,7 +185,7 @@ class _LoginScreenState extends State<LoginScreen>
                 if (mounted) {
                   CustomToast.show(
                     context,
-                    'Критическая ошибка при пересоздании ключей шифрования',
+                    (AppLocalizations.of(context)?.kriticheskayaOshibkaPriPeresozdaniiKlyuchey_b6d7 ?? 'Fallback'),
                     type: ToastType.error,
                   );
                 }
@@ -198,7 +209,7 @@ class _LoginScreenState extends State<LoginScreen>
                 if (mounted) {
                   CustomToast.show(
                     context,
-                    uploadResponse.error ?? 'Ошибка загрузки ключей на сервер',
+                    uploadResponse.error ?? (AppLocalizations.of(context)?.oshibkaZagruzkiKlyucheyNaServer_ff9b ?? 'Fallback'),
                     type: ToastType.error,
                   );
                 }
@@ -212,7 +223,7 @@ class _LoginScreenState extends State<LoginScreen>
             if (mounted) {
               CustomToast.show(
                 context,
-                keysResponse.error ?? 'Ошибка при получении ключей шифрования',
+                keysResponse.error ?? (AppLocalizations.of(context)?.oshibkaPriPolucheniiKlyucheyShifrovaniya_9bb4 ?? 'Fallback'),
                 type: ToastType.error,
               );
             }
@@ -240,7 +251,7 @@ class _LoginScreenState extends State<LoginScreen>
               if (mounted) {
                 CustomToast.show(
                   context,
-                  'Превышен лимит в 5 аккаунтов на этом клиенте или ошибка подключения.',
+                  (AppLocalizations.of(context)?.prevyshenLimitV5Akkauntov_a6a9 ?? 'Fallback'),
                   type: ToastType.error,
                 );
               }
@@ -273,7 +284,7 @@ class _LoginScreenState extends State<LoginScreen>
           if (mounted) {
             CustomToast.show(
               context,
-              tokenResponse.error ?? 'Ошибка авторизации',
+              tokenResponse.error ?? (AppLocalizations.of(context)?.oshibkaAvtorizatsii_9f5c ?? 'Fallback'),
               type: ToastType.error,
             );
           }
@@ -287,7 +298,7 @@ class _LoginScreenState extends State<LoginScreen>
         if (mounted) {
           CustomToast.show(
             context,
-            'Ошибка подключения к серверу',
+            (AppLocalizations.of(context)?.oshibkaPodklyucheniyaKServeru_8b96 ?? 'Fallback'),
             type: ToastType.error,
           );
         }
@@ -304,6 +315,7 @@ class _LoginScreenState extends State<LoginScreen>
     final isDark = themeProvider.isDarkMode;
     final screenWidth = MediaQuery.of(context).size.width;
     final showRightPanel = screenWidth > 750;
+    final canGoBack = Navigator.of(context).canPop() || _hasAccounts;
 
     return Scaffold(
       backgroundColor: isDark ? const Color(0xFF070707) : const Color(0xFFFAF9FB),
@@ -379,7 +391,7 @@ class _LoginScreenState extends State<LoginScreen>
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            'secure desktop communicator',
+                            l10n?.secureDesktopCommunicator ?? 'secure desktop communicator',
                             style: TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w300,
@@ -400,6 +412,67 @@ class _LoginScreenState extends State<LoginScreen>
           const Positioned.fill(
             child: SettingsButton(),
           ),
+
+          // Back button to return to messenger
+          if (canGoBack)
+            Positioned(
+              top: 50,
+              left: 20,
+              child: MouseRegion(
+                cursor: SystemMouseCursors.click,
+                child: GestureDetector(
+                  onTap: () {
+                    if (_currentStep > 0) {
+                      setState(() {
+                        _currentStep = 0;
+                      });
+                      Future.delayed(const Duration(milliseconds: 100), () {
+                        _loginFocus.requestFocus();
+                      });
+                    } else {
+                      if (Navigator.of(context).canPop()) {
+                        Navigator.of(context).pop();
+                      } else if (_hasAccounts) {
+                        Navigator.of(context).pushReplacementNamed('/messenger');
+                      }
+                    }
+                  },
+                  child: Tooltip(
+                    message: (AppLocalizations.of(context)?.nazadKMessendzheru_de29 ?? 'Fallback'),
+                    child: Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: isDark
+                            ? Colors.white.withOpacity(0.08)
+                            : Colors.black.withOpacity(0.03),
+                        border: Border.all(
+                          color: isDark
+                              ? Colors.white.withOpacity(0.1)
+                              : Colors.black.withOpacity(0.05),
+                          width: 1,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: isDark
+                                ? Colors.white.withOpacity(0.05)
+                                : Colors.black.withOpacity(0.05),
+                            blurRadius: 10,
+                            spreadRadius: 1,
+                          ),
+                        ],
+                      ),
+                      child: Icon(
+                        Icons.arrow_back_rounded,
+                        color: isDark ? Colors.white : Colors.black,
+                        size: 22,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -421,7 +494,7 @@ class _LoginScreenState extends State<LoginScreen>
               color: isDark ? Colors.white : Colors.black,
               fit: BoxFit.contain,
             ),
-            const SizedBox(height: 32),
+            SizedBox(height: 32),
           ],
           
           // Header / Welcome Title (Step-dependent)
@@ -434,7 +507,7 @@ class _LoginScreenState extends State<LoginScreen>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    _currentStep == 0 ? 'Войти в аккаунт' : 'Введите пароль',
+                    _currentStep == 0 ? (AppLocalizations.of(context)?.voytiVAkkaunt_c439 ?? 'Fallback') : (AppLocalizations.of(context)?.vvediteParol_1370 ?? 'Fallback'),
                     style: TextStyle(
                       fontSize: 28,
                       fontWeight: FontWeight.w700,
@@ -445,7 +518,7 @@ class _LoginScreenState extends State<LoginScreen>
                   const SizedBox(height: 8),
                   _currentStep == 0
                       ? Text(
-                          'Введите свои данные для доступа к сообщениям.',
+                          (AppLocalizations.of(context)?.vvediteSvoiDannyeDlyaDostupa_319e ?? 'Fallback'),
                           style: TextStyle(
                             fontSize: 13,
                             color: isDark ? Colors.grey.shade500 : Colors.grey.shade600,
@@ -527,7 +600,7 @@ class _LoginScreenState extends State<LoginScreen>
                           });
                         },
                         child: Text(
-                          'Назад',
+                          (AppLocalizations.of(context)?.nazad_2b0b ?? 'Fallback'),
                           style: TextStyle(
                             color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
                             fontSize: 12,
@@ -609,7 +682,7 @@ class _LoginScreenState extends State<LoginScreen>
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Text(
-                  isNextStep ? 'Далее' : (l10n?.loginButton ?? 'Войти'),
+                  isNextStep ? (AppLocalizations.of(context)?.dalee_c453 ?? 'Fallback') : (l10n?.loginButton ?? (AppLocalizations.of(context)?.voyti_63a7 ?? 'Fallback')),
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,

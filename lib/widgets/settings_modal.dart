@@ -33,10 +33,7 @@ class SettingsButtonState extends State<SettingsButton>
   int _selectedLanguageIndex = 1;
 
   // Список доступных языков
-  final List<Map<String, String>> _availableLanguages = [
-    {'code': 'en', 'name': 'English'},
-    {'code': 'ru', 'name': 'Русский'},
-  ];
+  final List<Map<String, String>> _availableLanguages = LocaleProvider.availableLanguages;
 
   @override
   void initState() {
@@ -115,7 +112,7 @@ class SettingsButtonState extends State<SettingsButton>
     // Получаем информацию о платформе
     final platform = Platform.isLinux ? 'Linux' : Platform.operatingSystem;
     final processorArch = await _getProcessorArchitecture();
-    final version = '1.0.0'; // Можно сделать динамическим из pubspec.yaml
+    final version = '1.0.loc_0'; // Можно сделать динамическим из pubspec.yaml
 
     // Запускаем анимацию
     _aboutAnimationController.forward();
@@ -261,10 +258,10 @@ class SettingsButtonState extends State<SettingsButton>
                                     );
                                   },
                                 ),
-                                const SizedBox(width: 16),
+                                SizedBox(width: 16),
                                 Expanded(
                                   child: Text(
-                                    l10n?.about ?? 'О приложении',
+                                    l10n?.about ?? (AppLocalizations.of(context)?.oPrilozhenii_322e ?? 'Fallback'),
                                     style: TextStyle(
                                       color: isDark ? Colors.white : Colors.black,
                                       fontSize: 24,
@@ -358,7 +355,7 @@ class SettingsButtonState extends State<SettingsButton>
                                             ),
                                           ),
                                         ),
-                                        const SizedBox(height: 16),
+                                        SizedBox(height: 16),
                                         Text(
                                           'Xaneo PC',
                                           style: TextStyle(
@@ -370,7 +367,7 @@ class SettingsButtonState extends State<SettingsButton>
                                         ),
                                         const SizedBox(height: 8),
                                         Text(
-                                          '${l10n?.version ?? 'Версия'}: $version',
+                                          '${l10n?.version ?? (AppLocalizations.of(context)?.versiya_3725 ?? 'Fallback')}: $version',
                                           style: TextStyle(
                                             color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
                                             fontSize: 14,
@@ -383,10 +380,10 @@ class SettingsButtonState extends State<SettingsButton>
                                   const SizedBox(height: 28),
 
                                   // Техническая информация
-                                  _buildSectionHeader('🔧 ${l10n?.technicalInfo ?? 'Техническая информация'}', isDark, Icons.build),
+                                  _buildSectionHeader('🔧 ${l10n?.technicalInfo ?? (AppLocalizations.of(context)?.tehnicheskayaInformatsiya_ba0f ?? 'Fallback')}', isDark, Icons.build),
                                   const SizedBox(height: 12),
-                                  _buildFeatureItem(l10n?.platform ?? 'Платформа', platform, isDark),
-                                  _buildFeatureItem(l10n?.architecture ?? 'Архитектура процессора', processorArch, isDark),
+                                  _buildFeatureItem(l10n?.platform ?? (AppLocalizations.of(context)?.platforma_8848 ?? 'Fallback'), platform, isDark),
+                                  _buildFeatureItem(l10n?.architecture ?? (AppLocalizations.of(context)?.arhitekturaProtsessora_c079 ?? 'Fallback'), processorArch, isDark),
                                   const SizedBox(height: 24),
 
                                   // Ссылка на GitHub
@@ -424,9 +421,9 @@ class SettingsButtonState extends State<SettingsButton>
                                               color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
                                               size: 16,
                                             ),
-                                            const SizedBox(width: 8),
+                                            SizedBox(width: 8),
                                             Text(
-                                              l10n?.viewOnGitHub ?? 'Посмотреть на GitHub',
+                                              l10n?.viewOnGitHub ?? (AppLocalizations.of(context)?.posmotretNaGithub_5238 ?? 'Fallback'),
                                               style: TextStyle(
                                                 color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
                                                 fontSize: 13,
@@ -477,7 +474,7 @@ class SettingsButtonState extends State<SettingsButton>
                                         ),
                                       ),
                                       child: Text(
-                                        l10n?.close ?? 'Закрыть',
+                                        l10n?.close ?? (AppLocalizations.of(context)?.zakryt_dd94 ?? 'Fallback'),
                                         style: TextStyle(
                                           color: isDark ? Colors.white : Colors.black,
                                           fontWeight: FontWeight.w600,
@@ -783,10 +780,10 @@ class SettingsButtonState extends State<SettingsButton>
                                         );
                                       },
                                     ),
-                                    const SizedBox(width: 16),
+                                    SizedBox(width: 16),
                                     Expanded(
                                       child: Text(
-                                        l10n?.settings ?? 'Настройки',
+                                        l10n?.settings ?? (AppLocalizations.of(context)?.nastroyki_c919 ?? 'Fallback'),
                                         style: TextStyle(
                                           color: isDark ? Colors.white : Colors.black,
                                           fontSize: 24,
@@ -835,12 +832,12 @@ class SettingsButtonState extends State<SettingsButton>
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      _buildSectionHeader(l10n?.darkTheme ?? 'Тёмная тема', isDark, Icons.palette_outlined),
+                                      _buildSectionHeader(l10n?.darkTheme ?? (AppLocalizations.of(context)?.temnayaTema_cb48 ?? 'Fallback'), isDark, Icons.palette_outlined),
                                       const SizedBox(height: 10),
                                       _buildAnimatedSettingsTile(
                                         icon: Icons.dark_mode_rounded,
-                                        title: l10n?.darkTheme ?? 'Тёмная тема',
-                                        subtitle: l10n?.darkThemeDescription ?? 'Включить тёмную тему',
+                                        title: l10n?.darkTheme ?? (AppLocalizations.of(context)?.temnayaTema_cb48 ?? 'Fallback'),
+                                        subtitle: l10n?.darkThemeDescription ?? (AppLocalizations.of(context)?.vklyuchitTemnuyuTemu_ed17 ?? 'Fallback'),
                                         isDark: isDark,
                                         trailing: _buildAnimatedSwitch(
                                           value: themeProvider.isDarkMode,
@@ -849,16 +846,16 @@ class SettingsButtonState extends State<SettingsButton>
                                         ),
                                       ),
                                       const SizedBox(height: 24),
-                                      _buildSectionHeader(l10n?.language ?? 'Язык', isDark, Icons.translate_rounded),
+                                      _buildSectionHeader(l10n?.language ?? (AppLocalizations.of(context)?.yazyk_0577 ?? 'Fallback'), isDark, Icons.translate_rounded),
                                       const SizedBox(height: 10),
                                       _buildLanguageSelector(localeProvider, isDark, l10n),
                                       const SizedBox(height: 24),
-                                      _buildSectionHeader(l10n?.notifications ?? 'Уведомления', isDark, Icons.notifications_outlined),
+                                      _buildSectionHeader(l10n?.notifications ?? (AppLocalizations.of(context)?.uvedomleniya_d2ed ?? 'Fallback'), isDark, Icons.notifications_outlined),
                                       const SizedBox(height: 10),
                                       _buildAnimatedSettingsTile(
                                         icon: Icons.notifications_active_rounded,
-                                        title: l10n?.notifications ?? 'Уведомления',
-                                        subtitle: l10n?.notificationsDescription ?? 'Включить уведомления',
+                                        title: l10n?.notifications ?? (AppLocalizations.of(context)?.uvedomleniya_d2ed ?? 'Fallback'),
+                                        subtitle: l10n?.notificationsDescription ?? (AppLocalizations.of(context)?.vklyuchitUvedomleniya_d311 ?? 'Fallback'),
                                         isDark: isDark,
                                         trailing: _buildAnimatedSwitch(
                                           value: _notificationsEnabled,
@@ -872,11 +869,11 @@ class SettingsButtonState extends State<SettingsButton>
                                         ),
                                       ),
                                       if (_notificationsEnabled && NotificationService.isCustomOverlaySupported()) ...[
-                                        const SizedBox(height: 10),
+                                        SizedBox(height: 10),
                                         _buildAnimatedSettingsTile(
                                           icon: Icons.dashboard_customize_rounded,
-                                          title: 'Кастомный оверлей Xaneo',
-                                          subtitle: 'Анимированные уведомления с быстрым ответом',
+                                          title: (AppLocalizations.of(context)?.kastomnyyOverleyXaneo_7d39 ?? 'Fallback'),
+                                          subtitle: (AppLocalizations.of(context)?.animirovannyeUvedomleniyaSBystrymOtvetom_a25d ?? 'Fallback'),
                                           isDark: isDark,
                                           trailing: _buildAnimatedSwitch(
                                             value: _useCustomNotifications,
@@ -890,17 +887,17 @@ class SettingsButtonState extends State<SettingsButton>
                                           ),
                                         ),
                                       ],
-                                      const SizedBox(height: 24),
+                                      SizedBox(height: 24),
                                       _buildSectionHeader(l10n?.fontSize(_fontSize.round()) ?? 'Размер шрифта: ${_fontSize.round()}', isDark, Icons.text_fields_rounded),
                                       const SizedBox(height: 10),
                                       _buildFontSizeSlider(isDark),
                                       const SizedBox(height: 24),
-                                      _buildSectionHeader(l10n?.about ?? 'О приложении', isDark, Icons.info_outlined),
+                                      _buildSectionHeader(l10n?.about ?? (AppLocalizations.of(context)?.oPrilozhenii_322e ?? 'Fallback'), isDark, Icons.info_outlined),
                                       const SizedBox(height: 10),
                                       _buildAnimatedSettingsTile(
                                         icon: Icons.info_rounded,
-                                        title: l10n?.about ?? 'О приложении',
-                                        subtitle: l10n?.aboutDescription ?? 'Информация о приложении',
+                                        title: l10n?.about ?? (AppLocalizations.of(context)?.oPrilozhenii_322e ?? 'Fallback'),
+                                        subtitle: l10n?.aboutDescription ?? (AppLocalizations.of(context)?.informatsiyaOPrilozhenii_00c4 ?? 'Fallback'),
                                         isDark: isDark,
                                         trailing: MouseRegion(
                                           cursor: SystemMouseCursors.click,
@@ -1108,14 +1105,14 @@ class SettingsButtonState extends State<SettingsButton>
       child: Column(
         children: [
           AnimatedDefaultTextStyle(
-            duration: const Duration(milliseconds: 150),
+            duration: Duration(milliseconds: 150),
             style: TextStyle(
               color: isDark ? Colors.white : Colors.black,
               fontSize: _fontSize,
               fontWeight: FontWeight.w500,
               fontFamily: 'Inter',
             ),
-            child: const Text('Aa Бб Вв'),
+            child: Text((AppLocalizations.of(context)?.aaBbVv_1c6b ?? 'Fallback')),
           ),
           const SizedBox(height: 20),
           Material(

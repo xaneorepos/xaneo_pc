@@ -65,6 +65,13 @@ abstract class BaseCustomModalState<T extends BaseCustomModal> extends State<T> 
     super.dispose();
   }
 
+  /// Получение заголовка модального окна (переопределяется в наследниках для динамической локализации)
+  String getModalTitle(BuildContext context) {
+    if (widget.modalTag.isNotEmpty) return widget.modalTag.toUpperCase();
+    if (widget.title.isNotEmpty) return widget.title.toUpperCase();
+    return '';
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -75,9 +82,7 @@ abstract class BaseCustomModalState<T extends BaseCustomModal> extends State<T> 
     final bgColor = isDark ? const Color(0xFF0C0C0C) : Colors.white;
     final borderColor = isDark ? const Color(0xFF1E1E1E) : const Color(0xFFEBEBEB);
 
-    final headerText = widget.modalTag.isNotEmpty
-        ? widget.modalTag.toUpperCase()
-        : widget.title.toUpperCase();
+    final headerText = getModalTitle(context);
 
     return Material(
       type: MaterialType.transparency,

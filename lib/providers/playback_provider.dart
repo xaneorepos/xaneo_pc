@@ -6,14 +6,25 @@ import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import '../services/api_service.dart';
 
-/// Глобальный провайдер воспроизведения голосовых сообщений.
-///
-/// Аудио проигрывается через [just_audio] (на Linux/Windows — через
-/// media_kit/libmpv бэкенд, инициализируемый в main()).
-///
-/// Файл скачивается с авторизацией (JWT) во временную папку и кэшируется.
-/// На десктопе seek работает нативно, поэтому пересоздание AudioSource
-/// (как в мобильном клиенте для ExoPlayer) здесь не нужно.
+class PlaybackItem {
+  final String url;
+  final String title;
+  final String subtitle;
+  final String? mimeType;
+  final Duration? duration;
+  final Map<String, dynamic>? payload;
+
+  PlaybackItem({
+    required this.url,
+    required this.title,
+    required this.subtitle,
+    this.mimeType,
+    this.duration,
+    this.payload,
+  });
+}
+
+/// Глобальный провайдер воспроизведения голосовых и музыкальных сообщений.
 class PlaybackProvider extends ChangeNotifier {
   final AudioPlayer _player = AudioPlayer();
   StreamSubscription? _playerStateSub;
@@ -33,6 +44,9 @@ class PlaybackProvider extends ChangeNotifier {
   bool _isVideo = false;
   Timer? _simulatedTimer;
 
+  List<PlaybackItem> _playlist = [];
+  int _currentIndex = -1;
+
   String? get currentAudioUrl => _currentAudioUrl;
   String get title => _title;
   String get subtitle => _subtitle;
@@ -43,12 +57,20 @@ class PlaybackProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
   bool get isVideo => _isVideo;
 
+  List<PlaybackItem> get playlist => List.unmodifiable(_playlist);
+  int get currentIndex => _currentIndex;
+  bool get hasNext => _playlist.isNotEmpty && _currentIndex >= 0 && _currentIndex < _playlist.length - 1;
+  bool get hasPrevious => _playlist.isNotEmpty && _currentIndex > 0;
+
   PlaybackProvider() {
     _playerStateSub = _player.playerStateStream.listen((state) {
       _isPlaying = state.playing;
       if (state.processingState == ProcessingState.completed) {
         _isPlaying = false;
         _position = Duration.zero;
+        if (hasNext) {
+          playNext();
+        }
       }
       notifyListeners();
     });
@@ -320,6 +342,49 @@ class PlaybackProvider extends ChangeNotifier {
       await _player.play();
     } catch (e) {
       debugPrint('❌ _restartFrom error: $e');
+    }
+  }
+
+  void setPlaylist(List<PlaybackItem> items, {String? initialUrl}) {
+    _playlist = List.from(items);
+    if (initialUrl != null) {
+      _currentIndex = _playlist.indexWhere((item) => item.url == initialUrl);
+    } else if (_playlist.isNotEmpty) {
+      _currentIndex = 0;
+    } else {
+      _currentIndex = -1;
+    }
+    notifyListeners();
+  }
+
+  Future<void> playItemAtIndex(int index) async {
+    if (index < 0 || index >= _playlist.length) return;
+    _currentIndex = index;
+    final item = _playlist[index];
+    await play(
+      item.url,
+      item.title,
+      item.subtitle,
+      mimeType: item.mimeType,
+      duration: item.duration,
+    );
+  }
+
+  Future<void> playNext() async {
+    if (_playlist.isNotEmpty && _currentIndex < _playlist.length - 1) {
+      await playItemAtIndex(_currentIndex + 1);
+    }
+  }
+
+  Future<void> playPrevious() async {
+    if (_position.inSeconds > 3) {
+      await seek(Duration.zero);
+      return;
+    }
+    if (_playlist.isNotEmpty && _currentIndex > 0) {
+      await playItemAtIndex(_currentIndex - 1);
+    } else {
+      await seek(Duration.zero);
     }
   }
 

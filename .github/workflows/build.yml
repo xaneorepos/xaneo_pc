@@ -5,6 +5,11 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag to build (e.g. 1.2.0)'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -37,6 +42,17 @@ jobs:
 
       - name: Run Flutter Doctor
         run: flutter doctor -v
+
+      - name: Set App Version in pubspec.yaml
+        shell: pwsh
+        run: |
+          $Ver = "${{ github.event.inputs.version }}"
+          if ([string]::IsNullOrWhiteSpace($Ver)) { $Ver = "${{ github.ref_name }}" }
+          $Ver = $Ver.TrimStart("v")
+          if ($Ver -match '^\d+\.\d+') {
+            Write-Host "Setting app version in pubspec.yaml to: $Ver+${{ github.run_number }}"
+            (Get-Content pubspec.yaml) -replace '^version: .*', "version: $Ver+${{ github.run_number }}" | Set-Content pubspec.yaml
+          }
 
       - run: flutter config --enable-windows-desktop
       - run: flutter pub get
@@ -135,6 +151,7 @@ jobs:
           sudo apt-get install -y \
             cmake ninja-build clang pkg-config \
             libgtk-3-dev libglib2.0-dev \
+            libnotify-dev \
             libblkid-dev liblzma-dev \
             libmpv-dev libmpv1 \
             rpm dpkg-dev fakeroot \
@@ -145,6 +162,16 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: ${{ env.FLUTTER_CHANNEL }}
           cache: true
+
+      - name: Set App Version in pubspec.yaml
+        run: |
+          VER="${{ github.event.inputs.version }}"
+          if [ -z "$VER" ]; then VER="${{ github.ref_name }}"; fi
+          VER="${VER#v}"
+          if [[ "$VER" =~ ^[0-9]+\.[0-9]+ ]]; then
+            echo "Setting app version in pubspec.yaml to: ${VER}+${{ github.run_number }}"
+            sed -i "s/^version: .*/version: ${VER}+${{ github.run_number }}/" pubspec.yaml
+          fi
 
       - run: flutter config --enable-linux-desktop
       - run: flutter pub get
@@ -196,7 +223,7 @@ jobs:
               Architecture: amd64
               Maintainer: Xaneo <info@xaneo.com>
               Installed-Size: {size}
-              Depends: libgtk-3-0, libglib2.0-0, libmpv2 | libmpv1
+              Depends: libgtk-3-0, libglib2.0-0, libnotify4 | libnotify-bin, libmpv2 | libmpv1
               Section: utils
               Priority: optional
               Homepage: https://xaneo.com
@@ -356,6 +383,16 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: ${{ env.FLUTTER_CHANNEL }}
           cache: true
+
+      - name: Set App Version in pubspec.yaml
+        run: |
+          VER="${{ github.event.inputs.version }}"
+          if [ -z "$VER" ]; then VER="${{ github.ref_name }}"; fi
+          VER="${VER#v}"
+          if [[ "$VER" =~ ^[0-9]+\.[0-9]+ ]]; then
+            echo "Setting app version in pubspec.yaml to: ${VER}+${{ github.run_number }}"
+            sed -i '' "s/^version: .*/version: ${VER}+${{ github.run_number }}/" pubspec.yaml
+          fi
 
       - run: flutter config --enable-macos-desktop
       - run: flutter pub get

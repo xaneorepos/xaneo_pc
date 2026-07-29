@@ -14,6 +14,7 @@ import '../widgets/glass_card.dart';
 import '../widgets/advanced_background.dart';
 import '../services/api_service.dart';
 import '../services/crypto_service.dart';
+import '../services/account_service.dart';
 import '../widgets/custom_toast.dart';
 import '../services/notification_service.dart';
 
@@ -49,6 +50,7 @@ class _RegisterScreenState extends State<RegisterScreen>
   
   // Состояние
   bool _isLoading = false;
+  bool _hasAccounts = false;
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
   bool _isCheckingNickname = false;
@@ -77,10 +79,7 @@ class _RegisterScreenState extends State<RegisterScreen>
   bool _showSettings = false; // Показывать модальное окно настроек
   
   // Список доступных языков
-  final List<Map<String, String>> _availableLanguages = [
-    {'code': 'en', 'name': 'English'},
-    {'code': 'ru', 'name': 'Русский'},
-  ];
+  final List<Map<String, String>> _availableLanguages = LocaleProvider.availableLanguages;
   
   // Аватар
   File? _avatarFile;
@@ -103,9 +102,19 @@ class _RegisterScreenState extends State<RegisterScreen>
     setState(() {});
   }
 
+  Future<void> _checkAccounts() async {
+    final accounts = await AccountService().getAccounts();
+    if (mounted) {
+      setState(() {
+        _hasAccounts = accounts.isNotEmpty;
+      });
+    }
+  }
+
   @override
   void initState() {
     super.initState();
+    _checkAccounts();
     _nicknameController.addListener(_onNicknameChanged);
     _emailController.addListener(_onEmailChanged);
     _firstNameController.addListener(_onFieldChanged);
@@ -218,12 +227,12 @@ class _RegisterScreenState extends State<RegisterScreen>
           final isAvailable = result.data!['available'] == true;
           _isNicknameAvailable = isAvailable;
           _isNicknameTaken = !isAvailable;
-          _nicknameError = isAvailable ? null : (result.data!['message'] ?? 'Никнейм уже занят');
+          _nicknameError = isAvailable ? null : (AppLocalizations.of(context)?.nikneymUzheZanyat_59aa ?? result.data!['message'] ?? 'Username taken');
         } else {
           _isNicknameAvailable = false;
           _isNicknameTaken = true;
           print('Ошибка проверки никнейма: ${result.error}');
-          _nicknameError = result.error ?? 'Ошибка проверки';
+          _nicknameError = result.error ?? (AppLocalizations.of(context)?.oshibkaProverki_2ab0 ?? 'Fallback');
         }
       });
     }
@@ -271,11 +280,11 @@ class _RegisterScreenState extends State<RegisterScreen>
           final isAvailable = result.data!['available'] == true;
           _isEmailAvailable = isAvailable;
           _isEmailTaken = !isAvailable;
-          _emailError = isAvailable ? null : (result.data!['message'] ?? 'Email уже занят');
+          _emailError = isAvailable ? null : (AppLocalizations.of(context)?.emailUzheZanyat_17e1 ?? result.data!['message'] ?? 'Email taken');
         } else {
           _isEmailAvailable = false;
           _isEmailTaken = true;
-          _emailError = result.error ?? 'Ошибка проверки';
+          _emailError = result.error ?? (AppLocalizations.of(context)?.oshibkaProverki_2ab0 ?? 'Fallback');
         }
       });
     }
@@ -310,7 +319,7 @@ class _RegisterScreenState extends State<RegisterScreen>
       });
     } else {
       setState(() {
-        _verificationError = result.error ?? 'Ошибка отправки кода';
+        _verificationError = result.error ?? (AppLocalizations.of(context)?.oshibkaOtpravkiKoda_a42a ?? 'Fallback');
       });
       _showErrorMessage(_verificationError!);
     }
@@ -345,7 +354,7 @@ class _RegisterScreenState extends State<RegisterScreen>
       });
     } else {
       setState(() {
-        _verificationError = result.error ?? 'Неверный код подтверждения';
+        _verificationError = result.error ?? (AppLocalizations.of(context)?.nevernyyKodPodtverzhdeniya_7762 ?? 'Fallback');
       });
       _showErrorMessage(_verificationError!);
     }
@@ -428,7 +437,7 @@ class _RegisterScreenState extends State<RegisterScreen>
   /// Завершить регистрацию
   Future<void> _completeRegistration() async {
     if (!_acceptTerms || !_acceptDataProcessing) {
-      _showErrorMessage('Необходимо принять условия и согласие на обработку данных');
+      _showErrorMessage((AppLocalizations.of(context)?.neobhodimoPrinyatUsloviyaISoglasie_e31e ?? 'Fallback'));
       return;
     }
     
@@ -463,7 +472,7 @@ class _RegisterScreenState extends State<RegisterScreen>
       }
 
       setState(() => _isLoading = false);
-      _showSuccessMessage('Регистрация успешна!');
+      _showSuccessMessage((AppLocalizations.of(context)?.registratsiyaUspeshna_9d5c ?? 'Fallback'));
       
       // Возвращаемся на экран входа
       if (mounted) {
@@ -471,7 +480,7 @@ class _RegisterScreenState extends State<RegisterScreen>
       }
     } else {
       setState(() => _isLoading = false);
-      _showErrorMessage(result.error ?? 'Ошибка регистрации');
+      _showErrorMessage(result.error ?? (AppLocalizations.of(context)?.oshibkaRegistratsii_b9f2 ?? 'Fallback'));
     }
   }
   
@@ -521,6 +530,8 @@ class _RegisterScreenState extends State<RegisterScreen>
     final isDark = themeProvider.isDarkMode;
     final screenWidth = MediaQuery.of(context).size.width;
     final showRightPanel = screenWidth > 750;
+    
+    final canGoBack = Navigator.of(context).canPop() || _hasAccounts;
     
     return Scaffold(
       backgroundColor: isDark ? const Color(0xFF070707) : const Color(0xFFFAF9FB),
@@ -635,7 +646,7 @@ class _RegisterScreenState extends State<RegisterScreen>
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            'secure desktop communicator',
+                            (AppLocalizations.of(context)?.secureDesktopCommunicator ?? 'secure desktop communicator'),
                             style: TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w300,
@@ -652,6 +663,53 @@ class _RegisterScreenState extends State<RegisterScreen>
             ],
           ),
           
+          // Back button trigger
+          if (canGoBack)
+            Positioned(
+              top: 50,
+              left: 20,
+              child: MouseRegion(
+                cursor: SystemMouseCursors.click,
+                child: GestureDetector(
+                  onTap: () {
+                    if (_currentStep > 0) {
+                      _previousStep();
+                    } else {
+                      if (Navigator.of(context).canPop()) {
+                        Navigator.of(context).pop();
+                      } else if (_hasAccounts) {
+                        Navigator.of(context).pushReplacementNamed('/messenger');
+                      }
+                    }
+                  },
+                  child: Tooltip(
+                    message: (AppLocalizations.of(context)?.nazad_2b0b ?? 'Fallback'),
+                    child: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: isDark 
+                            ? Colors.white.withOpacity(0.02)
+                            : Colors.black.withOpacity(0.02),
+                        border: Border.all(
+                          color: isDark 
+                              ? Colors.white.withOpacity(0.08)
+                              : Colors.black.withOpacity(0.08),
+                          width: 1,
+                        ),
+                      ),
+                      child: Icon(
+                        Icons.arrow_back_rounded,
+                        color: isDark ? Colors.white : Colors.black,
+                        size: 18,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
           // Settings button trigger
           Positioned(
             top: 50,
@@ -697,34 +755,34 @@ class _RegisterScreenState extends State<RegisterScreen>
   
   Widget _buildHeader(ScaleProvider scaleProvider, bool isDark) {
     final titles = [
-      'Как вас зовут?',
-      'Когда вы родились?',
-      'Придумайте никнейм',
-      'Ваш email',
-      'Подтверждение Email',
-      'Создайте пароль',
-      'Подтверждение пароля',
-      'Добавьте фото',
-      'Последний шаг',
+      (AppLocalizations.of(context)?.kakVasZovut_68b7 ?? 'Fallback'),
+      (AppLocalizations.of(context)?.kogdaVyRodilis_26f2 ?? 'Fallback'),
+      (AppLocalizations.of(context)?.pridumayteNikneym_221b ?? 'Fallback'),
+      (AppLocalizations.of(context)?.vashEmail_8bbd ?? 'Fallback'),
+      (AppLocalizations.of(context)?.podtverzhdenieEmail_281f ?? 'Fallback'),
+      (AppLocalizations.of(context)?.sozdayteParol_5f4c ?? 'Fallback'),
+      (AppLocalizations.of(context)?.podtverzhdenieParolya_ebc2 ?? 'Fallback'),
+      (AppLocalizations.of(context)?.dobavteFoto_25eb ?? 'Fallback'),
+      (AppLocalizations.of(context)?.posledniyShag_e0c5 ?? 'Fallback'),
     ];
     
     final subtitles = [
-      'Введите ваше настоящее имя',
-      'Вам должно быть не менее 14 лет',
-      'Никнейм должен быть уникальным',
-      'Мы отправим код подтверждения',
-      'Введите 6-значный код из письма',
-      'Придумайте надёжный пароль',
-      'Повторите пароль ещё раз',
-      'Это необязательно, но приятно',
-      'Проверьте ваши данные и примите условия',
+      (AppLocalizations.of(context)?.vvediteVasheNastoyascheeImya_e656 ?? 'Fallback'),
+      (AppLocalizations.of(context)?.vamDolzhnoBytNeMenee_1111 ?? 'Fallback'),
+      (AppLocalizations.of(context)?.nikneymDolzhenBytUnikalnym_952d ?? 'Fallback'),
+      (AppLocalizations.of(context)?.myOtpravimKodPodtverzhdeniya_fc71 ?? 'Fallback'),
+      (AppLocalizations.of(context)?.vvedite6ZnachnyyKodIz_f22f ?? 'Fallback'),
+      (AppLocalizations.of(context)?.pridumayteNadezhnyyParol_2312 ?? 'Fallback'),
+      (AppLocalizations.of(context)?.povtoriteParolEscheRaz_6723 ?? 'Fallback'),
+      (AppLocalizations.of(context)?.etoNeobyazatelnoNoPriyatno_b6a3 ?? 'Fallback'),
+      (AppLocalizations.of(context)?.proverteVashiDannyeIPrimite_3121 ?? 'Fallback'),
     ];
     
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Регистрация',
+          (AppLocalizations.of(context)?.registratsiya_0b93 ?? 'Fallback'),
           style: TextStyle(
             fontSize: 12 * scaleProvider.scale,
             fontWeight: FontWeight.w500,
@@ -810,7 +868,7 @@ class _RegisterScreenState extends State<RegisterScreen>
     return _buildTextField(
       controller: _firstNameController,
       focusNode: _firstNameFocus,
-      label: 'Ваше имя',
+      label: (AppLocalizations.of(context)?.vasheImya_51eb ?? 'Fallback'),
       icon: FontAwesomeIcons.user,
       textCapitalization: TextCapitalization.words,
       scaleProvider: scaleProvider,
@@ -830,7 +888,7 @@ class _RegisterScreenState extends State<RegisterScreen>
         _buildTextField(
           controller: _nicknameController,
           focusNode: _nicknameFocus,
-          label: 'Никнейм',
+          label: (AppLocalizations.of(context)?.nikneym_3fea ?? 'Fallback'),
           icon: FontAwesomeIcons.at,
           scaleProvider: scaleProvider,
           isDark: isDark,
@@ -853,7 +911,7 @@ class _RegisterScreenState extends State<RegisterScreen>
               ),
               SizedBox(width: 8 * scaleProvider.scale),
               Text(
-                'Проверка доступности...',
+                (AppLocalizations.of(context)?.proverkaDostupnosti_da13 ?? 'Fallback'),
                 style: TextStyle(
                   fontSize: 14 * scaleProvider.scale,
                   color: isDark ? Colors.white60 : Colors.black54,
@@ -871,7 +929,7 @@ class _RegisterScreenState extends State<RegisterScreen>
               ),
               SizedBox(width: 8 * scaleProvider.scale),
               Text(
-                'Никнейм доступен',
+                (AppLocalizations.of(context)?.nikneymDostupen_3fc9 ?? 'Fallback'),
                 style: TextStyle(
                   fontSize: 14 * scaleProvider.scale,
                   color: Colors.green,
@@ -889,7 +947,7 @@ class _RegisterScreenState extends State<RegisterScreen>
               ),
               SizedBox(width: 8 * scaleProvider.scale),
               Text(
-                _nicknameError ?? 'Никнейм занят',
+                _nicknameError ?? (AppLocalizations.of(context)?.nikneymZanyat_8a5f ?? 'Fallback'),
                 style: TextStyle(
                   fontSize: 14 * scaleProvider.scale,
                   color: Colors.red,
@@ -908,7 +966,7 @@ class _RegisterScreenState extends State<RegisterScreen>
         _buildTextField(
           controller: _emailController,
           focusNode: _emailFocus,
-          label: 'Email',
+          label: (AppLocalizations.of(context)?.email ?? 'Email'),
           icon: FontAwesomeIcons.envelope,
           keyboardType: TextInputType.emailAddress,
           scaleProvider: scaleProvider,
@@ -932,7 +990,7 @@ class _RegisterScreenState extends State<RegisterScreen>
               ),
               SizedBox(width: 8 * scaleProvider.scale),
               Text(
-                'Проверка доступности...',
+                (AppLocalizations.of(context)?.proverkaDostupnosti_da13 ?? 'Fallback'),
                 style: TextStyle(
                   fontSize: 14 * scaleProvider.scale,
                   color: isDark ? Colors.white60 : Colors.black54,
@@ -950,7 +1008,7 @@ class _RegisterScreenState extends State<RegisterScreen>
               ),
               SizedBox(width: 8 * scaleProvider.scale),
               Text(
-                'Email доступен',
+                (AppLocalizations.of(context)?.emailDostupen_e903 ?? 'Fallback'),
                 style: TextStyle(
                   fontSize: 14 * scaleProvider.scale,
                   color: Colors.green,
@@ -968,7 +1026,7 @@ class _RegisterScreenState extends State<RegisterScreen>
               ),
               SizedBox(width: 8 * scaleProvider.scale),
               Text(
-                _emailError ?? 'Email занят',
+                _emailError ?? (AppLocalizations.of(context)?.emailZanyat_fb40 ?? 'Fallback'),
                 style: TextStyle(
                   fontSize: 14 * scaleProvider.scale,
                   color: Colors.red,
@@ -985,7 +1043,7 @@ class _RegisterScreenState extends State<RegisterScreen>
     return Column(
       children: [
         Text(
-          'Код отправлен на ${_emailController.text}',
+          (AppLocalizations.of(context)?.codeSentToEmail(_emailController.text) ?? 'Код отправлен на ${_emailController.text}'),
           style: TextStyle(
             fontSize: 14 * scaleProvider.scale,
             color: isDark ? Colors.white70 : Colors.black87,
@@ -996,7 +1054,7 @@ class _RegisterScreenState extends State<RegisterScreen>
         _buildTextField(
           controller: _verificationCodeController,
           focusNode: _verificationCodeFocus,
-          label: 'Код подтверждения',
+          label: (AppLocalizations.of(context)?.kodPodtverzhdeniya_1c9d ?? 'Fallback'),
           icon: FontAwesomeIcons.shield,
           keyboardType: TextInputType.number,
           scaleProvider: scaleProvider,
@@ -1011,7 +1069,7 @@ class _RegisterScreenState extends State<RegisterScreen>
           SizedBox(height: 12 * scaleProvider.scale),
           Text(
             _verificationError!,
-            style: const TextStyle(color: Colors.red, fontSize: 13),
+            style: TextStyle(color: Colors.red, fontSize: 13),
             textAlign: TextAlign.center,
           ),
         ],
@@ -1019,7 +1077,7 @@ class _RegisterScreenState extends State<RegisterScreen>
         TextButton(
           onPressed: _isLoading ? null : _sendVerificationCode,
           child: Text(
-            'Отправить код повторно',
+            (AppLocalizations.of(context)?.otpravitKodPovtorno_7703 ?? 'Fallback'),
             style: TextStyle(
               fontSize: 14 * scaleProvider.scale,
               color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
@@ -1035,7 +1093,7 @@ class _RegisterScreenState extends State<RegisterScreen>
     return _buildPasswordField(
       controller: _passwordController,
       focusNode: _passwordFocus,
-      label: 'Пароль',
+      label: (AppLocalizations.of(context)?.parol_5ebe ?? 'Fallback'),
       obscureText: _obscurePassword,
       onTap: () => setState(() => _obscurePassword = !_obscurePassword),
       scaleProvider: scaleProvider,
@@ -1048,7 +1106,7 @@ class _RegisterScreenState extends State<RegisterScreen>
     return _buildPasswordField(
       controller: _passwordConfirmController,
       focusNode: _passwordConfirmFocus,
-      label: 'Подтвердите пароль',
+      label: (AppLocalizations.of(context)?.podtverditeParol_e3e3 ?? 'Fallback'),
       obscureText: _obscureConfirmPassword,
       onTap: () => setState(() => _obscureConfirmPassword = !_obscureConfirmPassword),
       scaleProvider: scaleProvider,
@@ -1092,7 +1150,7 @@ class _RegisterScreenState extends State<RegisterScreen>
         SizedBox(height: 16 * scaleProvider.scale),
         
         Text(
-          'Нажмите, чтобы добавить фото',
+          (AppLocalizations.of(context)?.nazhmiteChtobyDobavitFoto_d6e8 ?? 'Fallback'),
           style: TextStyle(
             fontSize: 14 * scaleProvider.scale,
             color: isDark ? Colors.white60 : Colors.black54,
@@ -1108,7 +1166,7 @@ class _RegisterScreenState extends State<RegisterScreen>
               size: 16 * scaleProvider.scale,
             ),
             label: Text(
-              'Удалить фото',
+              (AppLocalizations.of(context)?.udalitFoto_3426 ?? 'Fallback'),
               style: TextStyle(
                 fontSize: 14 * scaleProvider.scale,
                 color: Colors.red,
@@ -1187,14 +1245,14 @@ class _RegisterScreenState extends State<RegisterScreen>
           value: _acceptTerms,
           onChanged: (value) => setState(() => _acceptTerms = value ?? false),
           title: Text(
-            'Я принимаю условия использования',
+            (AppLocalizations.of(context)?.yaPrinimayuUsloviyaIspolzovaniya_391a ?? 'Fallback'),
             style: TextStyle(
               fontSize: 13 * scaleProvider.scale,
               color: isDark ? Colors.white70 : Colors.black87,
             ),
           ),
           dense: true,
-          visualDensity: const VisualDensity(horizontal: 0, vertical: -4),
+          visualDensity: VisualDensity(horizontal: 0, vertical: -4),
           controlAffinity: ListTileControlAffinity.leading,
           contentPadding: EdgeInsets.zero,
           activeColor: isDark ? Colors.white : Colors.black,
@@ -1205,7 +1263,7 @@ class _RegisterScreenState extends State<RegisterScreen>
           value: _acceptDataProcessing,
           onChanged: (value) => setState(() => _acceptDataProcessing = value ?? false),
           title: Text(
-            'Я согласен на обработку персональных данных',
+            (AppLocalizations.of(context)?.yaSoglasenNaObrabotkuPersonalnyh_f2a8 ?? 'Fallback'),
             style: TextStyle(
               fontSize: 13 * scaleProvider.scale,
               color: isDark ? Colors.white70 : Colors.black87,
@@ -1222,13 +1280,28 @@ class _RegisterScreenState extends State<RegisterScreen>
   }
   
   Widget _buildNavigationButtons(ScaleProvider scaleProvider, bool isDark) {
+    final canGoBack = Navigator.of(context).canPop() || _hasAccounts;
+    final showBackButton = _currentStep > 0 || canGoBack;
+
     return Row(
       children: [
         // Кнопка "Назад"
-        if (_currentStep > 0)
+        if (showBackButton)
           Expanded(
             child: OutlinedButton(
-              onPressed: _isLoading ? null : _previousStep,
+              onPressed: _isLoading
+                  ? null
+                  : () {
+                      if (_currentStep > 0) {
+                        _previousStep();
+                      } else {
+                        if (Navigator.of(context).canPop()) {
+                          Navigator.of(context).pop();
+                        } else if (_hasAccounts) {
+                          Navigator.of(context).pushReplacementNamed('/messenger');
+                        }
+                      }
+                    },
               style: OutlinedButton.styleFrom(
                 foregroundColor: isDark ? Colors.white : Colors.black,
                 side: BorderSide(
@@ -1240,7 +1313,7 @@ class _RegisterScreenState extends State<RegisterScreen>
                 ),
               ),
               child: Text(
-                'Назад',
+                (AppLocalizations.of(context)?.nazad_2b0b ?? 'Fallback'),
                 style: TextStyle(
                   fontSize: 14 * scaleProvider.scale,
                   fontWeight: FontWeight.w600,
@@ -1250,7 +1323,7 @@ class _RegisterScreenState extends State<RegisterScreen>
             ),
           ),
         
-        if (_currentStep > 0) SizedBox(width: 16 * scaleProvider.scale),
+        if (showBackButton) SizedBox(width: 16 * scaleProvider.scale),
         
         // Кнопка "Далее" или "Завершить"
         Expanded(
@@ -1277,7 +1350,7 @@ class _RegisterScreenState extends State<RegisterScreen>
                     ),
                   )
                 : Text(
-                    _currentStep == 8 ? 'Завершить' : 'Далее',
+                    _currentStep == 8 ? (AppLocalizations.of(context)?.zavershit_b0e3 ?? 'Fallback') : (AppLocalizations.of(context)?.dalee_c453 ?? 'Fallback'),
                     style: TextStyle(
                       fontSize: 14 * scaleProvider.scale,
                       fontWeight: FontWeight.bold,
@@ -1338,7 +1411,7 @@ class _RegisterScreenState extends State<RegisterScreen>
     return CustomTextFormField(
       controller: _birthDateController,
       focusNode: _birthDateFocus,
-      labelText: 'Дата рождения',
+      labelText: (AppLocalizations.of(context)?.dataRozhdeniya_505e ?? 'Fallback'),
       icon: FontAwesomeIcons.calendarDays,
       readOnly: true,
       onTap: _selectBirthDate,
@@ -1493,10 +1566,10 @@ class _RegisterScreenState extends State<RegisterScreen>
                                             );
                                           },
                                         ),
-                                        const SizedBox(width: 16),
+                                        SizedBox(width: 16),
                                     Expanded(
                                       child: Text(
-                                        l10n?.settings ?? 'Настройки',
+                                        l10n?.settings ?? (AppLocalizations.of(context)?.nastroyki_c919 ?? 'Fallback'),
                                         style: TextStyle(
                                           color: isDark ? Colors.white : Colors.black,
                                           fontSize: 24,
@@ -1545,14 +1618,14 @@ class _RegisterScreenState extends State<RegisterScreen>
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       // === СЕКЦИЯ: ВНЕШНИЙ ВИД ===
-                                      _buildSectionHeader(l10n?.darkTheme ?? 'Тёмная тема', isDark, Icons.palette_outlined),
+                                      _buildSectionHeader(l10n?.darkTheme ?? (AppLocalizations.of(context)?.temnayaTema_cb48 ?? 'Fallback'), isDark, Icons.palette_outlined),
                                       const SizedBox(height: 10),
                                       
                                       // Тёмная тема
                                       _buildAnimatedSettingsTile(
                                         icon: Icons.dark_mode_rounded,
-                                        title: l10n?.darkTheme ?? 'Тёмная тема',
-                                        subtitle: l10n?.darkThemeDescription ?? 'Включить тёмную тему оформления',
+                                        title: l10n?.darkTheme ?? (AppLocalizations.of(context)?.temnayaTema_cb48 ?? 'Fallback'),
+                                        subtitle: l10n?.darkThemeDescription ?? (AppLocalizations.of(context)?.vklyuchitTemnuyuTemuOformleniya_86c4 ?? 'Fallback'),
                                         isDark: isDark,
                                         trailing: _buildAnimatedSwitch(
                                           value: themeProvider.isDarkMode,
@@ -1563,10 +1636,10 @@ class _RegisterScreenState extends State<RegisterScreen>
                                         ),
                                       ),
                                       
-                                      const SizedBox(height: 24),
+                                      SizedBox(height: 24),
                                       
                                       // === СЕКЦИЯ: ЯЗЫК ===
-                                      _buildSectionHeader(l10n?.language ?? 'Язык', isDark, Icons.translate_rounded),
+                                      _buildSectionHeader(l10n?.language ?? (AppLocalizations.of(context)?.yazyk_0577 ?? 'Fallback'), isDark, Icons.translate_rounded),
                                       const SizedBox(height: 10),
                                       
                                       // Выбор языка
@@ -1575,14 +1648,14 @@ class _RegisterScreenState extends State<RegisterScreen>
                                       const SizedBox(height: 24),
                                       
                                       // === СЕКЦИЯ: УВЕДОМЛЕНИЯ ===
-                                      _buildSectionHeader(l10n?.notifications ?? 'Уведомления', isDark, Icons.notifications_outlined),
+                                      _buildSectionHeader(l10n?.notifications ?? (AppLocalizations.of(context)?.uvedomleniya_d2ed ?? 'Fallback'), isDark, Icons.notifications_outlined),
                                       const SizedBox(height: 10),
                                       
                                       // Уведомления
                                       _buildAnimatedSettingsTile(
                                         icon: Icons.notifications_active_rounded,
-                                        title: l10n?.notifications ?? 'Уведомления',
-                                        subtitle: l10n?.notificationsDescription ?? 'Включить уведомления',
+                                        title: l10n?.notifications ?? (AppLocalizations.of(context)?.uvedomleniya_d2ed ?? 'Fallback'),
+                                        subtitle: l10n?.notificationsDescription ?? (AppLocalizations.of(context)?.vklyuchitUvedomleniya_d311 ?? 'Fallback'),
                                         isDark: isDark,
                                         trailing: _buildAnimatedSwitch(
                                           value: _notificationsEnabled,
@@ -1595,11 +1668,11 @@ class _RegisterScreenState extends State<RegisterScreen>
                                         ),
                                       ),
                                       if (_notificationsEnabled && NotificationService.isCustomOverlaySupported()) ...[
-                                        const SizedBox(height: 10),
+                                        SizedBox(height: 10),
                                         _buildAnimatedSettingsTile(
                                           icon: Icons.dashboard_customize_rounded,
-                                          title: 'Кастомный оверлей Xaneo',
-                                          subtitle: 'Анимированные уведомления с быстрым ответом',
+                                          title: (AppLocalizations.of(context)?.kastomnyyOverleyXaneo_7d39 ?? 'Fallback'),
+                                          subtitle: (AppLocalizations.of(context)?.animirovannyeUvedomleniyaSBystrymOtvetom_a25d ?? 'Fallback'),
                                           isDark: isDark,
                                           trailing: _buildAnimatedSwitch(
                                             value: _useCustomNotifications,
@@ -1616,7 +1689,7 @@ class _RegisterScreenState extends State<RegisterScreen>
                                       const SizedBox(height: 24),
                                       
                                       // === СЕКЦИЯ: ШРИФТ ===
-                                      _buildSectionHeader(l10n?.fontSize(_fontSize.round()) ?? 'Размер шрифта: ${_fontSize.round()}', isDark, Icons.text_fields_rounded),
+                                      _buildSectionHeader(l10n?.fontSize(_fontSize.round()) ?? 'Font size: ${_fontSize.round()}', isDark, Icons.text_fields_rounded),
                                       const SizedBox(height: 10),
                                       
                                       // Размер шрифта
@@ -1672,13 +1745,13 @@ class _RegisterScreenState extends State<RegisterScreen>
         children: [
           // Превью текста
           AnimatedDefaultTextStyle(
-            duration: const Duration(milliseconds: 150),
+            duration: Duration(milliseconds: 150),
             style: TextStyle(
               color: isDark ? Colors.white : Colors.black,
               fontSize: _fontSize,
               fontWeight: FontWeight.w500,
             ),
-            child: const Text('Aa Бб Вв'),
+            child: Text((AppLocalizations.of(context)?.aaBbVv_1c6b ?? 'Fallback')),
           ),
           const SizedBox(height: 20),
           // Слайдер
@@ -2041,11 +2114,11 @@ class _CustomDatePickerSheetState extends State<_CustomDatePickerSheet>
   late AnimationController _animCtrl;
   late Animation<double> _fadeAnim;
 
-  static const List<String> _monthNames = [
-    'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
-    'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь',
+  List<String> get _monthNames => [
+    (AppLocalizations.of(context)?.yanvar_ee86 ?? 'Январь'), (AppLocalizations.of(context)?.fevral_28ff ?? 'Февраль'), (AppLocalizations.of(context)?.mart_d766 ?? 'Март'), (AppLocalizations.of(context)?.aprel_03e9 ?? 'Апрель'), (AppLocalizations.of(context)?.may_2e53 ?? 'Май'), (AppLocalizations.of(context)?.iyun_cfcb ?? 'Июнь'),
+    (AppLocalizations.of(context)?.iyul_89fb ?? 'Июль'), (AppLocalizations.of(context)?.avgust_de5a ?? 'Август'), (AppLocalizations.of(context)?.sentyabr_ebfb ?? 'Сентябрь'), (AppLocalizations.of(context)?.oktyabr_1720 ?? 'Октябрь'), (AppLocalizations.of(context)?.noyabr_66fb ?? 'Ноябрь'), (AppLocalizations.of(context)?.dekabr_39b3 ?? 'Декабрь'),
   ];
-  static const List<String> _weekDays = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+  List<String> get _weekDays => [(AppLocalizations.of(context)?.pn_2c1e ?? 'Fallback'), (AppLocalizations.of(context)?.vt_7145 ?? 'Fallback'), (AppLocalizations.of(context)?.sr_c6e4 ?? 'Fallback'), (AppLocalizations.of(context)?.cht_a51f ?? 'Fallback'), (AppLocalizations.of(context)?.pt_0123 ?? 'Fallback'), (AppLocalizations.of(context)?.sb_3a4b ?? 'Fallback'), (AppLocalizations.of(context)?.vs_4ad9 ?? 'Fallback')];
 
   @override
   void initState() {
@@ -2270,7 +2343,7 @@ class _CustomDatePickerSheetState extends State<_CustomDatePickerSheet>
       child: Align(
         alignment: Alignment.bottomCenter,
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 460),
+          constraints: BoxConstraints(maxWidth: 460),
           child: Container(
             margin: const EdgeInsets.fromLTRB(16, 0, 16, 24),
             decoration: BoxDecoration(
@@ -2308,10 +2381,10 @@ class _CustomDatePickerSheetState extends State<_CustomDatePickerSheet>
                             padding: EdgeInsets.zero,
                             minimumSize: const Size(48, 36),
                           ),
-                          child: const Text('Отмена', style: TextStyle(fontSize: 15)),
+                          child: Text((AppLocalizations.of(context)?.otmena_987b ?? 'Fallback'), style: TextStyle(fontSize: 15)),
                         ),
                         Text(
-                          'Дата рождения',
+                          (AppLocalizations.of(context)?.dataRozhdeniya_505e ?? 'Fallback'),
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
@@ -2325,8 +2398,8 @@ class _CustomDatePickerSheetState extends State<_CustomDatePickerSheet>
                             padding: EdgeInsets.zero,
                             minimumSize: const Size(48, 36),
                           ),
-                          child: const Text(
-                            'Готово',
+                          child: Text(
+                            (AppLocalizations.of(context)?.gotovo_34e1 ?? 'Fallback'),
                             style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
                           ),
                         ),

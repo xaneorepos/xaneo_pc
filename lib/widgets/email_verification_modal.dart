@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/theme_provider.dart';
+import 'package:xaneo/l10n/app_localizations.dart';
 
 /// Модальное окно подтверждения email в iOS-стиле
 /// Использует showModalBottomSheet для iOS-подобного вида
@@ -54,7 +55,7 @@ class _EmailVerificationModalState extends State<EmailVerificationModal> {
 
   Future<void> _handleVerify() async {
     if (_codeController.text.trim().isEmpty) {
-      setState(() => _errorMessage = 'Введите код подтверждения');
+      setState(() => _errorMessage = (AppLocalizations.of(context)?.vvediteKodPodtverzhdeniya_61af ?? 'Fallback'));
       return;
     }
 
@@ -70,7 +71,7 @@ class _EmailVerificationModalState extends State<EmailVerificationModal> {
     if (success && mounted) {
       Navigator.of(context).pop(true);
     } else if (mounted) {
-      setState(() => _errorMessage = 'Неверный код подтверждения');
+      setState(() => _errorMessage = (AppLocalizations.of(context)?.nevernyyKodPodtverzhdeniya_7762 ?? 'Fallback'));
     }
   }
 
@@ -103,7 +104,7 @@ class _EmailVerificationModalState extends State<EmailVerificationModal> {
         ),
       ),
       child: SingleChildScrollView(
-        physics: const BouncingScrollPhysics(),
+        physics: BouncingScrollPhysics(),
         child: ConstrainedBox(
           constraints: BoxConstraints(
             minHeight: MediaQuery.of(context).size.height * 0.4,
@@ -147,7 +148,7 @@ class _EmailVerificationModalState extends State<EmailVerificationModal> {
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     child: Text(
-                      'Подтвердите e-mail',
+                      (AppLocalizations.of(context)?.podtverditeEMail_4bd4 ?? 'Fallback'),
                       style: TextStyle(
                         color: isDark ? Colors.white : Colors.black,
                         fontSize: 24,
@@ -220,7 +221,7 @@ class _EmailVerificationModalState extends State<EmailVerificationModal> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 32),
+                  SizedBox(height: 32),
 
                   // Сообщение об ошибке
                   if (_errorMessage != null)
@@ -272,7 +273,7 @@ class _EmailVerificationModalState extends State<EmailVerificationModal> {
                                 ),
                               )
                             : Text(
-                                'Проверить',
+                                (AppLocalizations.of(context)?.proverit_340b ?? 'Fallback'),
                                 style: TextStyle(
                                   color: isDark ? Colors.black : Colors.white,
                                   fontSize: 16,
@@ -300,7 +301,7 @@ class _EmailVerificationModalState extends State<EmailVerificationModal> {
                       child: TextButton(
                         onPressed: _isResending ? null : _handleResend,
                         child: Text(
-                          'Отправить код повторно',
+                          (AppLocalizations.of(context)?.otpravitKodPovtorno_7703 ?? 'Fallback'),
                           style: TextStyle(
                             color: isDark ? Colors.blue.shade300 : Colors.blue.shade700,
                             fontSize: 14,

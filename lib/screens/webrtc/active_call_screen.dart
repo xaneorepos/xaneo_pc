@@ -10,6 +10,7 @@ import '../../services/api_service.dart';
 
 import 'base_call_screen.dart';
 import 'group_active_call_screen.dart';
+import 'package:xaneo/l10n/app_localizations.dart';
 
 class ActiveCallScreen extends BaseCallScreen {
   const ActiveCallScreen({super.key});
@@ -53,7 +54,7 @@ class _ActiveCallScreenState extends BaseCallScreenState<ActiveCallScreen> {
     final isAnyScreenSharing = isRemoteScreenSharing || isLocalScreenSharing;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF070A13), // Ultra Deep Space color
+      backgroundColor: Color(0xFF070A13), // Ultra Deep Space color
       body: Stack(
         children: [
           // ==========================================
@@ -114,14 +115,14 @@ class _ActiveCallScreenState extends BaseCallScreenState<ActiveCallScreen> {
                     if (isVideo && callManager.remoteVideoTrack != null)
                       _buildSidebarTile(
                         track: callManager.remoteVideoTrack!,
-                        name: callManager.targetName ?? 'Собеседник',
+                        name: callManager.targetName ?? (AppLocalizations.of(context)?.sobesednik_7025 ?? 'Fallback'),
                       ),
                     const SizedBox(height: 12),
                     // Тайлик нашей камеры
                     if (callManager.localVideoTrack != null && !callManager.isCameraOff)
                       _buildSidebarTile(
                         track: callManager.localVideoTrack!,
-                        name: 'Вы',
+                        name: (AppLocalizations.of(context)?.vy_0101 ?? 'Fallback'),
                         isLocal: true,
                       ),
                   ],
@@ -181,13 +182,13 @@ class _ActiveCallScreenState extends BaseCallScreenState<ActiveCallScreen> {
                       ),
                     ],
                   ),
-                  child: const Row(
+                  child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(Icons.screen_share_rounded, color: Colors.white, size: 16),
                       SizedBox(width: 8),
                       Text(
-                        'Вы делитесь своим экраном',
+                        (AppLocalizations.of(context)?.vyDelitesSvoimEkranom_16b1 ?? 'Fallback'),
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 12.5,
@@ -211,7 +212,7 @@ class _ActiveCallScreenState extends BaseCallScreenState<ActiveCallScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  callManager.targetName ?? 'Пользователь',
+                  callManager.targetName ?? (AppLocalizations.of(context)?.polzovatel_f154 ?? 'Fallback'),
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 22,
@@ -337,11 +338,11 @@ class _ActiveCallScreenState extends BaseCallScreenState<ActiveCallScreen> {
   String _getStatusText(CallState state) {
     switch (state) {
       case CallState.outgoing:
-        return 'Исходящий вызов...';
+        return (AppLocalizations.of(context)?.ishodyaschiyVyzov_650b ?? 'Fallback');
       case CallState.incoming:
-        return 'Входящий вызов...';
+        return (AppLocalizations.of(context)?.vhodyaschiyVyzov_19ff ?? 'Fallback');
       case CallState.connected:
-        return 'Подключено';
+        return (AppLocalizations.of(context)?.podklyucheno_d022 ?? 'Fallback');
       default:
         return '';
     }
@@ -377,9 +378,9 @@ class _ActiveCallScreenState extends BaseCallScreenState<ActiveCallScreen> {
             size: 110,
           ),
         ),
-        const SizedBox(height: 36),
-        const Text(
-          'Ожидание ответа...',
+        SizedBox(height: 36),
+        Text(
+          (AppLocalizations.of(context)?.ozhidanieOtveta_a984 ?? 'Fallback'),
           style: TextStyle(
             color: Colors.white70,
             fontSize: 15,
@@ -403,9 +404,9 @@ class _ActiveCallScreenState extends BaseCallScreenState<ActiveCallScreen> {
             username: callManager.targetName ?? 'User',
             size: 120,
           ),
-          const SizedBox(height: 24),
+          SizedBox(height: 24),
           Text(
-            'Разговор по аудиосвязи',
+            (AppLocalizations.of(context)?.razgovorPoAudiosvyazi_3ed7 ?? 'Fallback'),
             style: TextStyle(
               color: Colors.white.withOpacity(0.5),
               fontSize: 14,
@@ -426,7 +427,7 @@ class _ActiveCallScreenState extends BaseCallScreenState<ActiveCallScreen> {
             padding: const EdgeInsets.all(28),
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: const Color(0xFFF59E0B).withOpacity(0.1),
+              color: Color(0xFFF59E0B).withOpacity(0.1),
             ),
             child: const Icon(
               Icons.screen_share_rounded,
@@ -435,8 +436,8 @@ class _ActiveCallScreenState extends BaseCallScreenState<ActiveCallScreen> {
             ),
           ),
           const SizedBox(height: 24),
-          const Text(
-            'Трансляция вашего экрана запущена',
+          Text(
+            (AppLocalizations.of(context)?.translyatsiyaVashegoEkranaZapuschena_575a ?? 'Fallback'),
             style: TextStyle(
               color: Colors.white70,
               fontSize: 16,
@@ -446,7 +447,7 @@ class _ActiveCallScreenState extends BaseCallScreenState<ActiveCallScreen> {
           ),
           const SizedBox(height: 6),
           Text(
-            'Собеседник видит всё, что происходит на вашем рабочем столе',
+            (AppLocalizations.of(context)?.sobesednikViditVseChtoProishodit_c759 ?? 'Fallback'),
             style: TextStyle(
               color: Colors.white.withOpacity(0.4),
               fontSize: 12.5,

@@ -10,6 +10,7 @@ import '../services/update_service.dart';
 import '../models/app_version_info.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'base_custom_modal.dart';
+import '../l10n/app_localizations.dart';
 
 // ─── Описание раздела настроек ──────────────────────────────────────────────
 
@@ -31,82 +32,88 @@ class _SettingsSection {
 }
 
 // Разделы только для авторизованных пользователей
-final _accountSections = [
-  _SettingsSection(
-    id: 'personal',
-    title: 'Личные данные',
-    description: 'Имя, никнейм, фото профиля, о себе',
-    icon: Icons.person_rounded,
-    gradient: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
-  ),
-  _SettingsSection(
-    id: 'privacy',
-    title: 'Приватность',
-    description: 'Кто может писать, звонить, видеть профиль',
-    icon: Icons.lock_rounded,
-    gradient: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
-  ),
-  _SettingsSection(
-    id: 'chats',
-    title: 'Настройки чатов',
-    description: 'Уведомления, темы пузырьков, история',
-    icon: Icons.chat_bubble_rounded,
-    gradient: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
-  ),
-  _SettingsSection(
-    id: 'contacts',
-    title: 'Контакты',
-    description: 'Ваши сохранённые контакты',
-    icon: Icons.people_rounded,
-    gradient: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
-  ),
-  _SettingsSection(
-    id: 'security',
-    title: 'Безопасность',
-    description: 'Сессии, пароль, двойная аутентификация',
-    icon: Icons.shield_rounded,
-    gradient: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
-  ),
-];
+List<_SettingsSection> _getAccountSections(BuildContext context) {
+  final l10n = AppLocalizations.of(context);
+  return [
+    _SettingsSection(
+      id: 'personal',
+      title: l10n?.personalData ?? (AppLocalizations.of(context)?.lichnyeDannye_be85 ?? 'Fallback'),
+      description: l10n?.personalDataDesc ?? (AppLocalizations.of(context)?.imyaNikneymFotoProfilya_28ac ?? 'Fallback'),
+      icon: Icons.person_rounded,
+      gradient: const [Color(0xFF2563EB), Color(0xFF1D4ED8)],
+    ),
+    _SettingsSection(
+      id: 'privacy',
+      title: l10n?.privacyTitle ?? (AppLocalizations.of(context)?.privatnost_0899 ?? 'Fallback'),
+      description: l10n?.privacyDesc ?? (AppLocalizations.of(context)?.ktoMozhetPisatZvonitVidet_1789 ?? 'Fallback'),
+      icon: Icons.lock_rounded,
+      gradient: const [Color(0xFF2563EB), Color(0xFF1D4ED8)],
+    ),
+    _SettingsSection(
+      id: 'chats',
+      title: l10n?.chatsSettings ?? (AppLocalizations.of(context)?.nastroykiChatov_7ca8 ?? 'Fallback'),
+      description: l10n?.chatsSettingsDesc ?? (AppLocalizations.of(context)?.uvedomleniyaTemyIstoriya_51da ?? 'Fallback'),
+      icon: Icons.chat_bubble_rounded,
+      gradient: const [Color(0xFF2563EB), Color(0xFF1D4ED8)],
+    ),
+    _SettingsSection(
+      id: 'contacts',
+      title: l10n?.contacts ?? (AppLocalizations.of(context)?.kontakty_7576 ?? 'Fallback'),
+      description: l10n?.contactsDesc ?? (AppLocalizations.of(context)?.vashiSohranennyeKontakty_a641 ?? 'Fallback'),
+      icon: Icons.people_rounded,
+      gradient: const [Color(0xFF2563EB), Color(0xFF1D4ED8)],
+    ),
+    _SettingsSection(
+      id: 'security',
+      title: l10n?.security ?? (AppLocalizations.of(context)?.bezopasnost_3677 ?? 'Fallback'),
+      description: l10n?.securityDesc ?? (AppLocalizations.of(context)?.sessiiParolAutentifikatsiya_73f5 ?? 'Fallback'),
+      icon: Icons.shield_rounded,
+      gradient: const [Color(0xFF2563EB), Color(0xFF1D4ED8)],
+    ),
+  ];
+}
 
 // Разделы интерфейса (доступны всегда)
-final _interfaceSections = [
-  _SettingsSection(
-    id: 'appearance',
-    title: 'Внешний вид',
-    description: 'Тема, шрифт, масштаб интерфейса',
-    icon: Icons.palette_rounded,
-    gradient: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
-  ),
-  _SettingsSection(
-    id: 'language',
-    title: 'Язык',
-    description: 'Язык интерфейса клиента',
-    icon: Icons.language_rounded,
-    gradient: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
-  ),
-  _SettingsSection(
-    id: 'notifications',
-    title: 'Уведомления',
-    description: 'Звуки, баннеры, показ уведомлений',
-    icon: Icons.notifications_rounded,
-    gradient: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
-  ),
-  _SettingsSection(
-    id: 'energy',
-    title: 'Энергосбережение',
-    description: 'Анимации, фоновая активность, производительность',
-    icon: Icons.bolt_rounded,
-    gradient: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
-  ),
-  _SettingsSection(
-    id: 'about',
-    title: 'О приложении',
-    description: 'Версия, проверка обновлений, ссылки',
-    icon: Icons.info_outline_rounded,
-    gradient: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
-  ),
-];
+List<_SettingsSection> _getInterfaceSections(BuildContext context) {
+  final l10n = AppLocalizations.of(context);
+  return [
+    _SettingsSection(
+      id: 'appearance',
+      title: l10n?.appearance ?? (AppLocalizations.of(context)?.vneshniyVid_6873 ?? 'Fallback'),
+      description: l10n?.appearanceDesc ?? (AppLocalizations.of(context)?.temaShriftMasshtab_d8c9 ?? 'Fallback'),
+      icon: Icons.palette_rounded,
+      gradient: const [Color(0xFF2563EB), Color(0xFF1D4ED8)],
+    ),
+    _SettingsSection(
+      id: 'language',
+      title: l10n?.language ?? (AppLocalizations.of(context)?.yazyk_0577 ?? 'Fallback'),
+      description: l10n?.languageDescription ?? (AppLocalizations.of(context)?.yazykInterfeysaKlienta_2ad3 ?? 'Fallback'),
+      icon: Icons.language_rounded,
+      gradient: const [Color(0xFF2563EB), Color(0xFF1D4ED8)],
+    ),
+    _SettingsSection(
+      id: 'notifications',
+      title: l10n?.notifications ?? (AppLocalizations.of(context)?.uvedomleniya_d2ed ?? 'Fallback'),
+      description: l10n?.notificationsDescription ?? (AppLocalizations.of(context)?.zvukiBannery_1b60 ?? 'Fallback'),
+      icon: Icons.notifications_rounded,
+      gradient: const [Color(0xFF2563EB), Color(0xFF1D4ED8)],
+    ),
+    _SettingsSection(
+      id: 'energy',
+      title: l10n?.energySaving ?? (AppLocalizations.of(context)?.energosberezhenie_0b19 ?? 'Fallback'),
+      description: l10n?.energySavingDesc ?? (AppLocalizations.of(context)?.animatsiiIProizvoditelnost_fba8 ?? 'Fallback'),
+      icon: Icons.bolt_rounded,
+      gradient: const [Color(0xFF2563EB), Color(0xFF1D4ED8)],
+    ),
+    _SettingsSection(
+      id: 'about',
+      title: l10n?.about ?? (AppLocalizations.of(context)?.oPrilozhenii_322e ?? 'Fallback'),
+      description: l10n?.aboutDescription ?? (AppLocalizations.of(context)?.versiyaProverkaObnovleniySsylki_6efc ?? 'Fallback'),
+      icon: Icons.info_outline_rounded,
+      gradient: const [Color(0xFF2563EB), Color(0xFF1D4ED8)],
+    ),
+  ];
+}
 
 
 // ─── Главный виджет ──────────────────────────────────────────────────────────
@@ -116,14 +123,16 @@ class XaneoSettingsModal extends BaseCustomModal {
   final VoidCallback? onLogout;
   final Function(dynamic contact)? onSelectChat;
   final Function(dynamic contact)? onStartCall;
+  final Function(AppVersionInfo update)? onUpdateFound;
 
-  const XaneoSettingsModal({
+  XaneoSettingsModal({
     super.key,
     this.currentUser,
     this.onLogout,
     this.onSelectChat,
     this.onStartCall,
-  }) : super(modalTag: 'НАСТРОЙКИ', title: 'Настройки');
+    this.onUpdateFound,
+  }) : super(modalTag: '', title: '');
 
   /// Открыть модалку настроек через BaseCustomModal.show
   static Future<void> open(
@@ -132,6 +141,7 @@ class XaneoSettingsModal extends BaseCustomModal {
     VoidCallback? onLogout,
     Function(dynamic contact)? onSelectChat,
     Function(dynamic contact)? onStartCall,
+    Function(AppVersionInfo update)? onUpdateFound,
   }) {
     return BaseCustomModal.show(
       context: context,
@@ -140,6 +150,7 @@ class XaneoSettingsModal extends BaseCustomModal {
         onLogout: onLogout,
         onSelectChat: onSelectChat,
         onStartCall: onStartCall,
+        onUpdateFound: onUpdateFound,
       ),
       barrierLabel: 'SettingsModal',
     );
@@ -159,15 +170,25 @@ class _XaneoSettingsModalState
   @override
   double get modalHeightFactor => 0.90;
 
+  @override
+  String getModalTitle(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return (l10n?.mainSettings ?? 'НАСТРОЙКИ').toUpperCase();
+  }
+
+  String? _activeSection;
+
   // ── Update ─────────────────────────────────────────────────────────────────
   bool _isCheckingUpdate = false;
   String? _updateStatusMessage;
   AppVersionInfo? _foundUpdateInfo;
 
+
   Future<void> _handleManualUpdateCheck() async {
+    final l10n = AppLocalizations.of(context);
     setState(() {
       _isCheckingUpdate = true;
-      _updateStatusMessage = 'Проверка обновлений...';
+      _updateStatusMessage = l10n?.checkingUpdates ?? 'Проверка обновлений...';
       _foundUpdateInfo = null;
     });
 
@@ -180,9 +201,12 @@ class _XaneoSettingsModalState
       _isCheckingUpdate = false;
       if (update != null) {
         _foundUpdateInfo = update;
-        _updateStatusMessage = 'Доступна новая версия v${update.version}!';
+        _updateStatusMessage = '${l10n?.newVersionAvailableTitle ?? "Доступна новая версия"} v${update.version}!';
+        if (widget.onUpdateFound != null) {
+          widget.onUpdateFound!(update);
+        }
       } else {
-        _updateStatusMessage = 'У вас установлена актуальная версия v$currentVersion';
+        _updateStatusMessage = '${l10n?.youHaveLatestVersion ?? "У вас установлена актуальная версия"} v$currentVersion';
       }
     });
   }
@@ -325,7 +349,7 @@ class _XaneoSettingsModalState
         setState(() {
           _privacyLoading = false;
           _privacyLoaded = true;
-          _privacyError = 'Не удалось загрузить настройки';
+          _privacyError = (AppLocalizations.of(context)?.neUdalosZagruzitNastroyki_f753 ?? 'Fallback');
         });
       }
     }
@@ -353,7 +377,7 @@ class _XaneoSettingsModalState
       if (mounted) {
         setState(() {
           _privacySaving = false;
-          _privacyError = 'Ошибка сохранения';
+          _privacyError = (AppLocalizations.of(context)?.oshibkaSohraneniya_0387 ?? 'Fallback');
         });
       }
     }
@@ -382,7 +406,7 @@ class _XaneoSettingsModalState
           }
           setState(() {
             _personalSaving = false;
-            _personalSuccess = 'Данные сохранены';
+            _personalSuccess = (AppLocalizations.of(context)?.dannyeSohraneny_fd62 ?? 'Fallback');
           });
           Future.delayed(const Duration(seconds: 2), () {
             if (mounted) setState(() => _personalSuccess = null);
@@ -390,7 +414,7 @@ class _XaneoSettingsModalState
         } else {
           setState(() {
             _personalSaving = false;
-            _personalError = 'Ошибка сохранения';
+            _personalError = (AppLocalizations.of(context)?.oshibkaSohraneniya_0387 ?? 'Fallback');
           });
         }
       }
@@ -458,7 +482,7 @@ class _XaneoSettingsModalState
     final user = widget.currentUser;
     final firstName = user?['first_name']?.toString() ??
         user?['username']?.toString() ??
-        'Гость';
+        (AppLocalizations.of(context)?.gost_9618 ?? 'Fallback');
     final username = user?['username']?.toString() ?? '';
     final avatar = user?['avatar']?.toString();
     final gradient = user?['avatar_gradient']?.toString() ?? '';
@@ -477,18 +501,18 @@ class _XaneoSettingsModalState
 
         // Раздел аккаунта
         if (_isLoggedIn) ...[
-          _groupLabel('АККАУНТ', isDark, scale),
+          _groupLabel(AppLocalizations.of(context)?.account ?? (AppLocalizations.of(context)?.akkaunt_38ac ?? 'Fallback'), isDark, scale),
           SizedBox(height: 6 * scale),
-          ..._accountSections.map((s) => _menuRow(s, isDark, scale)),
+          ..._getAccountSections(context).map((s) => _menuRow(s, isDark, scale)),
           SizedBox(height: 16 * scale),
           divider,
           SizedBox(height: 14 * scale),
         ],
 
         // Раздел интерфейса
-        _groupLabel('ИНТЕРФЕЙС', isDark, scale),
+        _groupLabel(AppLocalizations.of(context)?.interface ?? (AppLocalizations.of(context)?.interfeys_49be ?? 'Fallback'), isDark, scale),
         SizedBox(height: 6 * scale),
-        ..._interfaceSections.map((s) => _menuRow(s, isDark, scale)),
+        ..._getInterfaceSections(context).map((s) => _menuRow(s, isDark, scale)),
 
         // Выйти
         if (_isLoggedIn && widget.onLogout != null) ...[
@@ -497,7 +521,7 @@ class _XaneoSettingsModalState
           SizedBox(height: 8 * scale),
           _dangerRow(
             icon: Icons.logout_rounded,
-            label: 'Выйти из аккаунта',
+            label: AppLocalizations.of(context)?.logout ?? (AppLocalizations.of(context)?.vyytiIzAkkaunta_6d41 ?? 'Fallback'),
             isDark: isDark,
             scale: scale,
             onTap: () {
@@ -510,7 +534,7 @@ class _XaneoSettingsModalState
         SizedBox(height: 16 * scale),
         Center(
           child: Text(
-            'Xaneo PC v1.0.0',
+            'Xaneo PC v1.0.loc_0',
             style: TextStyle(
               fontSize: 11 * scale,
               color: isDark ? Colors.white24 : Colors.black26,
@@ -573,16 +597,18 @@ class _XaneoSettingsModalState
   }
 
   String _sectionTitle(String id) {
-    const m = {
-      'appearance': 'Внешний вид',
-      'language': 'Язык',
-      'notifications': 'Уведомления',
-      'energy': 'Энергосбережение',
-      'personal': 'Личные данные',
-      'chats': 'Настройки чатов',
-      'privacy': 'Приватность',
-      'contacts': 'Контакты',
-      'security': 'Безопасность',
+    final l10n = AppLocalizations.of(context);
+    var m = {
+      'appearance': l10n?.appearance ?? 'Внешний вид',
+      'language': l10n?.language ?? 'Язык',
+      'notifications': l10n?.notifications ?? 'Уведомления',
+      'energy': l10n?.energySaving ?? 'Энергосбережение',
+      'personal': l10n?.personalData ?? 'Личные данные',
+      'chats': l10n?.chatsSettings ?? 'Настройки чатов',
+      'privacy': l10n?.privacyDesc ?? 'Приватность',
+      'contacts': l10n?.contacts ?? 'Контакты',
+      'security': l10n?.security ?? 'Безопасность',
+      'about': l10n?.about ?? 'О приложении',
     };
     return m[id] ?? id;
   }
@@ -616,17 +642,11 @@ class _XaneoSettingsModalState
   }
 
   Widget _buildAboutSection(bool isDark, double scale) {
+    final l10n = AppLocalizations.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _sectionHeader(
-          title: 'О приложении',
-          subtitle: 'Информация о клиенте Xaneo PC и проверка обновлений',
-          icon: Icons.info_outline_rounded,
-          gradient: const [Color(0xFF2563EB), Color(0xFF1D4ED8)],
-          isDark: isDark,
-          scale: scale,
-        ),
+        _sectionHeader(l10n?.appInfo ?? 'Информация о приложении', isDark, scale),
         SizedBox(height: 16 * scale),
         Container(
           padding: EdgeInsets.all(16 * scale),
@@ -657,7 +677,7 @@ class _XaneoSettingsModalState
                         ),
                       ),
                       Text(
-                        'Версия: 1.0.0+1 (Linux / Windows / macOS)',
+                        '${l10n?.version ?? "Версия"}: 1.0.0+1 (Linux / Windows / macOS)',
                         style: TextStyle(
                           fontSize: 12 * scale,
                           color: isDark ? Colors.white54 : Colors.black54,
@@ -677,12 +697,13 @@ class _XaneoSettingsModalState
                     fontWeight: FontWeight.w500,
                     color: _foundUpdateInfo != null
                         ? Colors.greenAccent
-                        : (isDark ? Colors.white70 : Colors.black70),
+                        : (isDark ? Colors.white70 : Colors.black87),
                     fontFamily: 'Inter',
                   ),
                 ),
                 SizedBox(height: 12 * scale),
               ],
+
               Row(
                 children: [
                   ElevatedButton.icon(
@@ -695,7 +716,9 @@ class _XaneoSettingsModalState
                           )
                         : Icon(Icons.refresh_rounded, size: 16 * scale),
                     label: Text(
-                      _isCheckingUpdate ? 'Проверка...' : 'Проверить обновления',
+                      _isCheckingUpdate
+                          ? (l10n?.checkingUpdates ?? 'Проверка обновлений...')
+                          : (l10n?.checkUpdates ?? 'Проверить обновления'),
                       style: TextStyle(fontSize: 13 * scale, fontFamily: 'Inter'),
                     ),
                     style: ElevatedButton.styleFrom(
@@ -715,7 +738,7 @@ class _XaneoSettingsModalState
                         }
                       },
                       icon: Icon(Icons.download_rounded, size: 16 * scale),
-                      label: Text('Скачать v${_foundUpdateInfo!.version}', style: TextStyle(fontSize: 13 * scale, fontFamily: 'Inter')),
+                      label: Text('${l10n?.downloadVersion ?? "Скачать"} v${_foundUpdateInfo!.version}', style: TextStyle(fontSize: 13 * scale, fontFamily: 'Inter')),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: Colors.greenAccent,
                         side: const BorderSide(color: Colors.greenAccent),
@@ -737,35 +760,36 @@ class _XaneoSettingsModalState
   // ── Personal ─────────────────────────────────────────────────────────────────
 
   Widget _buildPersonal(bool isDark, double scale) {
+    final l10n = AppLocalizations.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _sectionHeader('Основная информация', isDark, scale),
+        _sectionHeader(l10n?.basicInfo ?? (AppLocalizations.of(context)?.osnovnayaInformatsiya_6fec ?? 'Fallback'), isDark, scale),
         SizedBox(height: 10 * scale),
         _inputField(
-          label: 'Имя',
+          label: l10n?.yourName ?? (AppLocalizations.of(context)?.imya_d38d ?? 'Fallback'),
           controller: _firstNameCtrl,
           isDark: isDark,
           scale: scale,
-          hint: 'Введите ваше имя',
+          hint: l10n?.registerStep0Subtitle ?? (AppLocalizations.of(context)?.vvediteVasheImya_751e ?? 'Fallback'),
         ),
         SizedBox(height: 12 * scale),
         _inputField(
-          label: 'Никнейм',
+          label: l10n?.nickname ?? (AppLocalizations.of(context)?.nikneym_3fea ?? 'Fallback'),
           controller: _usernameCtrl,
           isDark: isDark,
           scale: scale,
           hint: '@username',
           readOnly: true,
-          note: 'Никнейм нельзя изменить в приложении',
+          note: l10n?.nicknameCannotBeChanged ?? (AppLocalizations.of(context)?.nikneymNelzyaIzmenitVPrilozhenii_75d0 ?? 'Fallback'),
         ),
         SizedBox(height: 12 * scale),
         _textAreaField(
-          label: 'О себе',
+          label: l10n?.aboutMe ?? (AppLocalizations.of(context)?.oSebe_0b3b ?? 'Fallback'),
           controller: _bioCtrl,
           isDark: isDark,
           scale: scale,
-          hint: 'Расскажите о себе...',
+          hint: l10n?.aboutMeHint ?? (AppLocalizations.of(context)?.rasskazhiteOSebe_1c37 ?? 'Fallback'),
         ),
         SizedBox(height: 18 * scale),
         if (_personalError != null)
@@ -773,7 +797,9 @@ class _XaneoSettingsModalState
         if (_personalSuccess != null)
           _successBanner(_personalSuccess!, isDark, scale),
         _primaryButton(
-          label: _personalSaving ? 'Сохранение...' : 'Сохранить',
+          label: _personalSaving
+              ? (l10n?.saving ?? (AppLocalizations.of(context)?.sohranenie_c15f ?? 'Fallback'))
+              : (l10n?.save ?? (AppLocalizations.of(context)?.sohranit_74ea ?? 'Fallback')),
           isDark: isDark,
           scale: scale,
           onTap: _personalSaving ? null : _savePersonalData,
@@ -805,19 +831,20 @@ class _XaneoSettingsModalState
       );
     }
 
-    const options = [
-      ('all', 'Все'),
-      ('contacts', 'Только контакты'),
-      ('nobody', 'Никто'),
+    final l10n = AppLocalizations.of(context);
+    final options = [
+      ('all', l10n?.everyone ?? (AppLocalizations.of(context)?.vse_984b ?? 'Fallback')),
+      ('contacts', l10n?.contactsOnly ?? (AppLocalizations.of(context)?.tolkoKontakty_a559 ?? 'Fallback')),
+      ('nobody', l10n?.nobody ?? (AppLocalizations.of(context)?.nikto_ba19 ?? 'Fallback')),
     ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _sectionHeader('Коммуникации', isDark, scale),
+        _sectionHeader(l10n?.communications ?? (AppLocalizations.of(context)?.kommunikatsii_1242 ?? 'Fallback'), isDark, scale),
         SizedBox(height: 8 * scale),
         _dropdownRow(
-          label: 'Кто может писать сообщения',
+          label: l10n?.whoCanMessage ?? (AppLocalizations.of(context)?.ktoMozhetPisatSoobscheniya_4645 ?? 'Fallback'),
           value: _whoCanMessage,
           options: options,
           isDark: isDark,
@@ -825,7 +852,7 @@ class _XaneoSettingsModalState
           onChanged: (v) => setState(() => _whoCanMessage = v),
         ),
         _dropdownRow(
-          label: 'Кто может звонить',
+          label: l10n?.whoCanCall ?? (AppLocalizations.of(context)?.ktoMozhetZvonit_c427 ?? 'Fallback'),
           value: _whoCanCall,
           options: options,
           isDark: isDark,
@@ -833,7 +860,7 @@ class _XaneoSettingsModalState
           onChanged: (v) => setState(() => _whoCanCall = v),
         ),
         _dropdownRow(
-          label: 'Кто может записывать голосовые',
+          label: l10n?.whoCanRecordVoice ?? (AppLocalizations.of(context)?.ktoMozhetZapisyvatGolosovye_c69a ?? 'Fallback'),
           value: _whoCanRecordVoice,
           options: options,
           isDark: isDark,
@@ -841,7 +868,7 @@ class _XaneoSettingsModalState
           onChanged: (v) => setState(() => _whoCanRecordVoice = v),
         ),
         _dropdownRow(
-          label: 'Кто может отправлять файлы',
+          label: l10n?.whoCanSendFiles ?? (AppLocalizations.of(context)?.ktoMozhetOtpravlyatFayly_2e40 ?? 'Fallback'),
           value: _whoCanSendFiles,
           options: options,
           isDark: isDark,
@@ -849,7 +876,7 @@ class _XaneoSettingsModalState
           onChanged: (v) => setState(() => _whoCanSendFiles = v),
         ),
         _dropdownRow(
-          label: 'Кто может приглашать в группы',
+          label: l10n?.whoCanInvite ?? (AppLocalizations.of(context)?.ktoMozhetPriglashatVGruppy_cdc0 ?? 'Fallback'),
           value: _whoCanInvite,
           options: options,
           isDark: isDark,
@@ -857,10 +884,10 @@ class _XaneoSettingsModalState
           onChanged: (v) => setState(() => _whoCanInvite = v),
         ),
         SizedBox(height: 16 * scale),
-        _sectionHeader('Видимость профиля', isDark, scale),
+        _sectionHeader(l10n?.profileVisibility ?? (AppLocalizations.of(context)?.vidimostProfilya_34bf ?? 'Fallback'), isDark, scale),
         SizedBox(height: 8 * scale),
         _dropdownRow(
-          label: 'Кто видит мой никнейм',
+          label: l10n?.whoSeesNickname ?? (AppLocalizations.of(context)?.ktoViditMoyNikneym_54b8 ?? 'Fallback'),
           value: _whoSeesNickname,
           options: options,
           isDark: isDark,
@@ -868,7 +895,7 @@ class _XaneoSettingsModalState
           onChanged: (v) => setState(() => _whoSeesNickname = v),
         ),
         _dropdownRow(
-          label: 'Кто видит мой аватар',
+          label: l10n?.whoSeesAvatar ?? 'Кто видит мой аватар',
           value: _whoSeesAvatar,
           options: options,
           isDark: isDark,
@@ -876,7 +903,7 @@ class _XaneoSettingsModalState
           onChanged: (v) => setState(() => _whoSeesAvatar = v),
         ),
         _dropdownRow(
-          label: 'Кто видит мой день рождения',
+          label: l10n?.whoSeesBirthday ?? 'Кто видит мой день рождения',
           value: _whoSeesBirthday,
           options: options,
           isDark: isDark,
@@ -884,7 +911,7 @@ class _XaneoSettingsModalState
           onChanged: (v) => setState(() => _whoSeesBirthday = v),
         ),
         _dropdownRow(
-          label: 'Кто видит время моей активности',
+          label: l10n?.whoSeesOnlineTime ?? 'Кто видит время моей активности',
           value: _whoSeesOnlineTime,
           options: options,
           isDark: isDark,
@@ -894,7 +921,9 @@ class _XaneoSettingsModalState
         SizedBox(height: 18 * scale),
         if (_privacyError != null) _errorBanner(_privacyError!, isDark, scale),
         _primaryButton(
-          label: _privacySaving ? 'Сохранение...' : 'Сохранить',
+          label: _privacySaving
+              ? (l10n?.saving ?? 'Сохранение...')
+              : (l10n?.save ?? 'Сохранить'),
           isDark: isDark,
           scale: scale,
           onTap: _privacySaving ? null : _savePrivacySettings,
@@ -926,7 +955,7 @@ class _XaneoSettingsModalState
         setState(() {
           _pcContactsLoading = false;
           _pcContactsLoaded = true;
-          _pcContactsError = 'Не удалось загрузить контакты';
+          _pcContactsError = (AppLocalizations.of(context)?.neUdalosZagruzitKontakty_02a3 ?? 'Fallback');
         });
       }
     }
@@ -948,13 +977,14 @@ class _XaneoSettingsModalState
   void _showAddContactDialog(bool isDark, double scale) {
     final usernameCtrl = TextEditingController();
     final nameCtrl = TextEditingController();
+    final l10n = AppLocalizations.of(context);
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: isDark ? const Color(0xFF1E1E22) : Colors.white,
+        backgroundColor: isDark ? Color(0xFF1E1E22) : Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16 * scale)),
         title: Text(
-          'Добавить контакт',
+          l10n?.addContactTitle ?? (AppLocalizations.of(context)?.dobavitKontakt_4278 ?? 'Fallback'),
           style: TextStyle(
             color: isDark ? Colors.white : Colors.black87,
             fontSize: 16 * scale,
@@ -968,7 +998,7 @@ class _XaneoSettingsModalState
               controller: usernameCtrl,
               style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 14 * scale),
               decoration: InputDecoration(
-                hintText: 'Никнейм пользователя',
+                hintText: l10n?.userNicknameHint ?? (AppLocalizations.of(context)?.nikneymPolzovatelya_5610 ?? 'Fallback'),
                 hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.black38, fontSize: 13 * scale),
                 filled: true,
                 fillColor: isDark ? Colors.white.withOpacity(0.06) : Colors.black.withOpacity(0.04),
@@ -981,7 +1011,7 @@ class _XaneoSettingsModalState
               controller: nameCtrl,
               style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 14 * scale),
               decoration: InputDecoration(
-                hintText: 'Отображаемое имя (опционально)',
+                hintText: l10n?.displayNameOptional ?? (AppLocalizations.of(context)?.otobrazhaemoeImyaOptsionalno_bbd1 ?? 'Fallback'),
                 hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.black38, fontSize: 13 * scale),
                 filled: true,
                 fillColor: isDark ? Colors.white.withOpacity(0.06) : Colors.black.withOpacity(0.04),
@@ -994,7 +1024,7 @@ class _XaneoSettingsModalState
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: Text('Отмена', style: TextStyle(color: isDark ? Colors.white54 : Colors.black54)),
+            child: Text(l10n?.cancel ?? (AppLocalizations.of(context)?.otmena_987b ?? 'Fallback'), style: TextStyle(color: isDark ? Colors.white54 : Colors.black54)),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
@@ -1022,7 +1052,7 @@ class _XaneoSettingsModalState
                 }
               }
             },
-            child: const Text('Добавить'),
+            child: Text(l10n?.addContact ?? (AppLocalizations.of(context)?.dobavit_5eba ?? 'Fallback')),
           ),
         ],
       ),
@@ -1033,6 +1063,7 @@ class _XaneoSettingsModalState
     if (!_pcContactsLoaded && !_pcContactsLoading) {
       _loadPcContacts();
     }
+    final l10n = AppLocalizations.of(context);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1040,12 +1071,12 @@ class _XaneoSettingsModalState
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            _sectionHeader('Контакты (${_pcContacts.length})', isDark, scale),
+            _sectionHeader('${l10n?.contacts ?? (AppLocalizations.of(context)?.kontakty_7576 ?? 'Fallback')} (${_pcContacts.length})', isDark, scale),
             TextButton.icon(
               onPressed: () => _showAddContactDialog(isDark, scale),
               icon: Icon(Icons.person_add_rounded, size: 16 * scale, color: isDark ? Colors.white70 : Colors.black87),
               label: Text(
-                'Добавить',
+                l10n?.addContact ?? (AppLocalizations.of(context)?.dobavit_5eba ?? 'Fallback'),
                 style: TextStyle(
                   fontSize: 13 * scale,
                   fontWeight: FontWeight.w600,
@@ -1083,7 +1114,7 @@ class _XaneoSettingsModalState
                   Icon(Icons.people_outline_rounded, size: 40 * scale, color: isDark ? Colors.white30 : Colors.black26),
                   SizedBox(height: 8 * scale),
                   Text(
-                    'У вас пока нет сохранённых контактов',
+                    l10n?.noContactsYet ?? (AppLocalizations.of(context)?.uVasPokaNetSohranennyh_b64b ?? 'Fallback'),
                     style: TextStyle(fontSize: 13 * scale, color: isDark ? Colors.white38 : Colors.black38),
                   ),
                 ],
@@ -1155,7 +1186,7 @@ class _XaneoSettingsModalState
                     IconButton(
                       icon: Icon(Icons.phone_rounded, size: 18 * scale),
                       color: isDark ? Colors.white70 : Colors.black87,
-                      tooltip: 'Позвонить',
+                      tooltip: l10n?.call ?? 'Позвонить',
                       onPressed: () {
                         if (widget.onStartCall != null) {
                           widget.onStartCall!(item);
@@ -1165,7 +1196,7 @@ class _XaneoSettingsModalState
                     IconButton(
                       icon: Icon(Icons.chat_bubble_rounded, size: 18 * scale),
                       color: isDark ? Colors.white70 : Colors.black87,
-                      tooltip: 'Написать',
+                      tooltip: l10n?.sendMessage ?? 'Написать',
                       onPressed: () {
                         Navigator.of(context).pop();
                         if (widget.onSelectChat != null) {
@@ -1193,7 +1224,7 @@ class _XaneoSettingsModalState
                             children: [
                               const Icon(Icons.delete_outline_rounded, size: 16, color: Colors.redAccent),
                               const SizedBox(width: 8),
-                              const Text('Удалить контакт', style: TextStyle(color: Colors.redAccent, fontSize: 13)),
+                              Text(l10n?.deleteContact ?? 'Удалить контакт', style: const TextStyle(color: Colors.redAccent, fontSize: 13)),
                             ],
                           ),
                         ),
@@ -1211,14 +1242,15 @@ class _XaneoSettingsModalState
   // ── Chats Settings ───────────────────────────────────────────────────────────
 
   Widget _buildChats(bool isDark, double scale) {
+    final l10n = AppLocalizations.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _sectionHeader('Сообщения', isDark, scale),
+        _sectionHeader(l10n?.messages ?? 'Сообщения', isDark, scale),
         SizedBox(height: 8 * scale),
         _switchRow(
-          label: 'Анимации сообщений',
-          description: 'Показывать анимации при отправке и получении',
+          label: l10n?.messageAnimations ?? 'Анимации сообщений',
+          description: l10n?.messageAnimationsDesc ?? 'Показывать анимации при отправке и получении',
           value: _messageAnimations,
           isDark: isDark,
           scale: scale,
@@ -1230,16 +1262,16 @@ class _XaneoSettingsModalState
         SizedBox(height: 12 * scale),
         _infoTile(
           icon: Icons.archive_rounded,
-          label: 'Архивированные чаты',
-          subtitle: 'Управление архивом',
+          label: l10n?.archivedChats ?? 'Архивированные чаты',
+          subtitle: l10n?.archiveManagement ?? 'Управление архивом',
           isDark: isDark,
           scale: scale,
         ),
         SizedBox(height: 12 * scale),
         _infoTile(
           icon: Icons.delete_sweep_rounded,
-          label: 'Очистить историю',
-          subtitle: 'Удалить все сообщения локально',
+          label: l10n?.clearHistory ?? 'Очистить историю',
+          subtitle: l10n?.clearHistoryDesc ?? 'Удалить все сообщения локально',
           isDark: isDark,
           scale: scale,
           color: Colors.red,
@@ -1251,15 +1283,16 @@ class _XaneoSettingsModalState
   // ── Security ─────────────────────────────────────────────────────────────────
 
   Widget _buildSecurity(bool isDark, double scale) {
+    final l10n = AppLocalizations.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _sectionHeader('Активные сессии', isDark, scale),
+        _sectionHeader(l10n?.activeSessions ?? 'Активные сессии', isDark, scale),
         SizedBox(height: 8 * scale),
         _infoTile(
           icon: Icons.computer_rounded,
-          label: 'Это устройство',
-          subtitle: 'Xaneo PC • Активно сейчас',
+          label: l10n?.thisDevice ?? 'Это устройство',
+          subtitle: l10n?.xaneoPcActiveNow ?? 'Xaneo PC • Активно сейчас',
           isDark: isDark,
           scale: scale,
           trailing: Container(
@@ -1270,7 +1303,7 @@ class _XaneoSettingsModalState
               borderRadius: BorderRadius.circular(20),
             ),
             child: Text(
-              'Активно',
+              l10n?.activeNow ?? 'Активно',
               style: TextStyle(
                 fontSize: 10 * scale,
                 color: const Color(0xFF059669),
@@ -1280,22 +1313,22 @@ class _XaneoSettingsModalState
           ),
         ),
         SizedBox(height: 16 * scale),
-        _sectionHeader('Двойная аутентификация', isDark, scale),
+        _sectionHeader(l10n?.twoFactorAuth ?? 'Двухфакторная аутентификация', isDark, scale),
         SizedBox(height: 8 * scale),
         _infoTile(
           icon: Icons.verified_user_rounded,
           label: '2FA',
-          subtitle: 'Защита аккаунта одноразовым паролем',
+          subtitle: l10n?.twoFactorAuthDesc ?? 'Защита аккаунта одноразовым паролем',
           isDark: isDark,
           scale: scale,
         ),
         SizedBox(height: 16 * scale),
-        _sectionHeader('Опасная зона', isDark, scale),
+        _sectionHeader(l10n?.dangerZone ?? 'Опасная зона', isDark, scale),
         SizedBox(height: 8 * scale),
         _infoTile(
           icon: Icons.delete_forever_rounded,
-          label: 'Удалить аккаунт',
-          subtitle: 'Необратимое действие',
+          label: l10n?.deleteAccount ?? 'Удалить аккаунт',
+          subtitle: l10n?.irreversibleAction ?? 'Необратимое действие',
           isDark: isDark,
           scale: scale,
           color: Colors.red,
@@ -1308,25 +1341,26 @@ class _XaneoSettingsModalState
 
   Widget _buildAppearance(BuildContext context, bool isDark, double scale) {
     final themeProvider = Provider.of<ThemeProvider>(context);
+    final l10n = AppLocalizations.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _sectionHeader('Тема', isDark, scale),
+        _sectionHeader(l10n?.theme ?? 'Тема', isDark, scale),
         SizedBox(height: 8 * scale),
         _switchRow(
-          label: 'Тёмная тема',
-          description: 'Переключить между тёмным и светлым режимом',
+          label: l10n?.darkTheme ?? 'Тёмная тема',
+          description: l10n?.darkThemeDesc ?? 'Переключить между тёмным и светлым оформлением',
           value: themeProvider.isDarkMode,
           isDark: isDark,
           scale: scale,
           onChanged: (v) => themeProvider.setDarkMode(v),
         ),
         SizedBox(height: 20 * scale),
-        _sectionHeader('Размер шрифта', isDark, scale),
+        _sectionHeader(l10n?.fontSizeText ?? 'Размер шрифта', isDark, scale),
         SizedBox(height: 8 * scale),
         Row(
           children: [
-            Text('А',
+            Text('A',
                 style: TextStyle(
                     fontSize: 12 * scale,
                     color: isDark ? Colors.white38 : Colors.black38)),
@@ -1344,7 +1378,7 @@ class _XaneoSettingsModalState
                 },
               ),
             ),
-            Text('А',
+            Text('A',
                 style: TextStyle(
                     fontSize: 20 * scale,
                     color: isDark ? Colors.white38 : Colors.black38)),
@@ -1366,27 +1400,26 @@ class _XaneoSettingsModalState
     final localeProvider = Provider.of<LocaleProvider>(context);
     final currentCode = localeProvider.locale?.languageCode ?? 'ru';
     return Column(
-      children: [
-        _radioRow('Русский', 'ru', currentCode, isDark, scale, (v) {
-          localeProvider.setLocale(const Locale('ru'));
+      children: LocaleProvider.availableLanguages.map((lang) {
+        final code = lang['code']!;
+        final name = lang['name']!;
+        return _radioRow(name, code, currentCode, isDark, scale, (v) {
+          localeProvider.setLocale(Locale(code));
           _savePrefs();
-        }),
-        _radioRow('English', 'en', currentCode, isDark, scale, (v) {
-          localeProvider.setLocale(const Locale('en'));
-          _savePrefs();
-        }),
-      ],
+        });
+      }).toList(),
     );
   }
 
   // ── Notifications ─────────────────────────────────────────────────────────────
 
   Widget _buildNotifications(bool isDark, double scale) {
+    final l10n = AppLocalizations.of(context);
     return Column(
       children: [
         _switchRow(
-          label: 'Уведомления',
-          description: 'Показывать всплывающие уведомления',
+          label: l10n?.notifications ?? 'Уведомления',
+          description: l10n?.showPopups ?? 'Показывать всплывающие уведомления',
           value: _notificationsEnabled,
           isDark: isDark,
           scale: scale,
@@ -1397,8 +1430,8 @@ class _XaneoSettingsModalState
         ),
         SizedBox(height: 12 * scale),
         _switchRow(
-          label: 'Звук',
-          description: 'Воспроизводить звук при новом сообщении',
+          label: l10n?.sound ?? 'Звук',
+          description: l10n?.soundDesc ?? 'Воспроизводить звук при новом сообщении',
           value: _soundEnabled,
           isDark: isDark,
           scale: scale,
@@ -1414,14 +1447,15 @@ class _XaneoSettingsModalState
   // ── Energy ────────────────────────────────────────────────────────────────────
 
   Widget _buildEnergy(bool isDark, double scale) {
+    final l10n = AppLocalizations.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _sectionHeader('Основные настройки', isDark, scale),
+        _sectionHeader(l10n?.mainSettings ?? 'Основные настройки', isDark, scale),
         SizedBox(height: 8 * scale),
         _switchRow(
-          label: 'Режим экономии энергии',
-          description: 'Оптимизирует работу приложения для экономии ресурсов',
+          label: l10n?.energySavingMode ?? 'Режим экономии энергии',
+          description: l10n?.energySavingModeDesc ?? 'Оптимизирует работу приложения для экономии заряда',
           value: _lowPowerMode,
           isDark: isDark,
           scale: scale,
@@ -1432,8 +1466,8 @@ class _XaneoSettingsModalState
         ),
         SizedBox(height: 12 * scale),
         _switchRow(
-          label: 'Автоматический спящий режим',
-          description: 'Переводит приложение в спящий режим при неактивности',
+          label: l10n?.autoSleep ?? 'Автоматический спящий режим',
+          description: l10n?.autoSleepDesc ?? 'Переводит приложение в спящий режим при неактивности',
           value: _autoSleep,
           isDark: isDark,
           scale: scale,
@@ -1443,11 +1477,11 @@ class _XaneoSettingsModalState
           },
         ),
         SizedBox(height: 20 * scale),
-        _sectionHeader('Анимации', isDark, scale),
+        _sectionHeader(l10n?.animations ?? 'Анимации', isDark, scale),
         SizedBox(height: 8 * scale),
         _switchRow(
-          label: 'Анимации сообщений',
-          description: 'Показывать анимации при отправке и получении',
+          label: l10n?.messageAnimations ?? 'Анимации сообщений',
+          description: l10n?.messageAnimationsDesc ?? 'Показывать анимации при отправке и получении',
           value: _messageAnimations,
           isDark: isDark,
           scale: scale,
@@ -1458,8 +1492,8 @@ class _XaneoSettingsModalState
         ),
         SizedBox(height: 12 * scale),
         _switchRow(
-          label: 'Упрощённые анимации',
-          description: 'Уменьшает количество анимаций интерфейса',
+          label: l10n?.reducedMotion ?? 'Упрощённые анимации',
+          description: l10n?.reducedMotionDesc ?? 'Уменьшает количество анимаций интерфейса',
           value: _reducedMotion,
           isDark: isDark,
           scale: scale,
@@ -1475,6 +1509,7 @@ class _XaneoSettingsModalState
   // ── Coming Soon ───────────────────────────────────────────────────────────────
 
   Widget _comingSoon(bool isDark, double scale) {
+    final l10n = AppLocalizations.of(context);
     return Center(
       child: Padding(
         padding: EdgeInsets.symmetric(vertical: 32 * scale),
@@ -1484,7 +1519,7 @@ class _XaneoSettingsModalState
                 size: 32 * scale,
                 color: isDark ? Colors.white24 : Colors.black26),
             SizedBox(height: 12 * scale),
-            Text('Скоро будет доступно',
+            Text(l10n?.comingSoon ?? 'Скоро будет доступно',
                 style: TextStyle(
                   fontSize: 14 * scale,
                   color: isDark ? Colors.white38 : Colors.black38,
@@ -1597,7 +1632,7 @@ class _XaneoSettingsModalState
             height: 48 * scale,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: isDark ? const Color(0xFF1E1E1E) : const Color(0xFFF0F0F0),
+              color: isDark ? Color(0xFF1E1E1E) : const Color(0xFFF0F0F0),
             ),
             child: Center(
               child: Icon(Icons.person_off_rounded,
@@ -1609,14 +1644,14 @@ class _XaneoSettingsModalState
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Гостевой режим',
+              Text((AppLocalizations.of(context)?.gostevoyRezhim_6d82 ?? 'Fallback'),
                   style: TextStyle(
                     fontSize: 15 * scale,
                     fontWeight: FontWeight.w600,
                     color: isDark ? Colors.white : Colors.black87,
                   )),
               SizedBox(height: 2 * scale),
-              Text('Войдите для доступа к аккаунту',
+              Text((AppLocalizations.of(context)?.voyditeDlyaDostupaKAkkauntu_a5c8 ?? 'Fallback'),
                   style: TextStyle(
                     fontSize: 12 * scale,
                     color: isDark ? Colors.white38 : Colors.black38,

@@ -13,8 +13,25 @@ class LocaleProvider extends ChangeNotifier {
   Locale? get locale => _locale;
 
   static const List<Locale> supportedLocales = [
-    Locale('en'),
     Locale('ru'),
+    Locale('en'),
+    Locale('fr'),
+    Locale('es'),
+    Locale('zh'),
+    Locale('ja'),
+    Locale('ko'),
+    Locale('ar'),
+  ];
+
+  static const List<Map<String, String>> availableLanguages = [
+    {'code': 'ru', 'name': 'Русский'},
+    {'code': 'en', 'name': 'English'},
+    {'code': 'fr', 'name': 'Français'},
+    {'code': 'es', 'name': 'Español'},
+    {'code': 'zh', 'name': '中文'},
+    {'code': 'ja', 'name': '日本語'},
+    {'code': 'ko', 'name': '한국어'},
+    {'code': 'ar', 'name': 'العربية'},
   ];
 
   Future<void> _loadLocale() async {

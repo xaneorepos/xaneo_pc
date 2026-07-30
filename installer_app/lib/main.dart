@@ -1,11 +1,11 @@
 import 'dart:io';
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:archive/archive_io.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:file_picker/file_picker.dart';
+import 'win32_helpers.dart' as win32;
 
 const String _kFontFamily = 'Inter';
 
@@ -86,42 +86,9 @@ Future<void> runDiagnostics() async {
   }
 }
 
-Future<ProcessResult> _runPowerShell({
-  required String script,
-  bool detached = false,
-}) async {
-  final bytes = <int>[];
-  for (final char in script.codeUnits) {
-    bytes.add(char & 0xff);
-    bytes.add((char >> 8) & 0xff);
-  }
-  
-  final base64Script = base64.encode(bytes);
-  
-  if (detached) {
-    final process = await Process.start(
-      'powershell',
-      [
-        '-NoProfile',
-        '-NonInteractive',
-        '-ExecutionPolicy', 'Bypass',
-        '-EncodedCommand', base64Script
-      ],
-      mode: ProcessStartMode.detached,
-    );
-    return ProcessResult(process.pid, 0, '', '');
-  } else {
-    return await Process.run(
-      'powershell',
-      [
-        '-NoProfile',
-        '-NonInteractive',
-        '-ExecutionPolicy', 'Bypass',
-        '-EncodedCommand', base64Script
-      ],
-    );
-  }
-}
+// _runPowerShell removed — replaced with native Win32 API calls in win32_helpers.dart
+// This eliminates the PowerShell -EncodedCommand pattern that triggered AV false positives.
+
 
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -408,37 +375,20 @@ class _InstallerScreenState extends State<InstallerScreen> {
       await pathFile.writeAsString(targetDir.path);
       await LogManager.log('Saved install path to install_path.txt');
 
-      // Create Shortcuts & Registry via in-memory PowerShell (avoid dropping .ps1 file)
-      final installCmd = '''
-\$WshShell = New-Object -comObject WScript.Shell
-\$Shortcut = \$WshShell.CreateShortcut("\$env:USERPROFILE\\Desktop\\Xaneo.lnk")
-\$Shortcut.TargetPath = "${targetDir.path}\\xaneo.exe"
-\$Shortcut.IconLocation = "${targetDir.path}\\xaneo.exe"
-\$Shortcut.Save()
-
-\$StartMenuShortcut = \$WshShell.CreateShortcut("\$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\\Xaneo.lnk")
-\$StartMenuShortcut.TargetPath = "${targetDir.path}\\xaneo.exe"
-\$StartMenuShortcut.IconLocation = "${targetDir.path}\\xaneo.exe"
-\$StartMenuShortcut.Save()
-
-\$RegPath = "HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Xaneo"
-New-Item -Path \$RegPath -Force | Out-Null
-New-ItemProperty -Path \$RegPath -Name "DisplayName" -Value "Xaneo" -PropertyType String -Force | Out-Null
-New-ItemProperty -Path \$RegPath -Name "DisplayIcon" -Value "${targetDir.path}\\xaneo.exe" -PropertyType String -Force | Out-Null
-New-ItemProperty -Path \$RegPath -Name "UninstallString" -Value '"${uninstallerDir.path}\\xaneo_uninstaller.exe"' -PropertyType String -Force | Out-Null
-New-ItemProperty -Path \$RegPath -Name "Publisher" -Value "Xaneo" -PropertyType String -Force | Out-Null
-New-ItemProperty -Path \$RegPath -Name "InstallLocation" -Value "${targetDir.path}" -PropertyType String -Force | Out-Null
-''';
-
-      await LogManager.log('Running installation configuration script in-memory via PowerShell...');
-      final result = await _runPowerShell(script: installCmd);
+      // Create Shortcuts & Registry using native Win32 API (no PowerShell)
+      await LogManager.log('Creating shortcuts and registry entries via native Win32 API...');
+      final results = win32.setupInstallation(
+        installPath: targetDir.path,
+        uninstallerPath: uninstallerDir.path,
+      );
       
-      await LogManager.log('PowerShell exit code: ${result.exitCode}');
-      if (result.stdout.toString().trim().isNotEmpty) {
-        await LogManager.log('PowerShell stdout: ${result.stdout}');
+      for (final entry in results.entries) {
+        await LogManager.log('${entry.key}: ${entry.value ? "OK" : "FAILED"}');
       }
-      if (result.stderr.toString().trim().isNotEmpty) {
-        await LogManager.log('PowerShell stderr: ${result.stderr}');
+      
+      final allOk = results.values.every((v) => v);
+      if (!allOk) {
+        await LogManager.log('WARNING: Some installation steps failed, but continuing...');
       }
 
       await LogManager.log('=== Installation Finished Successfully ===');

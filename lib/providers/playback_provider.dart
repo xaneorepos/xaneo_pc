@@ -5,6 +5,7 @@ import 'package:just_audio/just_audio.dart';
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import '../services/api_service.dart';
+import '../utils/ssl_helper.dart';
 
 class PlaybackItem {
   final String url;
@@ -171,8 +172,7 @@ class PlaybackProvider extends ChangeNotifier {
         final dio = Dio();
         (dio.httpClientAdapter as IOHttpClientAdapter).createHttpClient = () {
           final client = HttpClient();
-          client.badCertificateCallback =
-              (X509Certificate cert, String host, int port) => true;
+          client.badCertificateCallback = validateSslCertificate;
           return client;
         };
 

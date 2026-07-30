@@ -85,10 +85,18 @@ class _NotificationOverlayScreenState extends State<NotificationOverlayScreen> w
 
   void _initWindowSettings() async {
     await windowManager.ensureInitialized();
+    // Сначала настраиваем все свойства окна ДО его отображения
     await windowManager.setAsFrameless();
     await windowManager.setBackgroundColor(Colors.transparent);
     await windowManager.setAlwaysOnTop(true);
     await windowManager.setHasShadow(true);
+    // Скрываем из таскбара/dock/alt-tab — как в Telegram
+    await windowManager.setSkipTaskbar(true);
+    // Запрещаем перетаскивание/ресайз — это уведомление, а не окно
+    await windowManager.setResizable(false);
+    await windowManager.setMovable(false);
+    // Показываем окно ПОСЛЕ всех настроек, чтобы не мерцало как обычное окно
+    await windowManager.show();
   }
 
   void _startCloseTimer() {

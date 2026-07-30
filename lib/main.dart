@@ -21,6 +21,7 @@ import 'widgets/custom_title_bar.dart';
 import 'widgets/settings_modal.dart';
 import 'services/logger_service.dart';
 import 'utils/local_proxy.dart';
+import 'utils/ssl_helper.dart';
 import 'services/webrtc/webrtc_signaling_service.dart';
 import 'services/webrtc/call_manager.dart';
 
@@ -240,14 +241,15 @@ class _MyAppState extends State<MyApp> with WindowListener {
   }
 }
 
+
 /// Custom HttpOverrides to bypass bad certificate issues (e.g. self-signed certificates or IP mismatches)
-/// and set a global User-Agent header for the application.
+/// for trusted Xaneo hosts and set a global User-Agent header for the application.
 class MyHttpOverrides extends HttpOverrides {
   @override
   HttpClient createHttpClient(SecurityContext? context) {
     return super.createHttpClient(context)
       ..userAgent = 'XaneoPC/1.0 xaneo-app'
-      ..badCertificateCallback = (X509Certificate cert, String host, int port) => true;
+      ..badCertificateCallback = validateSslCertificate;
   }
 }
 

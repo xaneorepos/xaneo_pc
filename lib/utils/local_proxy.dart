@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import '../services/api_service.dart';
+import 'ssl_helper.dart';
 
 class LocalProxy {
   static HttpServer? _server;
@@ -20,8 +21,8 @@ class LocalProxy {
 
         try {
           final client = HttpClient();
-          // Explicitly ignore SSL certificate validation for local development
-          client.badCertificateCallback = (X509Certificate cert, String host, int port) => true;
+          // Filtered SSL certificate validation
+          client.badCertificateCallback = validateSslCertificate;
           
           Uri targetUri = Uri.parse(targetUrl);
           

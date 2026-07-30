@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:async';
+import '../utils/ssl_helper.dart';
 
 /// Сервис для работы с WebSocket соединениями (чат, обновления)
 class WebSocketService {
@@ -30,9 +31,9 @@ class WebSocketService {
     try {
       print("WS CONNECTING TO: $url");
       
-      // Создаем HttpClient с обходом проверки SSL сертификатов (для самоподписанных сертификатов)
+      // Создаем HttpClient с фильтрованной проверкой SSL сертификатов
       final client = HttpClient();
-      client.badCertificateCallback = (X509Certificate cert, String host, int port) => true;
+      client.badCertificateCallback = validateSslCertificate;
       
       _socket = await WebSocket.connect(url, customClient: client).timeout(const Duration(seconds: 10));
       print("WS CONNECTED SUCCESS");

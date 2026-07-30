@@ -8,6 +8,7 @@ import 'package:cookie_jar/cookie_jar.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'account_service.dart';
 import 'logger_service.dart';
+import '../utils/ssl_helper.dart';
 
 /// API сервис для Xaneo PC с поддержкой автоматического сохранения сессионных кук (через Dio)
 class ApiService {
@@ -148,11 +149,11 @@ class ApiService {
       },
     ));
     
-    // Явная настройка для обхода SSL с самоподписанными сертификатами/несовпадением IP
+    // Настройка Dio для проверки SSL с доверенными доверенными доменами
     _dio.httpClientAdapter = IOHttpClientAdapter(
       createHttpClient: () {
         final client = HttpClient();
-        client.badCertificateCallback = (X509Certificate cert, String host, int port) => true;
+        client.badCertificateCallback = validateSslCertificate;
         return client;
       },
     );

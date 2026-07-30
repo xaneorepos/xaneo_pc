@@ -5,6 +5,7 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import '../api_service.dart';
+import '../../utils/ssl_helper.dart';
 
 class WebRTCSignalingService {
   final ApiService _apiService;
@@ -245,10 +246,7 @@ class WebRTCSignalingService {
     if (uri.scheme != 'wss' || !isIpHost) return null;
 
     final client = HttpClient();
-    client.badCertificateCallback = (X509Certificate cert, String host, int port) {
-      debugPrint('WebRTC WS: bypass TLS self-signed cert for $host:$port');
-      return true;
-    };
+    client.badCertificateCallback = validateSslCertificate;
     return client;
   }
 

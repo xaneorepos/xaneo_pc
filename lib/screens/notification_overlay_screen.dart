@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ui';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:desktop_multi_window/desktop_multi_window.dart';
@@ -62,20 +63,45 @@ class _NotificationOverlayScreenState extends State<NotificationOverlayScreen> w
     );
 
     _slideAnimation = Tween<Offset>(
-      begin: const Offset(1.2, 0.0),
+      begin: const Offset(0.0, 0.35),
       end: Offset.zero,
     ).animate(CurvedAnimation(
       parent: _slideController,
       curve: Curves.easeOutCubic,
     ));
 
-    _slideController.forward();
-    _initWindowSettings();
+    // Инициализацию окна и анимацию запускаем ПОСЛЕ отрисовки первого кадра,
+    // чтобы пользователь не видел белый прямоугольник при создании Win32 окна.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _initWindowSettings();
+      _slideController.forward();
+    });
 
     // Регистрируем слушатель событий от главного окна
     DesktopMultiWindow.setMethodHandler((MethodCall call, int fromWindowId) async {
       if (call.method == 'cancel_call_notification') {
         _closeNotification();
+      } else if (call.method == 'update_notification') {
+        final Map<String, dynamic> args = jsonDecode(call.arguments as String);
+        setState(() {
+          final type = args['type']?.toString();
+          _isCall = type == 'call_incoming';
+          _chatId = args['chat_id']?.toString() ?? '';
+          _title = args['title']?.toString() ?? (_isCall ? (AppLocalizations.of(context)?.vhodyaschiyVyzov_d2f3 ?? 'Входящий вызов') : (AppLocalizations.of(context)?.novoeSoobschenie_1d49 ?? 'Новое сообщение'));
+          _body = args['body']?.toString() ?? '';
+          _avatar = args['avatar']?.toString();
+          _gradient = args['gradient']?.toString();
+          _callType = args['call_type']?.toString() ?? 'audio';
+          _isReplying = false;
+          _isSending = false;
+        });
+        _replyController.clear();
+        _slideController.forward(from: 0.0);
+        if (!_isCall) {
+          _startCloseTimer();
+        } else {
+          _closeTimer?.cancel();
+        }
       }
       return null;
     });
@@ -85,20 +111,12 @@ class _NotificationOverlayScreenState extends State<NotificationOverlayScreen> w
     }
   }
 
-  void _initWindowSettings() async {
-    await windowManager.ensureInitialized();
-    // Сначала настраиваем все свойства окна ДО его отображения
-    await windowManager.setAsFrameless();
-    await windowManager.setBackgroundColor(Colors.transparent);
-    await windowManager.setAlwaysOnTop(true);
-    await windowManager.setHasShadow(true);
-    // Скрываем из таскбара/dock/alt-tab — как в Telegram
-    await windowManager.setSkipTaskbar(true);
-    // Запрещаем перетаскивание/ресайз — это уведомление, а не окно
-    await windowManager.setResizable(false);
-    await windowManager.setMovable(false);
-    // Применяем расширенные стили Win32 (WS_EX_TOOLWINDOW + WS_EX_NOACTIVATE) на Windows
-    applyOverlayStyleWin32();
+  void _initWindowSettings() {
+    final uniqueTitle = widget.arguments['unique_title'] as String?;
+    if (uniqueTitle != null) {
+      // Показываем окно Win32, которое уже было подготовлено в главном процессе.
+      showOverlayWindowWin32(uniqueTitle);
+    }
   }
 
   void _startCloseTimer() {
@@ -119,7 +137,7 @@ class _NotificationOverlayScreenState extends State<NotificationOverlayScreen> w
 
   Future<void> _closeNotification() async {
     await _slideController.reverse();
-    WindowController.fromWindowId(widget.windowId).close();
+    WindowController.fromWindowId(widget.windowId).hide();
   }
 
   void _sendReply() async {

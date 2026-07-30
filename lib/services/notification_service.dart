@@ -12,6 +12,9 @@ import 'package:window_manager/window_manager.dart';
 import 'package:xaneo/main.dart';
 import 'package:xaneo/services/webrtc/call_manager.dart';
 import 'package:xaneo/screens/webrtc/active_call_screen.dart';
+import 'package:xaneo/utils/win32_overlay_helper.dart';
+import 'package:xaneo/services/grpc_service.dart';
+import 'package:xaneo/services/account_service.dart';
 
 class NotificationService {
   static final NotificationService _instance = NotificationService._internal();
@@ -22,6 +25,7 @@ class NotificationService {
 
   LocalNotification? _activeCallNotification;
   int? _activeCallOverlayWindowId;
+  int? _overlayWindowId;
 
   /// Инициализация сервиса уведомлений
   Future<void> init() async {
@@ -41,20 +45,9 @@ class NotificationService {
   /// Проверяет, поддерживается ли кастомный оверлей на текущей платформе и сессии.
   /// На macOS и Linux Wayland кастомные оверлеи не поддерживаются из-за ограничений позиционирования окон.
   static bool isCustomOverlaySupported() {
-    if (kIsWeb) return false;
-    if (Platform.isMacOS) {
-      // macOS строго регулирует окна и док-панели, нативные уведомления предпочтительнее
-      return false;
-    }
-    if (Platform.isLinux) {
-      // На Linux Wayland позиционирование безрамочных окон не поддерживается Mutter/Wayland
-      final sessionType = Platform.environment['XDG_SESSION_TYPE']?.toLowerCase();
-      final waylandDisplay = Platform.environment['WAYLAND_DISPLAY'];
-      if (sessionType == 'wayland' || waylandDisplay != null) {
-        return false;
-      }
-    }
-    return true;
+    // Отключаем кастомные уведомления полностью из-за нестабильности плагина desktop_multi_window
+    // Теперь приложение будет всегда использовать стабильные нативные toast-уведомления (через local_notifier)
+    return false;
   }
 
   /// Показать уведомление о новом сообщении
@@ -140,11 +133,11 @@ class NotificationService {
 
     if (_activeCallOverlayWindowId != null) {
       try {
-        WindowController.fromWindowId(_activeCallOverlayWindowId!).close();
+        WindowController.fromWindowId(_activeCallOverlayWindowId!).hide();
       } catch (e) {
-        debugPrint('NotificationService: error closing custom overlay window: $e');
+        debugPrint('NotificationService: error hiding custom overlay window: $e');
       }
-      _activeCallOverlayWindowId = null;
+      // Do not set _activeCallOverlayWindowId to null because the window is reused
     }
   }
 
@@ -159,6 +152,7 @@ class NotificationService {
       body: body,
       actions: [
         LocalNotificationAction(text: 'Открыть чат'),
+        LocalNotificationAction(text: 'Прочитано'),
       ],
     );
 
@@ -166,6 +160,30 @@ class NotificationService {
       debugPrint('Notification clicked: open chat $chatId');
       windowManager.show();
       windowManager.focus();
+    };
+
+    notification.onClickAction = (actionIndex) async {
+      if (actionIndex == 0) {
+        // Открыть чат
+        debugPrint('Button clicked: open chat $chatId');
+        await windowManager.show();
+        await windowManager.focus();
+      } else if (actionIndex == 1) {
+        // Отметить как прочитанное
+        debugPrint('Button clicked: mark as read $chatId');
+        try {
+          final accounts = await AccountService().getAccounts();
+          if (accounts.isNotEmpty) {
+            final userId = accounts.first.userId.toString();
+            final success = await GrpcService().markAsRead(chatId, userId);
+            debugPrint('Mark as read result: $success for chat $chatId');
+          } else {
+            debugPrint('Mark as read: no active account found');
+          }
+        } catch (e) {
+          debugPrint('Mark as read error: $e');
+        }
+      }
     };
 
     await notification.show();
@@ -236,8 +254,7 @@ class NotificationService {
     const double height = 130;
 
     // Вычисляем координаты: правый нижний угол экрана с отступами
-    final double x = visiblePosition.dx + visibleSize.width - width - 20;
-    final double y = visiblePosition.dy + visibleSize.height - height - 20;
+    final uniqueTitle = 'xaneo_overlay_${DateTime.now().millisecondsSinceEpoch}';
 
     final payload = {
       'type': 'notification',
@@ -246,15 +263,38 @@ class NotificationService {
       'body': body,
       'avatar': avatar,
       'gradient': gradient,
+      'unique_title': uniqueTitle,
     };
+
+    if (_overlayWindowId != null) {
+      // Re-use existing window to prevent FlutterEngine destruction crashes
+      await DesktopMultiWindow.invokeMethod(_overlayWindowId!, 'update_notification', jsonEncode(payload));
+      final window = WindowController.fromWindowId(_overlayWindowId!);
+      await window.show();
+      // Ensure the Win32 styles are reapplied just in case (e.g. if it lost topmost status)
+      int? existingHwnd = findWindowByTitle(uniqueTitle);
+      if (existingHwnd != null) applyOverlayStyleWin32ToHwnd(existingHwnd, show: true);
+      return;
+    }
 
     // Создаем второе окно через desktop_multi_window
     final window = await DesktopMultiWindow.createWindow(jsonEncode(payload));
-    await window.setTitle('');
+    _overlayWindowId = window.windowId;
+    await window.setTitle(uniqueTitle);
     
-    // Настраиваем положение и рамки
-    await window.setFrame(Rect.fromLTWH(x, y, width, height));
-    await window.show();
+    // Ждем установки заголовка на уровне Win32 (обычно мгновенно)
+    int? newHwnd;
+    for (int i = 0; i < 20; i++) {
+      newHwnd = findWindowByTitle(uniqueTitle);
+      if (newHwnd != null) break;
+      await Future.delayed(const Duration(milliseconds: 5));
+    }
+
+    if (newHwnd != null) {
+      // Моментально прячем и применяем стили Win32 еще ДО того как Flutter начнет рендер!
+      // Это полностью устраняет белую вспышку и гарантирует правильное позиционирование относительно рабочего стола.
+      applyOverlayStyleWin32ToHwnd(newHwnd, show: false);
+    }
   }
 
   /// Отображение кастомного анимированного оверлейного окна входящего звонка
@@ -274,8 +314,7 @@ class NotificationService {
     const double width = 360;
     const double height = 145; // Слегка выше для красивого размещения кнопок звонка
 
-    final double x = visiblePosition.dx + visibleSize.width - width - 20;
-    final double y = visiblePosition.dy + visibleSize.height - height - 20;
+    final uniqueTitle = 'xaneo_call_overlay_${DateTime.now().millisecondsSinceEpoch}';
 
     final payload = {
       'type': 'call_incoming',
@@ -285,13 +324,33 @@ class NotificationService {
       'call_type': callType,
       'avatar': avatar,
       'gradient': gradient,
+      'unique_title': uniqueTitle,
     };
+    
+    if (_overlayWindowId != null) {
+      _activeCallOverlayWindowId = _overlayWindowId;
+      await DesktopMultiWindow.invokeMethod(_overlayWindowId!, 'update_notification', jsonEncode(payload));
+      final window = WindowController.fromWindowId(_overlayWindowId!);
+      await window.show();
+      int? existingHwnd = findWindowByTitle(uniqueTitle);
+      if (existingHwnd != null) applyOverlayStyleWin32ToHwnd(existingHwnd, show: true);
+      return;
+    }
 
     final window = await DesktopMultiWindow.createWindow(jsonEncode(payload));
-    _activeCallOverlayWindowId = window.windowId;
-    await window.setTitle('');
+    _overlayWindowId = window.windowId;
+    _activeCallOverlayWindowId = _overlayWindowId;
+    await window.setTitle(uniqueTitle);
 
-    await window.setFrame(Rect.fromLTWH(x, y, width, height));
-    await window.show();
+    int? newHwnd;
+    for (int i = 0; i < 20; i++) {
+      newHwnd = findWindowByTitle(uniqueTitle);
+      if (newHwnd != null) break;
+      await Future.delayed(const Duration(milliseconds: 5));
+    }
+
+    if (newHwnd != null) {
+      applyOverlayStyleWin32ToHwnd(newHwnd, show: false);
+    }
   }
 }

@@ -734,9 +734,9 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String get vklyuchitUvedomleniya_d311 => 'Включить уведомления';
   @override
-  String get kastomnyyOverleyXaneo_7d39 => 'Кастомный оверлей Xaneo';
+  String get kastomnyyOverleyXaneo_7d39 => '自定义浮窗（Telegram风格）';
   @override
-  String get animirovannyeUvedomleniyaSBystrymOtvetom_a25d => 'Анимированные уведомления с быстрым ответом';
+  String get animirovannyeUvedomleniyaSBystrymOtvetom_a25d => '使用自定义弹窗替代系统原生通知';
   @override
   String get aaBbVv_1c6b => 'Aa Бб Вв';
   @override

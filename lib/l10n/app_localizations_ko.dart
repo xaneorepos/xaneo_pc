@@ -734,9 +734,9 @@ class AppLocalizationsKo extends AppLocalizations {
   @override
   String get vklyuchitUvedomleniya_d311 => 'Включить уведомления';
   @override
-  String get kastomnyyOverleyXaneo_7d39 => 'Кастомный оверлей Xaneo';
+  String get kastomnyyOverleyXaneo_7d39 => '사용자 지정 오버레이(Telegram 스타일)';
   @override
-  String get animirovannyeUvedomleniyaSBystrymOtvetom_a25d => 'Анимированные уведомления с быстрым ответом';
+  String get animirovannyeUvedomleniyaSBystrymOtvetom_a25d => '시스템 알림 대신 사용자 지정 팝업 사용';
   @override
   String get aaBbVv_1c6b => 'Aa Бб Вв';
   @override

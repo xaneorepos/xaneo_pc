@@ -253,8 +253,8 @@ class NotificationService {
     await window.setTitle('');
     
     // Настраиваем положение и рамки
-    // Окно будет показано из NotificationOverlayScreen после настройки skipTaskbar/frameless
     await window.setFrame(Rect.fromLTWH(x, y, width, height));
+    await window.show();
   }
 
   /// Отображение кастомного анимированного оверлейного окна входящего звонка
@@ -291,7 +291,7 @@ class NotificationService {
     _activeCallOverlayWindowId = window.windowId;
     await window.setTitle('');
 
-    // Окно будет показано из NotificationOverlayScreen после настройки skipTaskbar/frameless
     await window.setFrame(Rect.fromLTWH(x, y, width, height));
+    await window.show();
   }
 }

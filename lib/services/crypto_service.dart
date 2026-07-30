@@ -867,7 +867,7 @@ class CryptoService {
     return encryptMessageWithKey(plaintext, keyBytes);
   }
 
-  /// Decrypt group chat message (XChaCha20-Poly1305 with AES-GCM fallback using server-managed symmetric key)
+  /// Decrypt group chat / bot message (AES-256-GCM with XChaCha20-Poly1305 fallback using server-managed symmetric key)
   Future<String> decryptGroupMessage(
     String base64Message,
     String chatKeyHex,
@@ -887,7 +887,13 @@ class CryptoService {
       return base64Message;
     }
 
-    // 1. Try XChaCha20-Poly1305 (24-byte nonce + ciphertext + 16-byte mac) - Standard group E2EE in Web & Mobile
+    // 1. Try AES-256-GCM first (12-byte nonce + ciphertext + 16-byte mac) - Standard server-managed key format
+    final aesResult = await decryptMessageWithKey(base64Message, keyBytes, quiet: true);
+    if (aesResult != "[Ошибка дешифрования]") {
+      return aesResult;
+    }
+
+    // 2. Fallback to XChaCha20-Poly1305 (24-byte nonce + ciphertext + 16-byte mac)
     if (rawData.length >= 40) {
       try {
         final nonce = rawData.sublist(0, 24);
@@ -908,38 +914,20 @@ class CryptoService {
         );
         return utf8.decode(decryptedBytes);
       } catch (e) {
-        // Fallback to AES-GCM
+        // Ignored
       }
     }
 
-    // 2. Fallback to AES-256-GCM (12-byte nonce + ciphertext + 16-byte mac)
-    final debugLabel = "Group Chat\n"
-        "  - Chat Key Hex: $chatKeyHex";
-    return decryptMessageWithKey(base64Message, keyBytes, debugLabel: debugLabel, quiet: true);
+    return "[Ошибка дешифрования]";
   }
 
-  /// Encrypt group chat message (XChaCha20-Poly1305 with server-managed symmetric key)
+  /// Encrypt group chat / bot message (AES-256-GCM with server-managed symmetric key)
   Future<String> encryptGroupMessage(
     String plaintext,
     String chatKeyHex,
   ) async {
     final keyBytes = _hexToBytes(chatKeyHex);
-    final plaintextBytes = utf8.encode(plaintext);
-    final nonce = _generateRandomBytes(24);
-    final xchacha20 = crypto.Xchacha20.poly1305Aead();
-
-    final secretBox = await xchacha20.encrypt(
-      plaintextBytes,
-      secretKey: crypto.SecretKey(keyBytes),
-      nonce: nonce,
-    );
-
-    final encryptedBytes = Uint8List.fromList([
-      ...nonce,
-      ...secretBox.cipherText,
-      ...secretBox.mac.bytes,
-    ]);
-    return base64Encode(encryptedBytes);
+    return encryptMessageWithKey(plaintext, keyBytes);
   }
 
   // ==================== HELPER METHODS ====================

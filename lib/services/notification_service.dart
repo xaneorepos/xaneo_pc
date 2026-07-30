@@ -175,7 +175,7 @@ class NotificationService {
           final accounts = await AccountService().getAccounts();
           if (accounts.isNotEmpty) {
             final userId = accounts.first.userId.toString();
-            final success = await GrpcService().markAsRead(chatId, userId);
+            final success = await XaneoGrpcService().markAsRead(chatId, userId);
             debugPrint('Mark as read result: $success for chat $chatId');
           } else {
             debugPrint('Mark as read: no active account found');

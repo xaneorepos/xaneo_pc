@@ -367,7 +367,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
     final isBot = otherUser != null && (
       otherUser['is_bot'] == true ||
       otherUser['bot'] == true ||
-      (otherUser['username']?.toString().toLowerCase().endsWith('bot') ?? false)
+      otherUser['username'] == 'bot_constructor' ||
+      (otherUser['username']?.toString().toLowerCase().endsWith('bot') ?? false) ||
+      (otherUser['username']?.toString().toLowerCase().startsWith('bot_') ?? false)
     );
 
     if (chatType == 'personal' && !isBot) {
@@ -1569,7 +1571,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
     final isBot = otherUser['is_bot'] == true ||
         otherUser['bot'] == true ||
-        (otherUser['username']?.toString().toLowerCase().endsWith('bot') ?? false);
+        otherUser['username'] == 'bot_constructor' ||
+        (otherUser['username']?.toString().toLowerCase().endsWith('bot') ?? false) ||
+        (otherUser['username']?.toString().toLowerCase().startsWith('bot_') ?? false);
     if (isBot) {
       return 'bot';
     }
@@ -4925,7 +4929,13 @@ class _MessengerScreenState extends State<MessengerScreen> {
     final chatType = _selectedChat!['chat_type'] as String?;
     final otherUser = _selectedChat!['other_user'] as Map<String, dynamic>?;
     final isOnline = otherUser != null && (otherUser['is_online'] as bool? ?? false);
-    final isBot = otherUser != null && (otherUser['is_bot'] == true || otherUser['bot'] == true || (otherUser['username']?.toString().toLowerCase().endsWith('bot') ?? false));
+    final isBot = otherUser != null && (
+      otherUser['is_bot'] == true ||
+      otherUser['bot'] == true ||
+      otherUser['username'] == 'bot_constructor' ||
+      (otherUser['username']?.toString().toLowerCase().endsWith('bot') ?? false) ||
+      (otherUser['username']?.toString().toLowerCase().startsWith('bot_') ?? false)
+    );
     final l10n = AppLocalizations.of(context);
 
     String statusText = "";

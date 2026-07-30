@@ -9,9 +9,6 @@ build/
 .pub-cache/
 .pub/
 
-# Генерируемые файлы локализации
-lib/l10n/
-
 # ─── Linux-специфичное ────────────────────────────────────
 # Скачанный движок Flutter (ephemeral)
 linux/flutter/ephemeral/

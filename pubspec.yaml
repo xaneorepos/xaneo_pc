@@ -54,6 +54,7 @@ dependencies:
   
   # URL launcher for opening links
   url_launcher: ^6.1.10
+  ffi: ^2.1.0
   cryptography: ^2.9.0
   pointycastle: ^3.7.3
   x25519: ^0.1.1

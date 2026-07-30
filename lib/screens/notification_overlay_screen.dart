@@ -7,6 +7,8 @@ import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:flutter/services.dart';
 import 'package:xaneo/l10n/app_localizations.dart';
+import 'package:xaneo/utils/win32_overlay_helper.dart';
+
 class NotificationOverlayScreen extends StatefulWidget {
   final int windowId;
   final Map<String, dynamic> arguments;
@@ -95,8 +97,8 @@ class _NotificationOverlayScreenState extends State<NotificationOverlayScreen> w
     // Запрещаем перетаскивание/ресайз — это уведомление, а не окно
     await windowManager.setResizable(false);
     await windowManager.setMovable(false);
-    // Показываем окно ПОСЛЕ всех настроек, чтобы не мерцало как обычное окно
-    await windowManager.show();
+    // Применяем расширенные стили Win32 (WS_EX_TOOLWINDOW + WS_EX_NOACTIVATE) на Windows
+    applyOverlayStyleWin32();
   }
 
   void _startCloseTimer() {

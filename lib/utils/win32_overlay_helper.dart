@@ -9,71 +9,80 @@ import 'package:flutter/foundation.dart';
 // and WS_EX_NOACTIVATE (prevent stealing focus)
 // ─────────────────────────────────────────────────────────────
 
-final _user32 = DynamicLibrary.open('user32.dll');
-final _kernel32 = DynamicLibrary.open('kernel32.dll');
+int _targetPid = 0;
+int _foundHwnd = 0;
 
-// GetActiveWindow
+// Top-level static function required for Pointer.fromFunction
+int _enumWindowsCallback(int hwnd, int lParam) {
+  if (!Platform.isWindows) return 0;
+  final pPid = calloc<Uint32>();
+  try {
+    _GetWindowThreadProcessId(hwnd, pPid);
+    if (pPid.value == _targetPid) {
+      _foundHwnd = hwnd;
+      return 0; // Stop enumeration
+    }
+  } finally {
+    calloc.free(pPid);
+  }
+  return 1; // Continue
+}
+
+// Lazy DynamicLibrary bindings (only accessed when running on Windows)
+DynamicLibrary? _user32Lib;
+DynamicLibrary? _kernel32Lib;
+
+DynamicLibrary get _user32 =>
+    _user32Lib ??= DynamicLibrary.open('user32.dll');
+DynamicLibrary get _kernel32 =>
+    _kernel32Lib ??= DynamicLibrary.open('kernel32.dll');
+
+// Function pointers (lazy loaded)
 typedef _GetActiveWindowNative = IntPtr Function();
 typedef _GetActiveWindowDart = int Function();
-final _GetActiveWindow =
+late final _GetActiveWindow =
     _user32.lookupFunction<_GetActiveWindowNative, _GetActiveWindowDart>('GetActiveWindow');
 
-// GetCurrentProcessId
 typedef _GetCurrentProcessIdNative = Uint32 Function();
 typedef _GetCurrentProcessIdDart = int Function();
-final _GetCurrentProcessId =
+late final _GetCurrentProcessId =
     _kernel32.lookupFunction<_GetCurrentProcessIdNative, _GetCurrentProcessIdDart>('GetCurrentProcessId');
 
-// GetWindowThreadProcessId
 typedef _GetWindowThreadProcessIdNative = Uint32 Function(IntPtr hWnd, Pointer<Uint32> lpdwProcessId);
 typedef _GetWindowThreadProcessIdDart = int Function(int hWnd, Pointer<Uint32> lpdwProcessId);
-final _GetWindowThreadProcessId =
+late final _GetWindowThreadProcessId =
     _user32.lookupFunction<_GetWindowThreadProcessIdNative, _GetWindowThreadProcessIdDart>('GetWindowThreadProcessId');
 
-// EnumWindows
 typedef _EnumWindowsProcNative = Uint32 Function(IntPtr hWnd, IntPtr lParam);
 typedef _EnumWindowsNative = Uint32 Function(Pointer<NativeFunction<_EnumWindowsProcNative>> lpEnumFunc, IntPtr lParam);
 typedef _EnumWindowsDart = int Function(Pointer<NativeFunction<_EnumWindowsProcNative>> lpEnumFunc, int lParam);
-final _EnumWindows =
+late final _EnumWindows =
     _user32.lookupFunction<_EnumWindowsNative, _EnumWindowsDart>('EnumWindows');
 
-// GetWindowLongPtrW
 typedef _GetWindowLongPtrWNative = IntPtr Function(IntPtr hWnd, Int32 nIndex);
 typedef _GetWindowLongPtrWDart = int Function(int hWnd, int nIndex);
-final _GetWindowLongPtrW =
+late final _GetWindowLongPtrW =
     _user32.lookupFunction<_GetWindowLongPtrWNative, _GetWindowLongPtrWDart>('GetWindowLongPtrW');
 
-// SetWindowLongPtrW
 typedef _SetWindowLongPtrWNative = IntPtr Function(IntPtr hWnd, Int32 nIndex, IntPtr dwNewLong);
 typedef _SetWindowLongPtrWDart = int Function(int hWnd, int nIndex, int dwNewLong);
-final _SetWindowLongPtrW =
+late final _SetWindowLongPtrW =
     _user32.lookupFunction<_SetWindowLongPtrWNative, _SetWindowLongPtrWDart>('SetWindowLongPtrW');
 
-// SetWindowPos
 typedef _SetWindowPosNative = Int32 Function(IntPtr hWnd, IntPtr hWndInsertAfter, Int32 X, Int32 Y, Int32 cx, Int32 cy, Uint32 uFlags);
 typedef _SetWindowPosDart = int Function(int hWnd, int hWndInsertAfter, int X, int Y, int cx, int cy, int uFlags);
-final _SetWindowPos =
+late final _SetWindowPos =
     _user32.lookupFunction<_SetWindowPosNative, _SetWindowPosDart>('SetWindowPos');
 
 int? _findProcessHwnd() {
-  final currentPid = _GetCurrentProcessId();
-  final pPid = calloc<Uint32>();
-  int foundHwnd = 0;
+  if (!Platform.isWindows) return null;
+  _targetPid = _GetCurrentProcessId();
+  _foundHwnd = 0;
 
-  int enumCallback(int hwnd, int lParam) {
-    _GetWindowThreadProcessId(hwnd, pPid);
-    if (pPid.value == currentPid) {
-      foundHwnd = hwnd;
-      return 0; // Stop enumeration
-    }
-    return 1; // Continue
-  }
-
-  final nativeCallback = Pointer.fromFunction<_EnumWindowsProcNative>(enumCallback, 0);
+  final nativeCallback = Pointer.fromFunction<_EnumWindowsProcNative>(_enumWindowsCallback, 0);
   _EnumWindows(nativeCallback, 0);
-  calloc.free(pPid);
 
-  return foundHwnd != 0 ? foundHwnd : null;
+  return _foundHwnd != 0 ? _foundHwnd : null;
 }
 
 /// Applies Win32 extended window styles to convert a desktop window

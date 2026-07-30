@@ -199,7 +199,7 @@ jobs:
             'Type=Application' \
             'Name=Xaneo PC' \
             'Comment=Desktop application with onboarding' \
-            'Exec=/opt/xaneo-pc/xaneo_new' \
+            'Exec=/opt/xaneo-pc/xaneo' \
             'Icon=xaneo' \
             'Categories=Utility;' \
             > "$PKG/usr/share/applications/xaneo.desktop"
@@ -208,7 +208,7 @@ jobs:
             cp AppDir/xaneo.png "$PKG/usr/share/icons/hicolor/256x256/apps/"
           fi
 
-          ln -sf /opt/xaneo-pc/xaneo_new "$PKG/usr/bin/xaneo-pc"
+          ln -sf /opt/xaneo-pc/xaneo "$PKG/usr/bin/xaneo-pc"
 
           INSTALLED_SIZE=$(du -sk "$PKG/opt/xaneo-pc" | cut -f1)
 
@@ -261,12 +261,12 @@ jobs:
             'Type=Application' \
             'Name=Xaneo PC' \
             'Comment=Desktop application with onboarding' \
-            'Exec=/opt/xaneo-pc/xaneo_new' \
+            'Exec=/opt/xaneo-pc/xaneo' \
             'Icon=xaneo' \
             'Categories=Utility;' \
             > "$BUILDROOT/usr/share/applications/xaneo.desktop"
 
-          ln -sf /opt/xaneo-pc/xaneo_new "$BUILDROOT/usr/bin/xaneo-pc"
+          ln -sf /opt/xaneo-pc/xaneo "$BUILDROOT/usr/bin/xaneo-pc"
 
           DATE=$(date +'%a %b %d %Y')
 
@@ -333,7 +333,7 @@ jobs:
             'Type=Application' \
             'Name=Xaneo PC' \
             'Comment=Desktop application with onboarding' \
-            'Exec=xaneo_new' \
+            'Exec=xaneo' \
             'Icon=xaneo' \
             'Categories=Network;' \
             'Terminal=false' \
@@ -353,7 +353,7 @@ jobs:
           export OUTPUT="dist/xaneo-${{ github.ref_name }}-x86_64.AppImage"
           ./linuxdeploy-x86_64.AppImage --appimage-extract-and-run \
             --appdir "$APPDIR" \
-            --executable "$APPDIR/usr/bin/xaneo_new" \
+            --executable "$APPDIR/usr/bin/xaneo" \
             --library "$LIBMPV" \
             --desktop-file "$APPDIR/usr/share/applications/xaneo.desktop" \
             --icon-file "$APPDIR/usr/share/icons/hicolor/256x256/apps/xaneo.png" \

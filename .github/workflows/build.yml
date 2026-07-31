@@ -199,11 +199,18 @@ jobs:
           chmod -R 755 "$PKG/opt/xaneo-pc"
 
           printf '%s\n' \
+            '#!/bin/sh' \
+            'export LD_LIBRARY_PATH="/opt/xaneo-pc/lib:$LD_LIBRARY_PATH"' \
+            'exec /opt/xaneo-pc/xaneo "$@"' \
+            > "$PKG/opt/xaneo-pc/xaneo-launcher.sh"
+          chmod 755 "$PKG/opt/xaneo-pc/xaneo-launcher.sh"
+
+          printf '%s\n' \
             '[Desktop Entry]' \
             'Type=Application' \
             'Name=Xaneo PC' \
             'Comment=Desktop application with onboarding' \
-            'Exec=/opt/xaneo-pc/xaneo' \
+            'Exec=/opt/xaneo-pc/xaneo-launcher.sh' \
             'Icon=xaneo' \
             'StartupWMClass=net.xaneo.pc' \
             'Categories=Utility;' \
@@ -213,7 +220,7 @@ jobs:
           cp macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_512.png "$PKG/usr/share/icons/hicolor/512x512/apps/xaneo.png"
           cp macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_512.png "$PKG/usr/share/pixmaps/xaneo.png"
 
-          ln -sf /opt/xaneo-pc/xaneo "$PKG/usr/bin/xaneo-pc"
+          ln -sf /opt/xaneo-pc/xaneo-launcher.sh "$PKG/usr/bin/xaneo-pc"
 
           INSTALLED_SIZE=$(du -sk "$PKG/opt/xaneo-pc" | cut -f1)
 
@@ -266,11 +273,18 @@ jobs:
           chmod -R 755 "$BUILDROOT/opt/xaneo-pc"
 
           printf '%s\n' \
+            '#!/bin/sh' \
+            'export LD_LIBRARY_PATH="/opt/xaneo-pc/lib:$LD_LIBRARY_PATH"' \
+            'exec /opt/xaneo-pc/xaneo "$@"' \
+            > "$BUILDROOT/opt/xaneo-pc/xaneo-launcher.sh"
+          chmod 755 "$BUILDROOT/opt/xaneo-pc/xaneo-launcher.sh"
+
+          printf '%s\n' \
             '[Desktop Entry]' \
             'Type=Application' \
             'Name=Xaneo PC' \
             'Comment=Desktop application with onboarding' \
-            'Exec=/opt/xaneo-pc/xaneo' \
+            'Exec=/opt/xaneo-pc/xaneo-launcher.sh' \
             'Icon=xaneo' \
             'StartupWMClass=net.xaneo.pc' \
             'Categories=Utility;' \
@@ -280,7 +294,7 @@ jobs:
           cp macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_512.png "$BUILDROOT/usr/share/icons/hicolor/512x512/apps/xaneo.png"
           cp macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_512.png "$BUILDROOT/usr/share/pixmaps/xaneo.png"
 
-          ln -sf /opt/xaneo-pc/xaneo "$BUILDROOT/usr/bin/xaneo-pc"
+          ln -sf /opt/xaneo-pc/xaneo-launcher.sh "$BUILDROOT/usr/bin/xaneo-pc"
 
           DATE=$(date +'%a %b %d %Y')
 

@@ -357,6 +357,7 @@ jobs:
             'Categories=Network;' \
             'Terminal=false' \
             > "$APPDIR/usr/share/applications/xaneo.desktop"
+          cp "$APPDIR/usr/share/applications/xaneo.desktop" "$APPDIR/xaneo.desktop"
 
           mkdir -p "$APPDIR/usr/share/icons/hicolor/512x512/apps"
 

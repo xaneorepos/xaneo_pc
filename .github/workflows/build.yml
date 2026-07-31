@@ -312,9 +312,14 @@ jobs:
           /opt/xaneo-pc/
           /usr/share/applications/xaneo.desktop
           /usr/bin/xaneo-pc
+          /usr/share/icons/hicolor/256x256/apps/xaneo.png
+          /usr/share/icons/hicolor/512x512/apps/xaneo.png
+          /usr/share/pixmaps/xaneo.png
 
           %post
           update-desktop-database /usr/share/applications || true
+          touch --no-create /usr/share/icons/hicolor || true
+          gtk-update-icon-cache /usr/share/icons/hicolor || true
 
           %changelog
           * {date} CI Build <ci@xaneo.com> - {version}-1

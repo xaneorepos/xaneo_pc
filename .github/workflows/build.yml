@@ -208,14 +208,9 @@ jobs:
             'Categories=Utility;' \
             > "$PKG/usr/share/applications/xaneo.desktop"
 
-          if [ -f "assets/logo.png" ]; then
-            cp assets/logo.png "$PKG/usr/share/icons/hicolor/256x256/apps/xaneo.png"
-            cp assets/logo.png "$PKG/usr/share/icons/hicolor/512x512/apps/xaneo.png"
-            cp assets/logo.png "$PKG/usr/share/pixmaps/xaneo.png"
-          elif [ -f "AppDir/xaneo.png" ]; then
-            cp AppDir/xaneo.png "$PKG/usr/share/icons/hicolor/256x256/apps/xaneo.png"
-            cp AppDir/xaneo.png "$PKG/usr/share/pixmaps/xaneo.png"
-          fi
+          cp macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_256.png "$PKG/usr/share/icons/hicolor/256x256/apps/xaneo.png"
+          cp macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_512.png "$PKG/usr/share/icons/hicolor/512x512/apps/xaneo.png"
+          cp macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_512.png "$PKG/usr/share/pixmaps/xaneo.png"
 
           ln -sf /opt/xaneo-pc/xaneo "$PKG/usr/bin/xaneo-pc"
 
@@ -279,11 +274,9 @@ jobs:
             'Categories=Utility;' \
             > "$BUILDROOT/usr/share/applications/xaneo.desktop"
 
-          if [ -f "assets/logo.png" ]; then
-            cp assets/logo.png "$BUILDROOT/usr/share/icons/hicolor/256x256/apps/xaneo.png"
-            cp assets/logo.png "$BUILDROOT/usr/share/icons/hicolor/512x512/apps/xaneo.png"
-            cp assets/logo.png "$BUILDROOT/usr/share/pixmaps/xaneo.png"
-          fi
+          cp macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_256.png "$BUILDROOT/usr/share/icons/hicolor/256x256/apps/xaneo.png"
+          cp macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_512.png "$BUILDROOT/usr/share/icons/hicolor/512x512/apps/xaneo.png"
+          cp macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_512.png "$BUILDROOT/usr/share/pixmaps/xaneo.png"
 
           ln -sf /opt/xaneo-pc/xaneo "$BUILDROOT/usr/bin/xaneo-pc"
 
@@ -366,16 +359,10 @@ jobs:
 
           mkdir -p "$APPDIR/usr/share/icons/hicolor/512x512/apps"
 
-          if [ -f "assets/logo.png" ]; then
-            cp assets/logo.png "$APPDIR/usr/share/icons/hicolor/256x256/apps/xaneo.png"
-            cp assets/logo.png "$APPDIR/usr/share/icons/hicolor/512x512/apps/xaneo.png"
-            cp assets/logo.png "$APPDIR/xaneo.png"
-            cp assets/logo.png "$APPDIR/.DirIcon"
-          elif [ -f "AppDir/xaneo.png" ]; then
-            cp AppDir/xaneo.png "$APPDIR/usr/share/icons/hicolor/256x256/apps/xaneo.png"
-            cp AppDir/xaneo.png "$APPDIR/xaneo.png"
-            cp AppDir/xaneo.png "$APPDIR/.DirIcon"
-          fi
+          cp macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_256.png "$APPDIR/usr/share/icons/hicolor/256x256/apps/xaneo.png"
+          cp macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_512.png "$APPDIR/usr/share/icons/hicolor/512x512/apps/xaneo.png"
+          cp macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_512.png "$APPDIR/xaneo.png"
+          cp macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_512.png "$APPDIR/.DirIcon"
 
           # linuxdeploy сам вложит libmpv.so и её транзитивные зависимости
           wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage

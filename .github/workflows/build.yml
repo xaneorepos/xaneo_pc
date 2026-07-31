@@ -236,7 +236,7 @@ jobs:
                Xaneo PC is a desktop application with onboarding features.
           """).lstrip()
           open(f"{pkg}/DEBIAN/control", "w").write(control)
-          postinst = "#!/bin/bash\nchmod 755 /opt/xaneo-pc/xaneo || true\nupdate-desktop-database /usr/share/applications || true\ngtk-update-icon-cache /usr/share/icons/hicolor || true\n"
+          postinst = "#!/bin/bash\nchmod 755 /opt/xaneo-pc/xaneo || true\nif [ ! -f /usr/lib/x86_64-linux-gnu/libmpv.so.1 ] && [ -f /usr/lib/x86_64-linux-gnu/libmpv.so.2 ]; then\n  ln -sf /usr/lib/x86_64-linux-gnu/libmpv.so.2 /opt/xaneo-pc/lib/libmpv.so.1 || true\nfi\nupdate-desktop-database /usr/share/applications || true\ngtk-update-icon-cache /usr/share/icons/hicolor || true\n"
           open(f"{pkg}/DEBIAN/postinst", "w").write(postinst)
           os.chmod(f"{pkg}/DEBIAN/postinst", 0o755)
           PYEOF

@@ -259,6 +259,9 @@ jobs:
           mkdir -p "$RPM_ROOT"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
 
           BUILDROOT="$RPM_ROOT/BUILDROOT/xaneo-pc-${VERSION}-1.x86_64"
+          mkdir -p "$BUILDROOT/opt/xaneo-pc"
+          mkdir -p "$BUILDROOT/usr/share/applications"
+          mkdir -p "$BUILDROOT/usr/bin"
           mkdir -p "$BUILDROOT/usr/share/icons/hicolor/256x256/apps"
           mkdir -p "$BUILDROOT/usr/share/icons/hicolor/512x512/apps"
           mkdir -p "$BUILDROOT/usr/share/pixmaps"

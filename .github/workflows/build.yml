@@ -241,7 +241,7 @@ jobs:
           os.chmod(f"{pkg}/DEBIAN/postinst", 0o755)
           PYEOF
 
-          fakeroot dpkg-deb --build "$PKG" "dist/xaneo_${VERSION}_amd64.deb"
+          fakeroot dpkg-deb --root-owner-group --build "$PKG" "dist/xaneo_${VERSION}_amd64.deb"
 
       - name: Build rpm
         run: |
@@ -263,6 +263,7 @@ jobs:
           mkdir -p "$BUILDROOT/usr/share/pixmaps"
 
           cp -r "$BUNDLE"/. "$BUILDROOT/opt/xaneo-pc/"
+          chmod -R 755 "$BUILDROOT/opt/xaneo-pc"
 
           printf '%s\n' \
             '[Desktop Entry]' \

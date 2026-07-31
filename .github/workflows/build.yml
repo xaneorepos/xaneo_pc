@@ -191,6 +191,8 @@ jobs:
           mkdir -p "$PKG/opt/xaneo-pc"
           mkdir -p "$PKG/usr/share/applications"
           mkdir -p "$PKG/usr/share/icons/hicolor/256x256/apps"
+          mkdir -p "$PKG/usr/share/icons/hicolor/512x512/apps"
+          mkdir -p "$PKG/usr/share/pixmaps"
           mkdir -p "$PKG/usr/bin"
 
           cp -r "$BUNDLE"/. "$PKG/opt/xaneo-pc/"
@@ -202,11 +204,17 @@ jobs:
             'Comment=Desktop application with onboarding' \
             'Exec=/opt/xaneo-pc/xaneo' \
             'Icon=xaneo' \
+            'StartupWMClass=net.xaneo.pc' \
             'Categories=Utility;' \
             > "$PKG/usr/share/applications/xaneo.desktop"
 
-          if [ -f "AppDir/xaneo.png" ]; then
-            cp AppDir/xaneo.png "$PKG/usr/share/icons/hicolor/256x256/apps/"
+          if [ -f "assets/logo.png" ]; then
+            cp assets/logo.png "$PKG/usr/share/icons/hicolor/256x256/apps/xaneo.png"
+            cp assets/logo.png "$PKG/usr/share/icons/hicolor/512x512/apps/xaneo.png"
+            cp assets/logo.png "$PKG/usr/share/pixmaps/xaneo.png"
+          elif [ -f "AppDir/xaneo.png" ]; then
+            cp AppDir/xaneo.png "$PKG/usr/share/icons/hicolor/256x256/apps/xaneo.png"
+            cp AppDir/xaneo.png "$PKG/usr/share/pixmaps/xaneo.png"
           fi
 
           ln -sf /opt/xaneo-pc/xaneo "$PKG/usr/bin/xaneo-pc"
@@ -251,9 +259,9 @@ jobs:
           mkdir -p "$RPM_ROOT"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
 
           BUILDROOT="$RPM_ROOT/BUILDROOT/xaneo-pc-${VERSION}-1.x86_64"
-          mkdir -p "$BUILDROOT/opt/xaneo-pc"
-          mkdir -p "$BUILDROOT/usr/share/applications"
-          mkdir -p "$BUILDROOT/usr/bin"
+          mkdir -p "$BUILDROOT/usr/share/icons/hicolor/256x256/apps"
+          mkdir -p "$BUILDROOT/usr/share/icons/hicolor/512x512/apps"
+          mkdir -p "$BUILDROOT/usr/share/pixmaps"
 
           cp -r "$BUNDLE"/. "$BUILDROOT/opt/xaneo-pc/"
 
@@ -264,8 +272,15 @@ jobs:
             'Comment=Desktop application with onboarding' \
             'Exec=/opt/xaneo-pc/xaneo' \
             'Icon=xaneo' \
+            'StartupWMClass=net.xaneo.pc' \
             'Categories=Utility;' \
             > "$BUILDROOT/usr/share/applications/xaneo.desktop"
+
+          if [ -f "assets/logo.png" ]; then
+            cp assets/logo.png "$BUILDROOT/usr/share/icons/hicolor/256x256/apps/xaneo.png"
+            cp assets/logo.png "$BUILDROOT/usr/share/icons/hicolor/512x512/apps/xaneo.png"
+            cp assets/logo.png "$BUILDROOT/usr/share/pixmaps/xaneo.png"
+          fi
 
           ln -sf /opt/xaneo-pc/xaneo "$BUILDROOT/usr/bin/xaneo-pc"
 
@@ -336,13 +351,23 @@ jobs:
             'Comment=Desktop application with onboarding' \
             'Exec=xaneo' \
             'Icon=xaneo' \
+            'StartupWMClass=net.xaneo.pc' \
             'Categories=Network;' \
             'Terminal=false' \
             > "$APPDIR/usr/share/applications/xaneo.desktop"
 
-          # Реальная иконка (committed AppDir/xaneo.png — заглушка 1x1)
-          cp macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_256.png \
-            "$APPDIR/usr/share/icons/hicolor/256x256/apps/xaneo.png"
+          mkdir -p "$APPDIR/usr/share/icons/hicolor/512x512/apps"
+
+          if [ -f "assets/logo.png" ]; then
+            cp assets/logo.png "$APPDIR/usr/share/icons/hicolor/256x256/apps/xaneo.png"
+            cp assets/logo.png "$APPDIR/usr/share/icons/hicolor/512x512/apps/xaneo.png"
+            cp assets/logo.png "$APPDIR/xaneo.png"
+            cp assets/logo.png "$APPDIR/.DirIcon"
+          elif [ -f "AppDir/xaneo.png" ]; then
+            cp AppDir/xaneo.png "$APPDIR/usr/share/icons/hicolor/256x256/apps/xaneo.png"
+            cp AppDir/xaneo.png "$APPDIR/xaneo.png"
+            cp AppDir/xaneo.png "$APPDIR/.DirIcon"
+          fi
 
           # linuxdeploy сам вложит libmpv.so и её транзитивные зависимости
           wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage

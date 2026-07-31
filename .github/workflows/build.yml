@@ -196,6 +196,7 @@ jobs:
           mkdir -p "$PKG/usr/bin"
 
           cp -r "$BUNDLE"/. "$PKG/opt/xaneo-pc/"
+          chmod -R 755 "$PKG/opt/xaneo-pc"
 
           printf '%s\n' \
             '[Desktop Entry]' \
@@ -235,7 +236,7 @@ jobs:
                Xaneo PC is a desktop application with onboarding features.
           """).lstrip()
           open(f"{pkg}/DEBIAN/control", "w").write(control)
-          postinst = "#!/bin/bash\nupdate-desktop-database /usr/share/applications || true\ngtk-update-icon-cache /usr/share/icons/hicolor || true\n"
+          postinst = "#!/bin/bash\nchmod 755 /opt/xaneo-pc/xaneo || true\nupdate-desktop-database /usr/share/applications || true\ngtk-update-icon-cache /usr/share/icons/hicolor || true\n"
           open(f"{pkg}/DEBIAN/postinst", "w").write(postinst)
           os.chmod(f"{pkg}/DEBIAN/postinst", 0o755)
           PYEOF
@@ -364,21 +365,21 @@ jobs:
           cp macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_512.png "$APPDIR/xaneo.png"
           cp macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_512.png "$APPDIR/.DirIcon"
 
-          # linuxdeploy сам вложит libmpv.so и её транзитивные зависимости
-          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
-          chmod +x linuxdeploy-x86_64.AppImage
+          # Чистый AppRun без запихивания конфликтных системных GTK библиотек
+          chmod +x "$APPDIR/usr/bin/xaneo"
+          printf '%s\n' \
+            '#!/bin/sh' \
+            'HERE="$(dirname "$(readlink -f "$0")")"' \
+            'export LD_LIBRARY_PATH="$HERE/usr/bin/lib:$LD_LIBRARY_PATH"' \
+            'exec "$HERE/usr/bin/xaneo" "$@"' \
+            > "$APPDIR/AppRun"
+          chmod +x "$APPDIR/AppRun"
 
-          LIBMPV=$(ldconfig -p | awk '/libmpv\.so\.[12]/ {print $NF; exit}')
-          echo "Bundling libmpv from: $LIBMPV"
+          # Используем официальный appimagetool (без linuxdeploy ABI-конфликтов)
+          wget -q https://github.com/AppImage/AppImageKit/releases/download/13/appimagetool-x86_64.AppImage
+          chmod +x appimagetool-x86_64.AppImage
 
-          export OUTPUT="dist/xaneo-${{ github.ref_name }}-x86_64.AppImage"
-          ./linuxdeploy-x86_64.AppImage --appimage-extract-and-run \
-            --appdir "$APPDIR" \
-            --executable "$APPDIR/usr/bin/xaneo" \
-            --library "$LIBMPV" \
-            --desktop-file "$APPDIR/usr/share/applications/xaneo.desktop" \
-            --icon-file "$APPDIR/usr/share/icons/hicolor/256x256/apps/xaneo.png" \
-            --output appimage
+          ./appimagetool-x86_64.AppImage "$APPDIR" "dist/xaneo-${{ github.ref_name }}-x86_64.AppImage"
 
       - uses: actions/upload-artifact@v4
         with:

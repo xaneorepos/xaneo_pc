@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
@@ -39,11 +40,15 @@ class UpdateService {
 
   /// Получить текущую версию приложения из PackageInfo
   Future<String> getCurrentVersion() async {
+    const overrideVer = String.fromEnvironment('OVERRIDE_VERSION');
+    if (overrideVer.isNotEmpty) {
+      return overrideVer;
+    }
     try {
       final packageInfo = await PackageInfo.fromPlatform();
       return packageInfo.version;
     } catch (_) {
-      return '1.0.loc_0';
+      return '1.0.14';
     }
   }
 
@@ -100,11 +105,15 @@ class UpdateService {
   Future<void> downloadAndInstall({
     required String url,
     required Function(double progress, String statusText) onProgress,
+    String? downloadingLabel,
+    String? launchingInstallerLabel,
   }) async {
     final tempDir = await getTemporaryDirectory();
     final uri = Uri.parse(url);
     final filename = uri.pathSegments.isNotEmpty ? uri.pathSegments.last : 'xaneo_update';
     final savePath = '${tempDir.path}/$filename';
+
+    final label = downloadingLabel ?? 'Загрузка';
 
     final dio = Dio();
     await dio.download(
@@ -115,35 +124,122 @@ class UpdateService {
           final progress = received / total;
           final mbReceived = (received / (1024 * 1024)).toStringAsFixed(1);
           final mbTotal = (total / (1024 * 1024)).toStringAsFixed(1);
-          onProgress(progress, 'Загрузка: $mbReceived MB / $mbTotal MB (${(progress * 100).toInt()}%)');
+          onProgress(progress, '$label: $mbReceived MB / $mbTotal MB (${(progress * 100).toInt()}%)');
         } else {
           final mbReceived = (received / (1024 * 1024)).toStringAsFixed(1);
-          onProgress(0.5, 'Загрузка: $mbReceived MB...');
+          onProgress(0.5, '$label: $mbReceived MB...');
         }
       },
     );
 
-    onProgress(1.0, 'Запуск установки...');
+    final file = File(savePath);
+    final fileSize = file.existsSync() ? file.lengthSync() : 0;
+    debugPrint('[UPDATE_SERVICE] Download finished. Saved to: $savePath (Size: $fileSize bytes)');
+
+    onProgress(1.0, launchingInstallerLabel ?? 'Запуск установки...');
 
     if (Platform.isLinux) {
-      if (savePath.endsWith('.AppImage')) {
-        await Process.run('chmod', ['+x', savePath]);
-        await Process.start(savePath, [], mode: ProcessStartMode.detached);
-      } else if (savePath.endsWith('.deb')) {
-        await Process.start('xdg-open', [savePath], mode: ProcessStartMode.detached);
+      final lowerPath = savePath.toLowerCase();
+      final chmodRes = await Process.run('chmod', ['+x', savePath]);
+      debugPrint('[UPDATE_SERVICE] chmod +x exitCode: ${chmodRes.exitCode}, stderr: ${chmodRes.stderr}');
+
+      if (lowerPath.contains('.deb')) {
+        debugPrint('[UPDATE_SERVICE] Launching DEB package with xdg-open...');
+        try {
+          final p = await Process.start('xdg-open', [savePath], mode: ProcessStartMode.detached);
+          debugPrint('[UPDATE_SERVICE] xdg-open launched, PID: ${p.pid}');
+        } catch (e) {
+          debugPrint('[UPDATE_SERVICE] xdg-open failed: $e, trying gdebi...');
+          final p = await Process.start('gdebi', [savePath], mode: ProcessStartMode.detached);
+          debugPrint('[UPDATE_SERVICE] gdebi launched, PID: ${p.pid}');
+        }
+      } else if (lowerPath.contains('.appimage')) {
+        bool hasFuse = false;
+        String ldconfigCmd = 'ldconfig';
+        for (final p in ['/sbin/ldconfig', '/usr/sbin/ldconfig', 'ldconfig']) {
+          if (File(p).existsSync()) {
+            ldconfigCmd = p;
+            break;
+          }
+        }
+
+        try {
+          final res = await Process.run(ldconfigCmd, ['-p']);
+          if (res.stdout.toString().contains('libfuse.so.2')) {
+            hasFuse = true;
+          }
+        } catch (e) {
+          debugPrint('[UPDATE_SERVICE] Error checking ldconfig libfuse: $e');
+        }
+
+        if (!hasFuse) {
+          if (File('/lib/x86_64-linux-gnu/libfuse.so.2').existsSync() ||
+              File('/usr/lib/x86_64-linux-gnu/libfuse.so.2').existsSync() ||
+              File('/lib64/libfuse.so.2').existsSync() ||
+              File('/usr/lib64/libfuse.so.2').existsSync()) {
+            hasFuse = true;
+          }
+        }
+
+        final args = hasFuse ? <String>[] : <String>['--appimage-extract-and-run'];
+        final runWorkDir = '${tempDir.path}/appimage_run_${DateTime.now().millisecondsSinceEpoch}';
+        try {
+          await Directory(runWorkDir).create(recursive: true);
+        } catch (_) {}
+
+        final cleanEnv = Map<String, String>.from(Platform.environment)
+          ..['GDK_PIXBUF_MODULE_FILE'] = '/dev/null'
+          ..['GIO_MODULE_DIR'] = '/dev/null';
+
+        try {
+          final p = await Process.start(
+            savePath,
+            args,
+            workingDirectory: runWorkDir,
+            environment: cleanEnv,
+            mode: ProcessStartMode.detached,
+          );
+          debugPrint('[UPDATE_SERVICE] AppImage process started, PID: ${p.pid}');
+        } catch (e) {
+          debugPrint('[UPDATE_SERVICE] Primary AppImage start failed: $e. Retrying with --appimage-extract-and-run...');
+          try {
+            final p = await Process.start(
+              savePath,
+              ['--appimage-extract-and-run'],
+              workingDirectory: runWorkDir,
+              environment: cleanEnv,
+              mode: ProcessStartMode.detached,
+            );
+            debugPrint('[UPDATE_SERVICE] Fallback AppImage extract-and-run started, PID: ${p.pid}');
+          } catch (e2) {
+            debugPrint('[UPDATE_SERVICE] Fallback failed: $e2. Opening via xdg-open...');
+            await Process.start('xdg-open', [savePath], mode: ProcessStartMode.detached);
+          }
+        }
       } else {
-        await Process.run('chmod', ['+x', savePath]);
-        await Process.start(savePath, [], mode: ProcessStartMode.detached);
+        debugPrint('[UPDATE_SERVICE] Launching unknown binary: $savePath...');
+        try {
+          final p = await Process.start(savePath, [], mode: ProcessStartMode.detached);
+          debugPrint('[UPDATE_SERVICE] Binary launched PID: ${p.pid}');
+        } catch (e) {
+          debugPrint('[UPDATE_SERVICE] Binary launch failed: $e. Fallback to xdg-open...');
+          await Process.start('xdg-open', [savePath], mode: ProcessStartMode.detached);
+        }
       }
     } else if (Platform.isWindows) {
-      await Process.start(savePath, [], mode: ProcessStartMode.detached);
+      debugPrint('[UPDATE_SERVICE] Launching Windows installer: $savePath...');
+      final p = await Process.start(savePath, ['/S'], mode: ProcessStartMode.detached);
+      debugPrint('[UPDATE_SERVICE] Windows installer launched PID: ${p.pid}');
     } else if (Platform.isMacOS) {
-      // Снимаем карантинный атрибут Gatekeeper macOS (com.apple.quarantine)
+      debugPrint('[UPDATE_SERVICE] Preparing macOS installer: $savePath...');
       try {
         await Process.run('xattr', ['-d', 'com.apple.quarantine', savePath]);
         await Process.run('xattr', ['-cr', savePath]);
-      } catch (_) {}
-      await Process.start('open', [savePath], mode: ProcessStartMode.detached);
+      } catch (e) {
+        debugPrint('[UPDATE_SERVICE] xattr warning: $e');
+      }
+      final p = await Process.start('open', [savePath], mode: ProcessStartMode.detached);
+      debugPrint('[UPDATE_SERVICE] macOS open launched PID: ${p.pid}');
     }
   }
 

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import '../utils/ssl_helper.dart';
 
 /// Сервис для работы с WebSocket соединениями (чат, обновления)
@@ -29,14 +30,11 @@ class WebSocketService {
     await disconnect();
     
     try {
-      print("WS CONNECTING TO: $url");
-      
       // Создаем HttpClient с фильтрованной проверкой SSL сертификатов
       final client = HttpClient();
       client.badCertificateCallback = validateSslCertificate;
       
       _socket = await WebSocket.connect(url, customClient: client).timeout(const Duration(seconds: 10));
-      print("WS CONNECTED SUCCESS");
       
       _subscription = _socket!.listen(
         (data) {
@@ -47,17 +45,16 @@ class WebSocketService {
               onMessageReceived(parsed);
             }
           } catch (e) {
-            print("WS parse message error: $e");
+            debugPrint("WS parse message error: $e");
           }
         },
         onError: (err) {
-          print("WS error: $err");
+          debugPrint("WS error: $err");
           if (!_isDisposed && onError != null) {
             onError!(err);
           }
         },
         onDone: () {
-          print("WS connection done/closed");
           if (!_isDisposed && onDone != null) {
             onDone!();
           }
@@ -65,7 +62,7 @@ class WebSocketService {
         cancelOnError: true,
       );
     } catch (e) {
-      print("WS connect failed: $e");
+      debugPrint("WS connect failed: $e");
       if (!_isDisposed && onError != null) {
         onError!(e);
       }
@@ -80,18 +77,16 @@ class WebSocketService {
         _socket!.add(jsonEncode(message));
         return true;
       } catch (e) {
-        print("WS send failed: $e");
+        debugPrint("WS send failed: $e");
         return false;
       }
     } else {
-      print("WS send warning: not connected");
       return false;
     }
   }
   
   /// Закрыть соединение
   Future<void> disconnect() async {
-    print("WS DISCONNECTING");
     await _subscription?.cancel();
     _subscription = null;
     try {

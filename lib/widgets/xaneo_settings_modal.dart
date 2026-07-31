@@ -9,6 +9,7 @@ import '../services/api_service.dart';
 import '../services/update_service.dart';
 import '../models/app_version_info.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'base_custom_modal.dart';
 import '../l10n/app_localizations.dart';
 
@@ -82,6 +83,13 @@ List<_SettingsSection> _getInterfaceSections(BuildContext context) {
       title: l10n?.appearance ?? (AppLocalizations.of(context)?.vneshniyVid_6873 ?? 'Fallback'),
       description: l10n?.appearanceDesc ?? (AppLocalizations.of(context)?.temaShriftMasshtab_d8c9 ?? 'Fallback'),
       icon: Icons.palette_rounded,
+      gradient: const [Color(0xFF2563EB), Color(0xFF1D4ED8)],
+    ),
+    _SettingsSection(
+      id: 'window',
+      title: l10n?.closeActionTitle ?? (AppLocalizations.of(context)?.closeActionTitle ?? 'Действие при закрытии окна'),
+      description: l10n?.closeActionDescription ?? (AppLocalizations.of(context)?.closeActionDescription ?? 'Работа в фоне и системный трей'),
+      icon: Icons.desktop_windows_rounded,
       gradient: const [Color(0xFF2563EB), Color(0xFF1D4ED8)],
     ),
     _SettingsSection(
@@ -214,6 +222,7 @@ class _XaneoSettingsModalState
   // ── Appearance ────────────────────────────────────────────────────────────
 
   double _fontSize = 15.0;
+  String _windowCloseAction = 'minimizeToTray';
 
   // ── Notifications ─────────────────────────────────────────────────────────
   bool _notificationsEnabled = true;
@@ -294,10 +303,27 @@ class _XaneoSettingsModalState
     super.dispose();
   }
 
+  String _dynamicVersion = '1.0.14';
+  String _dynamicBuildNumber = '14';
+
   Future<void> _loadPrefs() async {
     final prefs = await SharedPreferences.getInstance();
+    String v = '1.0.14';
+    String b = '14';
+    const overrideVer = String.fromEnvironment('OVERRIDE_VERSION');
+    if (overrideVer.isNotEmpty) {
+      v = overrideVer;
+    } else {
+      try {
+        final pkg = await PackageInfo.fromPlatform();
+        v = pkg.version;
+        b = pkg.buildNumber;
+      } catch (_) {}
+    }
     if (mounted) {
       setState(() {
+        _dynamicVersion = v;
+        _dynamicBuildNumber = b;
         _notificationsEnabled = prefs.getBool('settings_notifications') ?? true;
         _soundEnabled = prefs.getBool('settings_sound') ?? true;
         _fontSize = prefs.getDouble('settings_font_size') ?? 15.0;
@@ -305,6 +331,7 @@ class _XaneoSettingsModalState
         _lowPowerMode = prefs.getBool('settings_low_power') ?? false;
         _messageAnimations = prefs.getBool('settings_msg_animations') ?? true;
         _autoSleep = prefs.getBool('settings_auto_sleep') ?? true;
+        _windowCloseAction = prefs.getString('window_close_action') ?? 'minimizeToTray';
       });
     }
   }
@@ -318,6 +345,7 @@ class _XaneoSettingsModalState
     await prefs.setBool('settings_low_power', _lowPowerMode);
     await prefs.setBool('settings_msg_animations', _messageAnimations);
     await prefs.setBool('settings_auto_sleep', _autoSleep);
+    await prefs.setString('window_close_action', _windowCloseAction);
   }
 
   Future<void> _loadPrivacySettings() async {
@@ -534,7 +562,7 @@ class _XaneoSettingsModalState
         SizedBox(height: 16 * scale),
         Center(
           child: Text(
-            'Xaneo PC v1.0.loc_0',
+            'Xaneo PC v$_dynamicVersion',
             style: TextStyle(
               fontSize: 11 * scale,
               color: isDark ? Colors.white24 : Colors.black26,
@@ -600,6 +628,7 @@ class _XaneoSettingsModalState
     final l10n = AppLocalizations.of(context);
     var m = {
       'appearance': l10n?.appearance ?? 'Внешний вид',
+      'window': l10n?.closeActionTitle ?? 'Действие при закрытии окна',
       'language': l10n?.language ?? 'Язык',
       'notifications': l10n?.notifications ?? 'Уведомления',
       'energy': l10n?.energySaving ?? 'Энергосбережение',
@@ -618,6 +647,8 @@ class _XaneoSettingsModalState
     switch (id) {
       case 'appearance':
         return _buildAppearance(context, isDark, scale);
+      case 'window':
+        return _buildWindowSection(context, isDark, scale);
       case 'language':
         return _buildLanguage(context, isDark, scale);
       case 'notifications':
@@ -639,6 +670,130 @@ class _XaneoSettingsModalState
       default:
         return _comingSoon(isDark, scale);
     }
+  }
+
+  Widget _buildWindowSection(BuildContext context, bool isDark, double scale) {
+    final l10n = AppLocalizations.of(context);
+
+    final options = [
+      {
+        'value': 'minimizeToTray',
+        'title': l10n?.closeActionMinimizeToTray ?? 'Сворачивать в трей (работать в фоне)',
+        'subtitle': l10n?.closeActionMinimizeToTraySubtitle ?? 'При нажатии на крестик окно сворачивается в системный трей и продолжает работать в фоне',
+        'icon': Icons.system_update_alt_rounded,
+      },
+      {
+        'value': 'minimizeToTaskbar',
+        'title': l10n?.closeActionMinimizeToTaskbar ?? 'Сворачивать на панель задач',
+        'subtitle': l10n?.closeActionMinimizeToTaskbarSubtitle ?? 'При нажатии на крестик окно сворачивается на панель задач',
+        'icon': Icons.minimize_rounded,
+      },
+      {
+        'value': 'exitApp',
+        'title': l10n?.closeActionExitApp ?? 'Завершать работу приложения',
+        'subtitle': l10n?.closeActionExitAppSubtitle ?? 'При нажатии на крестик приложение полностью завершает работу',
+        'icon': Icons.power_settings_new_rounded,
+      },
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionHeader(l10n?.closeActionTitle ?? 'Действие при закрытии окна', isDark, scale),
+        SizedBox(height: 16 * scale),
+        ...options.map((opt) {
+          final isSelected = _windowCloseAction == opt['value'];
+          return Container(
+            margin: EdgeInsets.only(bottom: 12 * scale),
+            child: InkWell(
+              onTap: () async {
+                setState(() {
+                  _windowCloseAction = opt['value'] as String;
+                });
+                await _savePrefs();
+              },
+              borderRadius: BorderRadius.circular(16 * scale),
+              child: Container(
+                padding: EdgeInsets.all(16 * scale),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? (isDark ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.05))
+                      : (isDark ? Colors.white.withValues(alpha: 0.02) : Colors.black.withValues(alpha: 0.02)),
+                  borderRadius: BorderRadius.circular(16 * scale),
+                  border: Border.all(
+                    color: isSelected
+                        ? (isDark ? Colors.white.withValues(alpha: 0.2) : Colors.black.withValues(alpha: 0.2))
+                        : (isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.05)),
+                    width: 1,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 20 * scale,
+                      height: 20 * scale,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: isSelected
+                              ? (isDark ? Colors.white : Colors.black)
+                              : (isDark ? Colors.white38 : Colors.black38),
+                          width: 2 * scale,
+                        ),
+                      ),
+                      child: isSelected
+                          ? Center(
+                              child: Container(
+                                width: 10 * scale,
+                                height: 10 * scale,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: isDark ? Colors.white : Colors.black,
+                                ),
+                              ),
+                            )
+                          : null,
+                    ),
+                    SizedBox(width: 14 * scale),
+                    Icon(
+                      opt['icon'] as IconData,
+                      size: 20 * scale,
+                      color: isDark ? Colors.white70 : Colors.black87,
+                    ),
+                    SizedBox(width: 12 * scale),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            opt['title'] as String,
+                            style: TextStyle(
+                              color: isDark ? Colors.white : Colors.black,
+                              fontSize: 14 * scale,
+                              fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                              fontFamily: 'Inter',
+                            ),
+                          ),
+                          SizedBox(height: 3 * scale),
+                          Text(
+                            opt['subtitle'] as String,
+                            style: TextStyle(
+                              color: isDark ? Colors.white54 : Colors.black54,
+                              fontSize: 12 * scale,
+                              fontFamily: 'Inter',
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ],
+    );
   }
 
   Widget _buildAboutSection(bool isDark, double scale) {
@@ -677,7 +832,7 @@ class _XaneoSettingsModalState
                         ),
                       ),
                       Text(
-                        '${l10n?.version ?? "Версия"}: 1.0.0+1 (Linux / Windows / macOS)',
+                        '${l10n?.version ?? "Версия"}: $_dynamicVersion+$_dynamicBuildNumber (Linux / Windows / macOS)',
                         style: TextStyle(
                           fontSize: 12 * scale,
                           color: isDark ? Colors.white54 : Colors.black54,

@@ -363,5 +363,33 @@
   "viewOnGitHub": "View on GitHub",
   "@viewOnGitHub": {
     "description": "View on GitHub link text"
+  },
+  "closeActionTitle": "Action on window close",
+  "@closeActionTitle": {
+    "description": "Title for setting action when closing app window"
+  },
+  "closeActionDescription": "Choose what happens when you close the main window",
+  "@closeActionDescription": {
+    "description": "Description for window close action setting"
+  },
+  "closeActionMinimizeToTray": "Minimize to system tray (run in background)",
+  "@closeActionMinimizeToTray": {
+    "description": "Option to minimize window to system tray"
+  },
+  "closeActionExitApp": "Exit application",
+  "@closeActionExitApp": {
+    "description": "Option to exit application on close"
+  },
+  "closeActionMinimizeToTaskbar": "Minimize to taskbar",
+  "@closeActionMinimizeToTaskbar": {
+    "description": "Option to minimize window to taskbar"
+  },
+  "showWindow": "Show Xaneo",
+  "@showWindow": {
+    "description": "Tray menu item to show window"
+  },
+  "exitApp": "Exit Xaneo",
+  "@exitApp": {
+    "description": "Tray menu item to exit app"
   }
 }

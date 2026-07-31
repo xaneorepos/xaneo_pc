@@ -1,7 +1,7 @@
 name: xaneo
 description: "Xaneo PC - Desktop application with onboarding"
 publish_to: 'none'
-version: 1.0.0+1
+version: 1.0.14+14
 
 environment:
   sdk: ^3.9.0
@@ -73,6 +73,7 @@ dependencies:
   livekit_client: ^2.1.0
   desktop_multi_window: ^0.2.0
   local_notifier: ^0.1.6
+  tray_manager: ^0.5.3
 
 dev_dependencies:
   flutter_test:

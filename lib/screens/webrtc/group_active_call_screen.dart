@@ -140,7 +140,7 @@ class _GroupActiveCallScreenState extends BaseCallScreenState<GroupActiveCallScr
     if (participantsMap.isNotEmpty) {
       participantsMap.forEach((uid, pData) {
         participantTiles.add(_buildParticipantCard(
-          name: pData['name']?.toString() ?? 'Участник $uid',
+          name: pData['name']?.toString() ?? '${AppLocalizations.of(context)?.uchastnik_cffb ?? 'Participant'} $uid',
           isLocal: false,
           isVideoOn: callManager.remoteVideoTrack != null,
           videoTrack: callManager.remoteVideoTrack,

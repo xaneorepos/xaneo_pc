@@ -65,8 +65,6 @@ class WebRTCSignalingService {
     }
 
     final uri = _buildWsUri(userId, token);
-    final safeUri = uri.replace(queryParameters: {'token': '***'});
-    debugPrint('WebRTC WS: connecting to $safeUri');
 
     isConnected.value = false;
 
@@ -75,20 +73,16 @@ class WebRTCSignalingService {
       _subscription = _socket!.listen(
         _handleRawEvent,
         onError: (error) {
-          debugPrint('WebRTC WS: stream error: $error');
           _scheduleReconnect();
         },
         onDone: () {
-          debugPrint('WebRTC WS: stream closed');
           _scheduleReconnect();
         },
         cancelOnError: true,
       );
       _reconnectAttempt = 0;
       isConnected.value = true;
-      debugPrint('WebRTC WS: connected successfully');
     } catch (e) {
-      debugPrint('WebRTC WS: connect error: $e');
       _scheduleReconnect();
     }
   }

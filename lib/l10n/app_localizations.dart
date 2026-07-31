@@ -1522,6 +1522,22 @@ abstract class AppLocalizations {
   String get noMessagesTitle;
   String get noMessagesSubtitle;
 
+  String get closeActionMinimizeToTraySubtitle;
+  String get closeActionMinimizeToTaskbarSubtitle;
+  String get closeActionExitAppSubtitle;
+  String get downloadingLabel;
+  String get downloadErrorLabel;
+  String get closeActionTitle;
+  String get closeActionDescription;
+  String get closeActionMinimizeToTray;
+  String get closeActionExitApp;
+  String get closeActionMinimizeToTaskbar;
+  String get showWindow;
+  String get exitApp;
+  String get minuteShort;
+  String get secondShort;
+  String get openChat;
+  String get markAsRead;
   String membersCount(int count);
   String subscribersCount(int count);
 }

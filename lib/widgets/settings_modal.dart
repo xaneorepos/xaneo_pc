@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import '../l10n/app_localizations.dart';
 import '../providers/theme_provider.dart';
 import '../providers/locale_provider.dart';
@@ -31,6 +32,7 @@ class SettingsButtonState extends State<SettingsButton>
   bool _useCustomNotifications = true;
   double _fontSize = 16.0;
   int _selectedLanguageIndex = 1;
+  String _windowCloseAction = 'minimizeToTray';
 
   // Список доступных языков
   final List<Map<String, String>> _availableLanguages = LocaleProvider.availableLanguages;
@@ -71,6 +73,7 @@ class SettingsButtonState extends State<SettingsButton>
         _notificationsEnabled = prefs.getBool('settings_notifications') ?? true;
         _useCustomNotifications = prefs.getBool('use_custom_notifications') ?? true;
         _fontSize = prefs.getDouble('settings_font_size') ?? 16.0;
+        _windowCloseAction = prefs.getString('window_close_action') ?? 'minimizeToTray';
       });
     }
   }
@@ -80,6 +83,7 @@ class SettingsButtonState extends State<SettingsButton>
     await prefs.setBool('settings_notifications', _notificationsEnabled);
     await prefs.setBool('use_custom_notifications', _useCustomNotifications);
     await prefs.setDouble('settings_font_size', _fontSize);
+    await prefs.setString('window_close_action', _windowCloseAction);
   }
 
   void _openSettings() {
@@ -112,7 +116,16 @@ class SettingsButtonState extends State<SettingsButton>
     // Получаем информацию о платформе
     final platform = Platform.isLinux ? 'Linux' : Platform.operatingSystem;
     final processorArch = await _getProcessorArchitecture();
-    final version = '1.0.loc_0'; // Можно сделать динамическим из pubspec.yaml
+    String version = '1.0.14';
+    const overrideVer = String.fromEnvironment('OVERRIDE_VERSION');
+    if (overrideVer.isNotEmpty) {
+      version = overrideVer;
+    } else {
+      try {
+        final pkg = await PackageInfo.fromPlatform();
+        version = pkg.version;
+      } catch (_) {}
+    }
 
     // Запускаем анимацию
     _aboutAnimationController.forward();
@@ -888,6 +901,10 @@ class SettingsButtonState extends State<SettingsButton>
                                         ),
                                       ],
                                       SizedBox(height: 24),
+                                      _buildSectionHeader(l10n?.closeActionTitle ?? 'Действие при закрытии окна', isDark, Icons.desktop_windows_outlined),
+                                      const SizedBox(height: 10),
+                                      _buildWindowCloseActionSelector(isDark, l10n),
+                                      SizedBox(height: 24),
                                       _buildSectionHeader(l10n?.fontSize(_fontSize.round()) ?? 'Размер шрифта: ${_fontSize.round()}', isDark, Icons.text_fields_rounded),
                                       const SizedBox(height: 10),
                                       _buildFontSizeSlider(isDark),
@@ -1112,7 +1129,7 @@ class SettingsButtonState extends State<SettingsButton>
               fontWeight: FontWeight.w500,
               fontFamily: 'Inter',
             ),
-            child: Text((AppLocalizations.of(context)?.aaBbVv_1c6b ?? 'Fallback')),
+            child: Text('Aa Bb Вв 123'),
           ),
           const SizedBox(height: 20),
           Material(
@@ -1233,6 +1250,124 @@ class SettingsButtonState extends State<SettingsButton>
                         fontSize: 15,
                         fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
                         fontFamily: 'Inter',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildWindowCloseActionSelector(bool isDark, AppLocalizations? l10n) {
+    final options = [
+      {
+        'value': 'minimizeToTray',
+        'title': l10n?.closeActionMinimizeToTray ?? 'Сворачивать в трей (работать в фоне)',
+        'icon': Icons.system_update_alt_rounded,
+      },
+      {
+        'value': 'minimizeToTaskbar',
+        'title': l10n?.closeActionMinimizeToTaskbar ?? 'Сворачивать на панель задач',
+        'icon': Icons.minimize_rounded,
+      },
+      {
+        'value': 'exitApp',
+        'title': l10n?.closeActionExitApp ?? 'Завершать работу приложения',
+        'icon': Icons.power_settings_new_rounded,
+      },
+    ];
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: isDark
+              ? [Colors.white.withOpacity(0.05), Colors.white.withOpacity(0.02)]
+              : [Colors.black.withOpacity(0.02), Colors.black.withOpacity(0.01)],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.05),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        children: options.map((opt) {
+          final isSelected = _windowCloseAction == opt['value'];
+          return MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: GestureDetector(
+              onTap: () {
+                setState(() {
+                  _windowCloseAction = opt['value'] as String;
+                  _savePreferences();
+                });
+              },
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? (isDark ? Colors.white.withOpacity(0.1) : Colors.black.withOpacity(0.05))
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: isSelected
+                        ? (isDark ? Colors.white.withOpacity(0.2) : Colors.black.withOpacity(0.1))
+                        : Colors.transparent,
+                    width: 1,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 20,
+                      height: 20,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: isSelected
+                              ? (isDark ? Colors.white : Colors.black)
+                              : (isDark ? Colors.grey.shade600 : Colors.grey.shade400),
+                          width: 2,
+                        ),
+                      ),
+                      child: isSelected
+                          ? Center(
+                              child: Container(
+                                width: 10,
+                                height: 10,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: isDark ? Colors.white : Colors.black,
+                                ),
+                              ),
+                            )
+                          : null,
+                    ),
+                    const SizedBox(width: 12),
+                    Icon(
+                      opt['icon'] as IconData,
+                      size: 18,
+                      color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        opt['title'] as String,
+                        style: TextStyle(
+                          color: isDark ? Colors.white : Colors.black,
+                          fontSize: 14,
+                          fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                          fontFamily: 'Inter',
+                        ),
                       ),
                     ),
                   ],

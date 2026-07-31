@@ -29,6 +29,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'screens/notification_overlay_screen.dart';
 import 'services/notification_service.dart';
+import 'services/system_tray_service.dart';
 
 // Глобальный ключ для доступа к Navigator
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -82,6 +83,10 @@ void main(List<String> args) async {
   
   // Initialize window manager
   await windowManager.ensureInitialized();
+  await windowManager.setPreventClose(true);
+
+  // Initialize System Tray Service
+  await SystemTrayService().init();
 
   // Load saved window options
   final prefs = await SharedPreferences.getInstance();
@@ -171,6 +176,21 @@ class _MyAppState extends State<MyApp> with WindowListener {
     _saveWindowState();
   }
 
+  @override
+  void onWindowClose() async {
+    final prefs = await SharedPreferences.getInstance();
+    final action = prefs.getString('window_close_action') ?? 'minimizeToTray';
+    if (action == 'minimizeToTray') {
+      await windowManager.hide();
+    } else if (action == 'minimizeToTaskbar') {
+      await windowManager.minimize();
+    } else {
+      await SystemTrayService().destroy();
+      await windowManager.destroy();
+      exit(0);
+    }
+  }
+
   Future<void> _saveWindowState() async {
     try {
       final isMaximized = await windowManager.isMaximized();
@@ -188,6 +208,13 @@ class _MyAppState extends State<MyApp> with WindowListener {
   Widget build(BuildContext context) {
     return Consumer2<LocaleProvider, ThemeProvider>(
       builder: (context, localeProvider, themeProvider, child) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          final navContext = navigatorKey.currentContext;
+          if (navContext != null) {
+            SystemTrayService().updateContextMenu(navContext);
+          }
+        });
+
         // Обновляем системные цвета в зависимости от темы
         SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
           statusBarColor: Colors.transparent,

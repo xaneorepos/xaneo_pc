@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/theme_provider.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import '../styles/app_styles.dart';
 import 'package:xaneo/l10n/app_localizations.dart';
 
@@ -25,10 +26,12 @@ class _AboutAppModalState extends State<AboutAppModal>
   int _logoTapCount = 0;
   DateTime? _lastLogoTap;
   bool _showEasterEgg = false;
-  
+  String _appVersion = '1.0.14';
+
   @override
   void initState() {
     super.initState();
+    _loadVersion();
     
     _logoController = AnimationController(
       duration: const Duration(milliseconds: 150),
@@ -44,6 +47,26 @@ class _AboutAppModalState extends State<AboutAppModal>
     ));
   }
   
+  Future<void> _loadVersion() async {
+    const overrideVer = String.fromEnvironment('OVERRIDE_VERSION');
+    if (overrideVer.isNotEmpty) {
+      if (mounted) {
+        setState(() {
+          _appVersion = overrideVer;
+        });
+      }
+      return;
+    }
+    try {
+      final pkg = await PackageInfo.fromPlatform();
+      if (mounted) {
+        setState(() {
+          _appVersion = pkg.version;
+        });
+      }
+    } catch (_) {}
+  }
+
   @override
   void dispose() {
     _logoController.dispose();
@@ -387,7 +410,7 @@ class _AboutAppModalState extends State<AboutAppModal>
               ),
               const SizedBox(width: 10),
               Text(
-                'v1.0.loc_0',
+                'v$_appVersion',
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w500,

@@ -29,17 +29,13 @@ class _ActiveCallScreenState extends BaseCallScreenState<ActiveCallScreen> {
     if (callManager.isGroupCall) {
       return const GroupActiveCallScreen();
     }
-    debugPrint('ActiveCallScreen: build called. CallManager state: ${callManager.state}');
 
     // Если звонок завершен, закрываем экран
     if (callManager.state == CallState.idle) {
-      debugPrint('ActiveCallScreen: CallManager state is idle, scheduling pop');
       WidgetsBinding.instance.addPostFrameCallback((_) {
         final route = ModalRoute.of(context);
-        debugPrint('ActiveCallScreen: post-frame pop check. route.isCurrent: ${route?.isCurrent}');
         if (route != null && route.isCurrent) {
           Navigator.of(context).pop();
-          debugPrint('ActiveCallScreen: pop() executed');
         }
       });
       return const Scaffold(backgroundColor: Colors.black);

@@ -71,6 +71,17 @@
 ### Установка зависимостей
 
 ```bash
+# Ubuntu / Debian (необходимо для системного трея tray_manager)
+sudo apt-get update
+sudo apt-get install libayatana-appindicator3-dev
+# (или sudo apt-get install libappindicator3-dev)
+
+# Fedora / RHEL
+sudo dnf install libayatana-appindicator-devel
+
+# Arch Linux
+sudo pacman -S libayatana-appindicator
+
 # Flutter
 # https://docs.flutter.dev/get-started/install/linux
 

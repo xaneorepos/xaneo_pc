@@ -459,8 +459,6 @@ class CallManager extends ChangeNotifier {
           ).toString();
         }
       }
-      debugPrint('CallManager: PC connecting to LiveKit URL: $lkUrl');
-
       // 2. Создаем комнату
       _room = Room();
       _roomListener = _room!.createListener();

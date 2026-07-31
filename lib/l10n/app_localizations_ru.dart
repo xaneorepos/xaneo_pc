@@ -2189,4 +2189,36 @@ class AppLocalizationsRu extends AppLocalizations {
   String get noMessagesTitle => 'Нет сообщений';
   @override
   String get noMessagesSubtitle => 'Напишите первыми, чтобы начать общение в Xaneo Connect!';
+  @override
+  String get closeActionTitle => 'Действие при закрытии окна';
+  @override
+  String get closeActionDescription => 'Выберите, что делать при закрытии главного окна';
+  @override
+  String get closeActionMinimizeToTray => 'Сворачивать в трей (работать в фоне)';
+  @override
+  String get closeActionExitApp => 'Завершать работу приложения';
+  @override
+  String get closeActionMinimizeToTaskbar => 'Сворачивать на панель задач';
+  @override
+  String get showWindow => 'Показать Xaneo';
+  @override
+  String get exitApp => 'Выйти из Xaneo';
+  @override
+  String get openChat => 'Открыть чат';
+  @override
+  String get markAsRead => 'Прочитано';
+  @override
+  String get minuteShort => 'мин';
+  @override
+  String get secondShort => 'сек';
+  @override
+  String get closeActionMinimizeToTraySubtitle => 'При нажатии на крестик окно сворачивается в системный трей и продолжает работать в фоне';
+  @override
+  String get closeActionMinimizeToTaskbarSubtitle => 'При нажатии на крестик окно сворачивается на панель задач';
+  @override
+  String get closeActionExitAppSubtitle => 'При нажатии на крестик приложение полностью завершает работу';
+  @override
+  String get downloadingLabel => 'Загрузка';
+  @override
+  String get downloadErrorLabel => 'Ошибка загрузки';
 }

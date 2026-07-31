@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'base_custom_modal.dart';
@@ -80,6 +81,8 @@ class _XaneoUpdateModalState extends BaseCustomModalState<XaneoUpdateModal> {
     try {
       await UpdateService().downloadAndInstall(
         url: url,
+        downloadingLabel: l10n?.downloadingLabel ?? 'Загрузка',
+        launchingInstallerLabel: l10n?.installationStarted ?? 'Запуск установки...',
         onProgress: (progress, status) {
           if (mounted) {
             setState(() {
@@ -94,14 +97,14 @@ class _XaneoUpdateModalState extends BaseCustomModalState<XaneoUpdateModal> {
         setState(() {
           _statusText = l10n?.installationStarted ?? 'Установка запущена...';
         });
-        await Future.delayed(const Duration(seconds: 1));
-        if (mounted) Navigator.of(context).pop();
+        await Future.delayed(const Duration(milliseconds: 800));
+        exit(0);
       }
     } catch (e) {
       if (mounted) {
         setState(() {
           _isDownloading = false;
-          _downloadError = 'Ошибка загрузки: $e';
+          _downloadError = '${l10n?.downloadErrorLabel ?? 'Ошибка загрузки'}: $e';
         });
       }
     }

@@ -989,69 +989,69 @@ class AppLocalizationsEs extends AppLocalizations {
   @override
   String get voyti_63a7 => 'Iniciar sesión';
   @override
-  String get sobesednik_7025 => 'Собеседник';
+  String get sobesednik_7025 => 'Interlocutor';
   @override
   String get vy_0101 => 'Вы';
   @override
-  String get vyDelitesSvoimEkranom_16b1 => 'Вы делитесь своим экраном';
+  String get vyDelitesSvoimEkranom_16b1 => 'Estás compartiendo tu pantalla';
   @override
   String get polzovatel_f154 => 'Пользователь';
   @override
-  String get ishodyaschiyVyzov_650b => 'Исходящий вызов...';
+  String get ishodyaschiyVyzov_650b => 'Llamada saliente...';
   @override
-  String get vhodyaschiyVyzov_19ff => 'Входящий вызов...';
+  String get vhodyaschiyVyzov_19ff => 'Llamada entrante...';
   @override
-  String get podklyucheno_d022 => 'Подключено';
+  String get podklyucheno_d022 => 'Conectado';
   @override
-  String get ozhidanieOtveta_a984 => 'Ожидание ответа...';
+  String get ozhidanieOtveta_a984 => 'Esperando respuesta...';
   @override
-  String get razgovorPoAudiosvyazi_3ed7 => 'Разговор по аудиосвязи';
+  String get razgovorPoAudiosvyazi_3ed7 => 'Llamada de voz en curso';
   @override
-  String get translyatsiyaVashegoEkranaZapuschena_575a => 'Трансляция вашего экрана запущена';
+  String get translyatsiyaVashegoEkranaZapuschena_575a => 'Transmisión de pantalla iniciada';
   @override
-  String get sobesednikViditVseChtoProishodit_c759 => 'Собеседник видит всё, что происходит на вашем рабочем столе';
+  String get sobesednikViditVseChtoProishodit_c759 => 'El interlocutor ve todo en tu pantalla';
   @override
-  String get vhodyaschiyVyzov_905e => 'ВХОДЯЩИЙ ВЫЗОВ';
+  String get vhodyaschiyVyzov_905e => 'LLAMADA ENTRANTE';
   @override
-  String get neizvestnyy_be89 => 'Неизвестный';
+  String get neizvestnyy_be89 => 'Desconocido';
   @override
-  String get videozvonok_dd18 => 'Видеозвонок...';
+  String get videozvonok_dd18 => 'Videollamada...';
   @override
-  String get golosovoyZvonok_5410 => 'Голосовой звонок...';
+  String get golosovoyZvonok_5410 => 'Llamada de voz...';
   @override
-  String get otklonit_8b0d => 'Отклонить';
+  String get otklonit_8b0d => 'Rechazar';
   @override
-  String get otvetit_e568 => 'Ответить';
+  String get otvetit_e568 => 'Responder';
   @override
-  String get gruppovoyZvonok_dac1 => 'Групповой звонок';
+  String get gruppovoyZvonok_dac1 => 'Llamada grupal';
   @override
-  String get podklyuchenieKZvonku_e2cf => 'Подключение к звонку...';
+  String get podklyuchenieKZvonku_e2cf => 'Conectando a la llamada...';
   @override
-  String get podklyuchenieKVeschaniyu_038b => 'Подключение к вещанию...';
+  String get podklyuchenieKVeschaniyu_038b => 'Conectando a la transmisión...';
   @override
-  String get uchastnik_cffb => 'Участник';
+  String get uchastnik_cffb => 'Participante';
   @override
   String get vy_479c => 'ВЫ';
   @override
   String get svernut_ca9f => 'Свернуть';
   @override
-  String get vhodyaschiyVyzov_d2f3 => 'Входящий вызов';
+  String get vhodyaschiyVyzov_d2f3 => 'Llamada entrante';
   @override
   String get novoeSoobschenie_1d49 => 'Новое сообщение';
   @override
   String get vashOtvet_40c2 => 'Ваш ответ...';
   @override
-  String get videovyzov_3353 => 'Видеовызов...';
+  String get videovyzov_3353 => 'Videollamada...';
   @override
-  String get audiovyzov_bbb5 => 'Аудиовызов...';
+  String get audiovyzov_bbb5 => 'Llamada de audio...';
   @override
-  String get nachatZvonok_3d26 => 'НАЧАТЬ ЗВОНОК';
+  String get nachatZvonok_3d26 => 'INICIAR LLAMADA';
   @override
-  String get golosovoyZvonok_b615 => 'Голосовой звонок';
+  String get golosovoyZvonok_b615 => 'Llamada de voz';
   @override
   String get pozvonitPoGolosovoySvyazi_4069 => 'Позвонить по голосовой связи';
   @override
-  String get videozvonok_8142 => 'Видеозвонок';
+  String get videozvonok_8142 => 'Videollamada';
   @override
   String get pozvonitSVklyuchennoyKameroy_fb05 => 'Позвонить с включенной камерой';
   @override
@@ -1063,7 +1063,7 @@ class AppLocalizationsEs extends AppLocalizations {
   @override
   String get fayl_826d => '📎 Файл';
   @override
-  String get zvonok_e8d5 => '📞 Звонок';
+  String get zvonok_e8d5 => '📞 Llamada';
   @override
   String get oshibkaDeshifrovaniya_4146 => '[Ошибка дешифрования]';
   @override
@@ -1245,19 +1245,19 @@ class AppLocalizationsEs extends AppLocalizations {
   @override
   String get zagruzkaFayla_f817 => 'Загрузка файла...';
   @override
-  String get ishodyaschiyZvonok_8381 => 'Исходящий звонок';
+  String get ishodyaschiyZvonok_8381 => 'Llamada saliente';
   @override
-  String get razgovorNeSostoyalsya_67fb => 'Разговор не состоялся';
+  String get razgovorNeSostoyalsya_67fb => 'Llamada no realizada';
   @override
-  String get vhodyaschiyZvonok_5ce9 => 'Входящий звонок';
+  String get vhodyaschiyZvonok_5ce9 => 'Llamada entrante';
   @override
-  String get otklonennyyZvonok_d499 => 'Отклонённый звонок';
+  String get otklonennyyZvonok_d499 => 'Llamada rechazada';
   @override
-  String get vyOtkloniliVyzov_8d1d => 'Вы отклонили вызов';
+  String get vyOtkloniliVyzov_8d1d => 'Rechazaste la llamada';
   @override
-  String get propuschennyyZvonok_e98d => 'Пропущенный звонок';
+  String get propuschennyyZvonok_e98d => 'Llamada perdida';
   @override
-  String get vyPropustiliVyzov_f17a => 'Вы пропустили вызов';
+  String get vyPropustiliVyzov_f17a => 'Perdiste una llamada';
   @override
   String get vlozhenie_2474 => '📎 Вложение';
   @override
@@ -1583,7 +1583,7 @@ class AppLocalizationsEs extends AppLocalizations {
   @override
   String get sozdatSpisokZadach_0416 => 'Создать список задач';
   @override
-  String get vhodyaschiyVideozvonok_14d4 => 'Входящий видеозвонок';
+  String get vhodyaschiyVideozvonok_14d4 => 'Videollamada entrante';
   @override
   String get prinyat_5dc5 => 'Принять';
   @override
@@ -1621,7 +1621,7 @@ class AppLocalizationsEs extends AppLocalizations {
   @override
   String get pozhaluystaPodozhditeOkonchaniyaZagruzkiFaylov_4c35 => 'Пожалуйста, подождите окончания загрузки файлов';
   @override
-  String get audiozvonok_dcf6 => 'Аудиозвонок';
+  String get audiozvonok_dcf6 => 'Llamada de audio';
   @override
   String get otpravitFotoVideoAudioIli_37e9 => 'Отправить фото, видео, аудио или другие файлы';
   @override
@@ -2170,4 +2170,36 @@ class AppLocalizationsEs extends AppLocalizations {
   String get noMessagesTitle => 'Sin mensajes';
   @override
   String get noMessagesSubtitle => '¡Envía un mensaje para iniciar la conversación en Xaneo Connect!';
+  @override
+  String get closeActionTitle => 'Acción al cerrar la ventana';
+  @override
+  String get closeActionDescription => 'Elija qué sucede al cerrar la ventana principal';
+  @override
+  String get closeActionMinimizeToTray => 'Minimizar a la bandeja del sistema (segundo plano)';
+  @override
+  String get closeActionExitApp => 'Salir de la aplicación';
+  @override
+  String get closeActionMinimizeToTaskbar => 'Minimizar a la barra de tareas';
+  @override
+  String get showWindow => 'Mostrar Xaneo';
+  @override
+  String get exitApp => 'Salir de Xaneo';
+  @override
+  String get openChat => 'Abrir chat';
+  @override
+  String get markAsRead => 'Marcar como leído';
+  @override
+  String get minuteShort => 'min';
+  @override
+  String get secondShort => 'seg';
+  @override
+  String get closeActionMinimizeToTraySubtitle => 'Al cerrar la ventana se minimiza en la bandeja del sistema y sigue en segundo plano';
+  @override
+  String get closeActionMinimizeToTaskbarSubtitle => 'Al cerrar la ventana se minimiza en la barra de tareas';
+  @override
+  String get closeActionExitAppSubtitle => 'Al cerrar la ventana la aplicación se cierra por completo';
+  @override
+  String get downloadingLabel => 'Descargando';
+  @override
+  String get downloadErrorLabel => 'Error de descarga';
 }

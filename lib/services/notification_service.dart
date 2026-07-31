@@ -13,8 +13,8 @@ import 'package:xaneo/main.dart';
 import 'package:xaneo/services/webrtc/call_manager.dart';
 import 'package:xaneo/screens/webrtc/active_call_screen.dart';
 import 'package:xaneo/utils/win32_overlay_helper.dart';
-import 'package:xaneo/services/grpc_service.dart';
-import 'package:xaneo/services/account_service.dart';
+import 'api_service.dart';
+import '../l10n/app_localizations.dart';
 
 class NotificationService {
   static final NotificationService _instance = NotificationService._internal();
@@ -22,6 +22,9 @@ class NotificationService {
   NotificationService._internal();
 
   bool _initialized = false;
+  String? _lastNotifiedChatId;
+  String? _lastNotifiedBody;
+  DateTime? _lastNotifiedTime;
 
   LocalNotification? _activeCallNotification;
   int? _activeCallOverlayWindowId;
@@ -31,12 +34,20 @@ class NotificationService {
   Future<void> init() async {
     if (_initialized) return;
 
-    // Инициализируем локальный системный нотификатор
-    await localNotifier.setup(
-      appName: 'Xaneo',
-      // shortcutPolicy на Windows автоматически создаст ярлык в Пуске для корректной работы тостов
-      shortcutPolicy: ShortcutPolicy.requireCreate,
-    );
+    try {
+      if (!kIsWeb && Platform.isWindows) {
+        await localNotifier.setup(
+          appName: 'Xaneo',
+          shortcutPolicy: ShortcutPolicy.requireCreate,
+        );
+      } else {
+        await localNotifier.setup(
+          appName: 'Xaneo',
+        );
+      }
+    } catch (e) {
+      debugPrint('NotificationService: localNotifier setup error: $e');
+    }
 
     _initialized = true;
     debugPrint('NotificationService: Initialized successfully');
@@ -58,6 +69,18 @@ class NotificationService {
     String? avatar,
     String? gradient,
   }) async {
+    final now = DateTime.now();
+    if (_lastNotifiedChatId == chatId &&
+        _lastNotifiedBody == body &&
+        _lastNotifiedTime != null &&
+        now.difference(_lastNotifiedTime!).inSeconds < 3) {
+      debugPrint('🔔 [DEDUPLICATED] Skipping duplicate notification for chatId: $chatId');
+      return;
+    }
+    _lastNotifiedChatId = chatId;
+    _lastNotifiedBody = body;
+    _lastNotifiedTime = now;
+
     final prefs = await SharedPreferences.getInstance();
     // По умолчанию кастомный оверлей включен, если он поддерживается
     final useCustomNotifications = isCustomOverlaySupported() && 
@@ -147,46 +170,81 @@ class NotificationService {
     required String title,
     required String body,
   }) async {
-    final notification = LocalNotification(
-      title: title,
-      body: body,
-      actions: [
-        LocalNotificationAction(text: 'Открыть чат'),
-        LocalNotificationAction(text: 'Прочитано'),
-      ],
-    );
+    final context = navigatorKey.currentContext;
+    final l10n = context != null ? AppLocalizations.of(context) : null;
+    final openText = l10n?.openChat ?? 'Открыть чат';
+    final readText = l10n?.markAsRead ?? 'Прочитано';
 
-    notification.onClick = () {
-      debugPrint('Notification clicked: open chat $chatId');
-      windowManager.show();
-      windowManager.focus();
-    };
+    if (!kIsWeb && Platform.isLinux) {
+      try {
+        final res = await Process.run('notify-send', [
+          '--action=open=$openText',
+          '--action=read=$readText',
+          '-a',
+          'Xaneo',
+          '-i',
+          'dialog-information',
+          title,
+          body,
+        ]);
 
-    notification.onClickAction = (actionIndex) async {
-      if (actionIndex == 0) {
-        // Открыть чат
-        debugPrint('Button clicked: open chat $chatId');
-        await windowManager.show();
-        await windowManager.focus();
-      } else if (actionIndex == 1) {
-        // Отметить как прочитанное
-        debugPrint('Button clicked: mark as read $chatId');
-        try {
-          final accounts = await AccountService().getAccounts();
-          if (accounts.isNotEmpty) {
-            final userId = accounts.first.userId.toString();
-            final success = await XaneoGrpcService().markAsRead(chatId, userId);
-            debugPrint('Mark as read result: $success for chat $chatId');
-          } else {
-            debugPrint('Mark as read: no active account found');
+        final clickedAction = res.stdout.toString().trim();
+        debugPrint('NotificationService: Linux notify-send clicked action: "$clickedAction"');
+
+        if (clickedAction == 'open') {
+          await windowManager.show();
+          await windowManager.focus();
+        } else if (clickedAction == 'read') {
+          try {
+            await ApiService().markMessagesAsRead(chatId);
+          } catch (e) {
+            debugPrint('Mark as read error: $e');
           }
-        } catch (e) {
-          debugPrint('Mark as read error: $e');
         }
+        return;
+      } catch (e) {
+        debugPrint('NotificationService: notify-send failed: $e');
       }
-    };
+    }
 
-    await notification.show();
+    try {
+      final notification = LocalNotification(
+        title: title,
+        body: body,
+        actions: [
+          LocalNotificationAction(text: openText),
+          LocalNotificationAction(text: readText),
+        ],
+      );
+
+      notification.onClick = () {
+        debugPrint('Notification clicked: open chat $chatId');
+        windowManager.show();
+        windowManager.focus();
+      };
+
+      notification.onClickAction = (actionIndex) async {
+        if (actionIndex == 0) {
+          // Открыть чат
+          debugPrint('Button clicked: open chat $chatId');
+          await windowManager.show();
+          await windowManager.focus();
+        } else if (actionIndex == 1) {
+          // Отметить как прочитанное
+          debugPrint('Button clicked: mark as read $chatId');
+          try {
+            final res = await ApiService().markMessagesAsRead(chatId);
+            debugPrint('Mark as read result: ${res.success} for chat $chatId');
+          } catch (e) {
+            debugPrint('Mark as read error: $e');
+          }
+        }
+      };
+
+      await notification.show();
+    } catch (e) {
+      debugPrint('NotificationService: Error showing local_notification: $e');
+    }
   }
 
   /// Отображение системного нативного баннера звонка с кнопками
@@ -197,45 +255,98 @@ class NotificationService {
   }) async {
     await dismissCallNotification();
 
-    final typeText = callType == 'video' ? 'видеозвонок' : 'аудиозвонок';
-    final notification = LocalNotification(
-      title: 'Входящий вызов',
-      body: '$callerName вызывает вас ($typeText)',
-      actions: [
-        LocalNotificationAction(text: 'Ответить'),
-        LocalNotificationAction(text: 'Отклонить'),
-      ],
-    );
+    final context = navigatorKey.currentContext;
+    final l10n = context != null ? AppLocalizations.of(context) : null;
+    final typeText = callType == 'video'
+        ? (l10n?.videozvonok_dd18 ?? 'видеозвонок')
+        : (l10n?.golosovoyZvonok_5410 ?? 'аудиозвонок');
+    final acceptText = l10n?.otvetit_e568 ?? 'Ответить';
+    final declineText = l10n?.otklonit_8b0d ?? 'Отклонить';
+    final titleText = l10n?.vhodyaschiyVyzov_905e ?? 'Входящий вызов';
+    final bodyText = '$callerName ($typeText)';
 
-    notification.onClick = () async {
-      await windowManager.show();
-      await windowManager.focus();
-    };
+    if (!kIsWeb && Platform.isLinux) {
+      try {
+        final res = await Process.run('notify-send', [
+          '--action=accept=$acceptText',
+          '--action=decline=$declineText',
+          '-a',
+          'Xaneo',
+          '-u',
+          'critical',
+          '-i',
+          'call-start',
+          titleText,
+          bodyText,
+        ]);
 
-    notification.onClickAction = (actionIndex) async {
-      final context = navigatorKey.currentContext;
-      if (context != null) {
-        final callManager = context.read<CallManager>();
-        if (actionIndex == 0) {
-          // Ответить
-          await callManager.acceptIncomingCall();
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (context) => const ActiveCallScreen(),
-            ),
-          );
-          await windowManager.show();
-          await windowManager.focus();
-        } else {
-          // Отклонить
-          callManager.rejectIncomingCall();
+        final clickedAction = res.stdout.toString().trim();
+        debugPrint('NotificationService: Linux call notify-send action: "$clickedAction"');
+
+        final ctx = navigatorKey.currentContext;
+        if (ctx != null) {
+          final callManager = ctx.read<CallManager>();
+          if (clickedAction == 'accept') {
+            await callManager.acceptIncomingCall();
+            Navigator.of(ctx).push(
+              MaterialPageRoute(
+                builder: (context) => const ActiveCallScreen(),
+              ),
+            );
+            await windowManager.show();
+            await windowManager.focus();
+          } else if (clickedAction == 'decline') {
+            callManager.rejectIncomingCall();
+          }
         }
+        return;
+      } catch (e) {
+        debugPrint('NotificationService: notify-send for call failed: $e');
       }
-      await dismissCallNotification();
-    };
+    }
 
-    _activeCallNotification = notification;
-    await notification.show();
+    try {
+      final notification = LocalNotification(
+        title: titleText,
+        body: bodyText,
+        actions: [
+          LocalNotificationAction(text: acceptText),
+          LocalNotificationAction(text: declineText),
+        ],
+      );
+
+      notification.onClick = () async {
+        await windowManager.show();
+        await windowManager.focus();
+      };
+
+      notification.onClickAction = (actionIndex) async {
+        final context = navigatorKey.currentContext;
+        if (context != null) {
+          final callManager = context.read<CallManager>();
+          if (actionIndex == 0) {
+            // Ответить
+            await callManager.acceptIncomingCall();
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (context) => const ActiveCallScreen(),
+              ),
+            );
+            await windowManager.show();
+            await windowManager.focus();
+          } else {
+            // Отклонить
+            callManager.rejectIncomingCall();
+          }
+        }
+        await dismissCallNotification();
+      };
+
+      _activeCallNotification = notification;
+      await notification.show();
+    } catch (e) {
+      debugPrint('NotificationService: Error showing call notification: $e');
+    }
   }
 
   /// Отображение кастомного анимированного оверлейного окна сообщения

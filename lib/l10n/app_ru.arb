@@ -363,5 +363,33 @@
   "viewOnGitHub": "Посмотреть на GitHub",
   "@viewOnGitHub": {
     "description": "Текст ссылки на GitHub"
+  },
+  "closeActionTitle": "Действие при закрытии окна",
+  "@closeActionTitle": {
+    "description": "Заголовок настройки действия при закрытии окна"
+  },
+  "closeActionDescription": "Выберите, что делать при закрытии главного окна",
+  "@closeActionDescription": {
+    "description": "Описание настройки действия при закрытии окна"
+  },
+  "closeActionMinimizeToTray": "Сворачивать в трей (работать в фоне)",
+  "@closeActionMinimizeToTray": {
+    "description": "Вариант сворачивания окна в системный трей"
+  },
+  "closeActionExitApp": "Завершать работу приложения",
+  "@closeActionExitApp": {
+    "description": "Вариант завершения работы приложения при закрытии"
+  },
+  "closeActionMinimizeToTaskbar": "Сворачивать на панель задач",
+  "@closeActionMinimizeToTaskbar": {
+    "description": "Вариант сворачивания окна на панель задач"
+  },
+  "showWindow": "Показать Xaneo",
+  "@showWindow": {
+    "description": "Пункт меню трея для отображения окна"
+  },
+  "exitApp": "Выйти из Xaneo",
+  "@exitApp": {
+    "description": "Пункт меню трея для выхода из приложения"
   }
 }

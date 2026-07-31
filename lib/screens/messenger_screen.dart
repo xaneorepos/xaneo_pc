@@ -31,6 +31,7 @@ import '../services/crypto_service.dart';
 import '../services/account_service.dart';
 import '../services/websocket_service.dart';
 import '../services/logger_service.dart';
+import '../services/system_tray_service.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import '../widgets/custom_toast.dart';
@@ -167,6 +168,24 @@ class _MessengerScreenState extends State<MessengerScreen> {
     _loadPreferences();
     _initMessenger();
     _checkAppUpdate();
+    SystemTrayService().setOpenSettingsCallback(() {
+      if (mounted) {
+        XaneoSettingsModal.open(
+          context,
+          currentUser: _myProfile,
+          onLogout: () {
+            _logout();
+          },
+          onUpdateFound: (update) {
+            if (mounted) {
+              setState(() {
+                _availableUpdate = update;
+              });
+            }
+          },
+        );
+      }
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         context.read<CallManager>().addListener(_handleCallStateChanged);
@@ -753,7 +772,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
       if (chatId == null) continue;
       
       final isFocused = await windowManager.isFocused();
-      if (chatId == _selectedChat?['chat_id'] && isFocused) {
+      final isMinimized = await windowManager.isMinimized();
+      final isVisible = await windowManager.isVisible();
+      final isAppActive = isFocused && !isMinimized && isVisible;
+      if (chatId == _selectedChat?['chat_id'] && isAppActive) {
         continue;
       }
 
@@ -898,139 +920,173 @@ class _MessengerScreenState extends State<MessengerScreen> {
         type == 'voice_message' ||
         type == 'video_message' ||
         type == 'file_message' ||
-        type == 'file') {
-      final msgChatId = data['chat_id'] as String?;
-      if (!_areSameChat(msgChatId, activeChatId)) return;
+        type == 'file' ||
+        type == 'new_message' ||
+        type == 'message') {
+      final msgChatId = data['chat_id']?.toString();
+      if (msgChatId == null) return;
 
-      final dynamic rawMsgId = data['id'];
-      final msgId = rawMsgId is int ? rawMsgId : int.tryParse(rawMsgId.toString());
-      if (msgId == null) return;
+      // Обновляем список чатов
+      _loadChats(silent: true);
 
-      final exists = _messages.any((m) => m['id'] == msgId);
-      if (exists) return;
+      final isMe = data['author_id']?.toString() == _myId?.toString();
+      final isCurrentChat = _areSameChat(msgChatId, activeChatId);
 
+      // Ищем чат в текущем списке чатов для информации об отправителе
+      final targetChat = _chats.cast<Map<String, dynamic>?>().firstWhere(
+        (c) => c != null && _areSameChat(c['chat_id']?.toString(), msgChatId),
+        orElse: () => null,
+      );
+      final otherUser = targetChat?['other_user'] as Map<String, dynamic>?;
 
+      // Если это выбранный открытый чат — добавляем сообщение в UI
+      if (isCurrentChat) {
+        final dynamic rawMsgId = data['id'];
+        final msgId = rawMsgId is int ? rawMsgId : int.tryParse(rawMsgId.toString());
 
-      if (type == 'todo_list_message') {
-        data['message_type'] = 'todo_list';
-        data['author_id'] = data['creator_id'];
-      } else if (type == 'poll_message') {
-        data['message_type'] = 'poll';
-        data['author_id'] = data['creator_id'];
-      } else if (type == 'voice_message') {
-        data['message_type'] = 'voice';
-      } else {
-        data['message_type'] ??= 'regular';
-      }
-      
-      final encryptedText = (data['encrypted_text'] ?? data['encrypted_content']) as String?;
-      final otherUser = _selectedChat?['other_user'] as Map<String, dynamic>?;
-      
-      String decryptedText = "";
-      if (type == 'voice_message') {
-        decryptedText = jsonEncode({
-          'type': 'voice',
-          'file_id': data['file_id'],
-          'duration': data['duration'],
-          'mime_type': data['mime_type'] ?? 'audio/wav',
-        });
-      } else if (type == 'video_message') {
-        final fileId = data['file_id']?.toString() ?? '';
-        final localPath = _localVideoPaths[fileId];
-        decryptedText = jsonEncode({
-          'type': 'video_message',
-          'file_id': fileId,
-          'file_url': data['file_url'],
-          'duration': data['duration'],
-          'mime_type': data['mime_type'] ?? 'video/mp4',
-          if (localPath != null) 'local_path': localPath,
-        });
-      } else if (data['message_type'] == 'call' || type == 'call') {
-        decryptedText = jsonEncode({
-          'type': 'call',
-          'status': data['message_data']?['status'] ?? data['status'] ?? 'connected',
-          'duration': data['message_data']?['duration'] ?? data['duration'] ?? 0,
-          'call_type': data['message_data']?['call_type'] ?? data['call_type'] ?? 'audio',
-          'caller_id': data['message_data']?['caller_id'] ?? data['caller_id'],
-          'callee_id': data['message_data']?['callee_id'] ?? data['callee_id'],
-        });
-      } else if (encryptedText != null && encryptedText.isNotEmpty) {
-        if (_sentPlaintexts.containsKey(encryptedText)) {
-          decryptedText = _sentPlaintexts[encryptedText]!;
-          _sentPlaintexts.remove(encryptedText);
-        } else {
-          try {
-            decryptedText = await _decryptForChat(encryptedText, activeChatId, otherUser);
-          } catch (_) {
-            decryptedText = (AppLocalizations.of(context)?.oshibkaDeshifrovaniya_4146 ?? 'Fallback');
+        if (msgId != null && !_messages.any((m) => m['id'] == msgId)) {
+          if (type == 'todo_list_message') {
+            data['message_type'] = 'todo_list';
+            data['author_id'] = data['creator_id'];
+          } else if (type == 'poll_message') {
+            data['message_type'] = 'poll';
+            data['author_id'] = data['creator_id'];
+          } else if (type == 'voice_message') {
+            data['message_type'] = 'voice';
+          } else {
+            data['message_type'] ??= 'regular';
+          }
+
+          final encryptedText = (data['encrypted_text'] ?? data['encrypted_content']) as String?;
+          String decryptedText = "";
+          if (type == 'voice_message') {
+            decryptedText = jsonEncode({
+              'type': 'voice',
+              'file_id': data['file_id'],
+              'duration': data['duration'],
+              'mime_type': data['mime_type'] ?? 'audio/wav',
+            });
+          } else if (type == 'video_message') {
+            final fileId = data['file_id']?.toString() ?? '';
+            final localPath = _localVideoPaths[fileId];
+            decryptedText = jsonEncode({
+              'type': 'video_message',
+              'file_id': fileId,
+              'file_url': data['file_url'],
+              'duration': data['duration'],
+              'mime_type': data['mime_type'] ?? 'video/mp4',
+              if (localPath != null) 'local_path': localPath,
+            });
+          } else if (data['message_type'] == 'call' || type == 'call') {
+            decryptedText = jsonEncode({
+              'type': 'call',
+              'status': data['message_data']?['status'] ?? data['status'] ?? 'connected',
+              'duration': data['message_data']?['duration'] ?? data['duration'] ?? 0,
+              'call_type': data['message_data']?['call_type'] ?? data['call_type'] ?? 'audio',
+              'caller_id': data['message_data']?['caller_id'] ?? data['caller_id'],
+              'callee_id': data['message_data']?['callee_id'] ?? data['callee_id'],
+            });
+          } else if (encryptedText != null && encryptedText.isNotEmpty) {
+            if (_sentPlaintexts.containsKey(encryptedText)) {
+              decryptedText = _sentPlaintexts[encryptedText]!;
+              _sentPlaintexts.remove(encryptedText);
+            } else {
+              try {
+                decryptedText = await _decryptForChat(encryptedText, activeChatId, otherUser);
+              } catch (_) {
+                decryptedText = (AppLocalizations.of(context)?.oshibkaDeshifrovaniya_4146 ?? 'Fallback');
+              }
+            }
+          }
+
+          _cacheAuthorProfileFromMsg(data);
+
+          if (mounted) {
+            final isMyEcho = data['author_id']?.toString() == _myId?.toString();
+            final pendingIndex = isMyEcho
+                ? _messages.indexWhere((m) =>
+                    m['is_pending'] == true ||
+                    (m['id'] is int && (m['id'] as int) < 0) ||
+                    m['id'].toString().startsWith('temp_'))
+                : -1;
+
+            setState(() {
+              _decryptedMessages[msgId] = decryptedText;
+              if (pendingIndex != -1) {
+                final oldId = _messages[pendingIndex]['id'];
+                _messages[pendingIndex] = Map<String, dynamic>.from(data);
+                _messages[pendingIndex]['is_pending'] = false;
+                if (oldId != null && _decryptedMessages.containsKey(oldId)) {
+                  _decryptedMessages.remove(oldId);
+                }
+              } else {
+                _messages.insert(0, data);
+                _messagesToAnimate.add(msgId);
+                _scrollToBottom();
+              }
+            });
           }
         }
       }
-      
-      // Кешируем профиль автора для отображения аватарки в группе
-      _cacheAuthorProfileFromMsg(data);
-      
-      if (mounted) {
-        final isMyEcho = data['author_id']?.toString() == _myId?.toString();
-        final pendingIndex = isMyEcho
-            ? _messages.indexWhere((m) =>
-                m['is_pending'] == true ||
-                (m['id'] is int && (m['id'] as int) < 0) ||
-                m['id'].toString().startsWith('temp_'))
-            : -1;
 
-        setState(() {
-          _decryptedMessages[msgId] = decryptedText;
-          if (pendingIndex != -1) {
-            final oldId = _messages[pendingIndex]['id'];
-            _messages[pendingIndex] = Map<String, dynamic>.from(data);
-            _messages[pendingIndex]['is_pending'] = false;
-            if (oldId != null && _decryptedMessages.containsKey(oldId)) {
-              _decryptedMessages.remove(oldId);
-            }
-          } else {
-            _messages.insert(0, data);
-            _messagesToAnimate.add(msgId);
-            _scrollToBottom();
-          }
-        });
-      }
-      _loadChats(silent: true);
-      
-      final isMe = data['author_id']?.toString() == _myId?.toString();
+      // Если сообщение пришло от другого пользователя — проверяем отправку системного уведомления
       if (!isMe) {
-        _markChatAsRead(activeChatId);
-        
-        final isFocused = await windowManager.isFocused();
-        if (!isFocused) {
+        bool isFocused = false;
+        bool isMinimized = false;
+        bool isVisible = true;
+        try {
+          isFocused = await windowManager.isFocused();
+          isMinimized = await windowManager.isMinimized();
+          isVisible = await windowManager.isVisible();
+        } catch (_) {}
+        final isAppActive = isFocused && !isMinimized && isVisible;
+
+        if (isAppActive && isCurrentChat) {
+          _markChatAsRead(msgChatId);
+        } else {
           final prefs = await SharedPreferences.getInstance();
           final notificationsEnabled = prefs.getBool('settings_notifications') ?? true;
           if (notificationsEnabled) {
             final senderName = otherUser != null 
-                ? (otherUser['first_name'] ?? otherUser['username'] ?? (AppLocalizations.of(context)?.novoeSoobschenie_1d49 ?? 'Fallback')) 
-                : (AppLocalizations.of(context)?.novoeSoobschenie_1d49 ?? 'Fallback');
+                ? (otherUser['first_name'] ?? otherUser['username'] ?? (AppLocalizations.of(context)?.novoeSoobschenie_1d49 ?? 'Новое сообщение')) 
+                : (AppLocalizations.of(context)?.novoeSoobschenie_1d49 ?? 'Новое сообщение');
             
             final avatar = otherUser?['avatar']?.toString();
             final gradient = otherUser?['avatar_gradient']?.toString();
             
-            String body = decryptedText;
+            final encryptedText = (data['encrypted_text'] ?? data['encrypted_content']) as String?;
+            String body = "";
+            if (type == 'voice_message') {
+              body = (AppLocalizations.of(context)?.golosovoeSoobschenie_4a85 ?? 'Голосовое сообщение');
+            } else if (type == 'video_message') {
+              body = (AppLocalizations.of(context)?.videosoobschenie_d687 ?? 'Видеосообщение');
+            } else if (encryptedText != null && encryptedText.isNotEmpty) {
+              try {
+                body = await _decryptForChat(encryptedText, msgChatId, otherUser);
+              } catch (_) {
+                body = (AppLocalizations.of(context)?.zashifrovannoeSoobschenie_ca35 ?? 'Новое сообщение');
+              }
+            } else {
+              body = (AppLocalizations.of(context)?.novoeSoobschenie_1d49 ?? 'Новое сообщение');
+            }
+
             if (body.startsWith('{')) {
               try {
                 final parsed = jsonDecode(body);
                 if (parsed['type'] == 'voice') {
-                  body = (AppLocalizations.of(context)?.golosovoeSoobschenie_4a85 ?? 'Fallback');
+                  body = (AppLocalizations.of(context)?.golosovoeSoobschenie_4a85 ?? 'Голосовое сообщение');
                 } else if (parsed['type'] == 'video_message') {
-                  body = (AppLocalizations.of(context)?.videosoobschenie_d687 ?? 'Fallback');
+                  body = (AppLocalizations.of(context)?.videosoobschenie_d687 ?? 'Видеосообщение');
                 } else if (parsed['type'] == 'file') {
-                  body = (AppLocalizations.of(context)?.fayl_826d ?? 'Fallback');
+                  body = (AppLocalizations.of(context)?.fayl_826d ?? 'Файл');
                 } else if (parsed['type'] == 'call') {
-                  body = (AppLocalizations.of(context)?.zvonok_e8d5 ?? 'Fallback');
+                  body = (AppLocalizations.of(context)?.zvonok_e8d5 ?? 'Звонок');
                 }
               } catch (_) {}
             }
 
             NotificationService().showMessageNotification(
-              chatId: activeChatId,
+              chatId: msgChatId,
               title: senderName,
               body: body,
               avatar: avatar,
@@ -2013,7 +2069,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
       if (mounted) {
         setState(() {
           for (var i = 0; i < _chats.length; i++) {
-            if (_chats[i]['chat_id'] == chatId) {
+            if (_areSameChat(_chats[i]['chat_id']?.toString(), chatId)) {
               final updated = Map<String, dynamic>.from(_chats[i]);
               updated['unread_count'] = 0;
               _chats[i] = updated;
@@ -2021,12 +2077,15 @@ class _MessengerScreenState extends State<MessengerScreen> {
             }
           }
           for (var i = 0; i < _archivedChats.length; i++) {
-            if (_archivedChats[i]['chat_id'] == chatId) {
+            if (_areSameChat(_archivedChats[i]['chat_id']?.toString(), chatId)) {
               final updated = Map<String, dynamic>.from(_archivedChats[i]);
               updated['unread_count'] = 0;
               _archivedChats[i] = updated;
               break;
             }
+          }
+          if (_selectedChat != null && _areSameChat(_selectedChat!['chat_id']?.toString(), chatId)) {
+            _selectedChat!['unread_count'] = 0;
           }
         });
       }
@@ -6045,10 +6104,12 @@ class _MessengerScreenState extends State<MessengerScreen> {
         iconBg = const Color(0xFF10B981).withOpacity(0.15);
         final mins = duration ~/ 60;
         final secs = duration % 60;
+        final minLabel = AppLocalizations.of(context)?.minuteShort ?? 'мин';
+        final secLabel = AppLocalizations.of(context)?.secondShort ?? 'сек';
         if (mins > 0) {
-          callSubtext = '$mins мин $secs сек';
+          callSubtext = '$mins $minLabel $secs $secLabel';
         } else {
-          callSubtext = '$secs сек';
+          callSubtext = '$secs $secLabel';
         }
       } else {
         iconColor = const Color(0xFF9CA3AF);
@@ -6063,10 +6124,12 @@ class _MessengerScreenState extends State<MessengerScreen> {
         iconBg = const Color(0xFF10B981).withOpacity(0.15);
         final mins = duration ~/ 60;
         final secs = duration % 60;
+        final minLabel = AppLocalizations.of(context)?.minuteShort ?? 'мин';
+        final secLabel = AppLocalizations.of(context)?.secondShort ?? 'сек';
         if (mins > 0) {
-          callSubtext = '$mins мин $secs сек';
+          callSubtext = '$mins $minLabel $secs $secLabel';
         } else {
-          callSubtext = '$secs сек';
+          callSubtext = '$secs $secLabel';
         }
       } else if (status == 'rejected') {
         callTitle = (AppLocalizations.of(context)?.otklonennyyZvonok_d499 ?? 'Fallback');

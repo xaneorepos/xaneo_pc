@@ -17,6 +17,7 @@ import '../services/crypto_service.dart';
 import '../services/account_service.dart';
 import '../widgets/custom_toast.dart';
 import '../services/notification_service.dart';
+import '../widgets/avatar_cropper.dart';
 
 /// Экран регистрации с 7 шагами (как в xaneo_mobile)
 class RegisterScreen extends StatefulWidget {
@@ -364,13 +365,14 @@ class _RegisterScreenState extends State<RegisterScreen>
   Future<void> _pickAvatar() async {
     final XFile? image = await _imagePicker.pickImage(
       source: ImageSource.gallery,
-      maxWidth: 512,
-      maxHeight: 512,
-      imageQuality: 85,
     );
     
-    if (image != null) {
-      setState(() => _avatarFile = File(image.path));
+    if (image != null && mounted) {
+      final rawFile = File(image.path);
+      final croppedFile = await AvatarCropper.show(context, rawFile);
+      if (croppedFile != null && mounted) {
+        setState(() => _avatarFile = croppedFile);
+      }
     }
   }
   
@@ -453,6 +455,7 @@ class _RegisterScreenState extends State<RegisterScreen>
       firstName: _firstNameController.text.trim().isEmpty 
           ? null 
           : _firstNameController.text.trim(),
+      avatarFile: _avatarFile,
     );
     
     if (result.success) {

@@ -4,17 +4,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../services/api_service.dart';
 import 'base_custom_modal.dart';
-import 'package:xaneo/l10n/app_localizations.dart';
 
 /// Модальное окно глобального поиска для Xaneo PC.
-/// Построено на кастомной базовой модалке BaseCustomModal (в точности повторяющей модалку смены аккаунтов).
+/// Построено на кастомной базовой модалке BaseCustomModal.
 class GlobalSearchModal extends BaseCustomModal {
   final ApiService apiService;
   final Function(Map<String, dynamic> item, String type) onResultSelected;
 
-  GlobalSearchModal({
+  const GlobalSearchModal({
     super.key,
-    super.modalTag = 'Fallback',
+    super.modalTag = '',
+    super.title = '',
     required this.apiService,
     required this.onResultSelected,
   });
@@ -53,6 +53,12 @@ class _GlobalSearchModalState extends BaseCustomModalState<GlobalSearchModal> {
   List<dynamic> _channels = [];
   List<dynamic> _bots = [];
   List<dynamic> _favorites = [];
+
+  @override
+  String getModalTitle(BuildContext context) {
+    final lang = Localizations.localeOf(context).languageCode.toLowerCase();
+    return _SearchL10n.get('header', lang).toUpperCase();
+  }
 
   @override
   void initState() {
@@ -139,6 +145,7 @@ class _GlobalSearchModalState extends BaseCustomModalState<GlobalSearchModal> {
 
   @override
   Widget buildContent(BuildContext context, ScrollController scrollController, bool isDark, double scale) {
+    final lang = Localizations.localeOf(context).languageCode.toLowerCase();
     final borderColor = isDark ? const Color(0xFF1E1E1E) : const Color(0xFFEBEBEB);
 
     return Column(
@@ -148,7 +155,7 @@ class _GlobalSearchModalState extends BaseCustomModalState<GlobalSearchModal> {
         Container(
           height: 42 * scale,
           decoration: BoxDecoration(
-            color: isDark ? Color(0xFF141414) : const Color(0xFFF5F5F5),
+            color: isDark ? const Color(0xFF141414) : const Color(0xFFF5F5F5),
             borderRadius: BorderRadius.circular(8 * scale),
             border: Border.all(
               color: borderColor,
@@ -165,7 +172,7 @@ class _GlobalSearchModalState extends BaseCustomModalState<GlobalSearchModal> {
               fontFamily: 'Inter',
             ),
             decoration: InputDecoration(
-              hintText: (AppLocalizations.of(context)?.poiskKontaktovChatovKanalovBotov_db66 ?? 'Fallback'),
+              hintText: _SearchL10n.get('hint', lang),
               hintStyle: TextStyle(
                 color: isDark ? Colors.white38 : Colors.black38,
                 fontSize: 13 * scale,
@@ -201,18 +208,18 @@ class _GlobalSearchModalState extends BaseCustomModalState<GlobalSearchModal> {
           scrollDirection: Axis.horizontal,
           child: Row(
             children: [
-              _buildFilterChip('all', (AppLocalizations.of(context)?.vse_984b ?? 'Fallback'), isDark, scale),
-              _buildFilterChip('users', (AppLocalizations.of(context)?.lyudi_c7ae ?? 'Fallback'), isDark, scale),
-              _buildFilterChip('groups', (AppLocalizations.of(context)?.gruppy_ebc4 ?? 'Fallback'), isDark, scale),
-              _buildFilterChip('channels', (AppLocalizations.of(context)?.kanaly_0c11 ?? 'Fallback'), isDark, scale),
-              _buildFilterChip('bots', (AppLocalizations.of(context)?.boty_d6e4 ?? 'Fallback'), isDark, scale),
-              _buildFilterChip('favorites', (AppLocalizations.of(context)?.izbrannoe_2fc4 ?? 'Fallback'), isDark, scale),
+              _buildFilterChip('all', _SearchL10n.get('all', lang), isDark, scale),
+              _buildFilterChip('users', _SearchL10n.get('users', lang), isDark, scale),
+              _buildFilterChip('groups', _SearchL10n.get('groups', lang), isDark, scale),
+              _buildFilterChip('channels', _SearchL10n.get('channels', lang), isDark, scale),
+              _buildFilterChip('bots', _SearchL10n.get('bots', lang), isDark, scale),
+              _buildFilterChip('favorites', _SearchL10n.get('favorites', lang), isDark, scale),
             ],
           ),
         ),
         SizedBox(height: 12 * scale),
 
-        // Список результатов
+        // Основной контент результатов
         Expanded(
           child: _isLoading
               ? Center(
@@ -221,52 +228,50 @@ class _GlobalSearchModalState extends BaseCustomModalState<GlobalSearchModal> {
                     height: 24 * scale,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
-                      valueColor: AlwaysStoppedAnimation<Color>(
-                        isDark ? Colors.white54 : const Color(0xFF2563EB),
-                      ),
+                      color: isDark ? Colors.white54 : Colors.black54,
                     ),
                   ),
                 )
-              : _buildResultsList(scrollController, isDark, scale),
+              : _buildResultsList(context, scrollController, isDark, scale, lang),
         ),
       ],
     );
   }
 
-  Widget _buildFilterChip(String categoryId, String label, bool isDark, double scale) {
-    final isSelected = _selectedCategory == categoryId;
-    final activeBg = isDark ? Colors.white.withValues(alpha: 0.15) : const Color(0xFF2563EB);
-    final activeText = Colors.white;
+  Widget _buildFilterChip(String categoryKey, String label, bool isDark, double scale) {
+    final isSelected = _selectedCategory == categoryKey;
 
-    return Padding(
-      padding: EdgeInsets.only(right: 6 * scale),
-      child: GestureDetector(
-        onTap: () {
-          setState(() {
-            _selectedCategory = categoryId;
-          });
-        },
-        child: MouseRegion(
-          cursor: SystemMouseCursors.click,
+    final activeBg = isDark ? Colors.white : Colors.black;
+    final activeFg = isDark ? Colors.black : Colors.white;
+    final inactiveBg = isDark ? const Color(0xFF141414) : const Color(0xFFF5F5F5);
+    final inactiveFg = isDark ? Colors.white70 : Colors.black87;
+    final borderColor = isDark ? const Color(0xFF1E1E1E) : const Color(0xFFEBEBEB);
+
+    return Container(
+      margin: EdgeInsets.only(right: 6 * scale),
+      child: Material(
+        color: isSelected ? activeBg : inactiveBg,
+        borderRadius: BorderRadius.circular(6 * scale),
+        child: InkWell(
+          onTap: () {
+            setState(() {
+              _selectedCategory = categoryKey;
+            });
+          },
+          borderRadius: BorderRadius.circular(6 * scale),
           child: Container(
-            padding: EdgeInsets.symmetric(horizontal: 12 * scale, vertical: 5 * scale),
+            padding: EdgeInsets.symmetric(horizontal: 12 * scale, vertical: 6 * scale),
             decoration: BoxDecoration(
-              color: isSelected
-                  ? activeBg
-                  : (isDark ? const Color(0xFF141414) : const Color(0xFFF5F5F5)),
               borderRadius: BorderRadius.circular(6 * scale),
               border: Border.all(
-                color: isSelected
-                    ? activeBg
-                    : (isDark ? const Color(0xFF1E1E1E) : const Color(0xFFEBEBEB)),
+                color: isSelected ? Colors.transparent : borderColor,
+                width: 1,
               ),
             ),
             child: Text(
               label,
               style: TextStyle(
-                color: isSelected
-                    ? activeText
-                    : (isDark ? Colors.white70 : Colors.black87),
+                color: isSelected ? activeFg : inactiveFg,
                 fontSize: 12 * scale,
                 fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
                 fontFamily: 'Inter',
@@ -278,7 +283,7 @@ class _GlobalSearchModalState extends BaseCustomModalState<GlobalSearchModal> {
     );
   }
 
-  Widget _buildResultsList(ScrollController scrollController, bool isDark, double scale) {
+  Widget _buildResultsList(BuildContext context, ScrollController scrollController, bool isDark, double scale, String lang) {
     if (_query.isEmpty) {
       return Center(
         child: Column(
@@ -290,12 +295,16 @@ class _GlobalSearchModalState extends BaseCustomModalState<GlobalSearchModal> {
               color: isDark ? Colors.white24 : Colors.black26,
             ),
             SizedBox(height: 10 * scale),
-            Text(
-              (AppLocalizations.of(context)?.vvediteZaprosDlyaPoiskaPo_9955 ?? 'Fallback'),
-              style: TextStyle(
-                color: isDark ? Colors.white38 : Colors.black38,
-                fontSize: 13 * scale,
-                fontFamily: 'Inter',
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: 20 * scale),
+              child: Text(
+                _SearchL10n.get('empty_query', lang),
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: isDark ? Colors.white38 : Colors.black38,
+                  fontSize: 13 * scale,
+                  fontFamily: 'Inter',
+                ),
               ),
             ),
           ],
@@ -321,7 +330,7 @@ class _GlobalSearchModalState extends BaseCustomModalState<GlobalSearchModal> {
             ),
             SizedBox(height: 10 * scale),
             Text(
-              (AppLocalizations.of(context)?.nichegoNeNaydeno_8767 ?? 'Fallback'),
+              _SearchL10n.get('nothing_found', lang),
               style: TextStyle(
                 color: isDark ? Colors.white38 : Colors.black38,
                 fontSize: 13 * scale,
@@ -335,27 +344,27 @@ class _GlobalSearchModalState extends BaseCustomModalState<GlobalSearchModal> {
 
     return ListView(
       controller: scrollController,
-      physics: BouncingScrollPhysics(),
+      physics: const BouncingScrollPhysics(),
       children: [
         if (hasFavorites) ...[
-          _buildSectionHeader((AppLocalizations.of(context)?.izbrannoe_b637 ?? 'Fallback'), isDark, scale),
-          ..._favorites.map((item) => _buildResultItem(item, 'favorites', isDark, scale)),
+          _buildSectionHeader(_SearchL10n.get('sec_favorites', lang), isDark, scale),
+          ..._favorites.map((item) => _buildResultItem(item, 'favorites', isDark, scale, lang)),
         ],
         if (hasBots) ...[
-          _buildSectionHeader((AppLocalizations.of(context)?.boty_800d ?? 'Fallback'), isDark, scale),
-          ..._bots.map((item) => _buildResultItem(item, 'bot', isDark, scale)),
+          _buildSectionHeader(_SearchL10n.get('sec_bots', lang), isDark, scale),
+          ..._bots.map((item) => _buildResultItem(item, 'bot', isDark, scale, lang)),
         ],
         if (hasChannels) ...[
-          _buildSectionHeader((AppLocalizations.of(context)?.kanaly_ccec ?? 'Fallback'), isDark, scale),
-          ..._channels.map((item) => _buildResultItem(item, 'channel', isDark, scale)),
+          _buildSectionHeader(_SearchL10n.get('sec_channels', lang), isDark, scale),
+          ..._channels.map((item) => _buildResultItem(item, 'channel', isDark, scale, lang)),
         ],
         if (hasGroups) ...[
-          _buildSectionHeader((AppLocalizations.of(context)?.gruppy_cfd6 ?? 'Fallback'), isDark, scale),
-          ..._groups.map((item) => _buildResultItem(item, 'group', isDark, scale)),
+          _buildSectionHeader(_SearchL10n.get('sec_groups', lang), isDark, scale),
+          ..._groups.map((item) => _buildResultItem(item, 'group', isDark, scale, lang)),
         ],
         if (hasUsers) ...[
-          _buildSectionHeader((AppLocalizations.of(context)?.polzovateli_e0ec ?? 'Fallback'), isDark, scale),
-          ..._users.map((item) => _buildResultItem(item, 'user', isDark, scale)),
+          _buildSectionHeader(_SearchL10n.get('sec_users', lang), isDark, scale),
+          ..._users.map((item) => _buildResultItem(item, 'user', isDark, scale, lang)),
         ],
       ],
     );
@@ -365,7 +374,7 @@ class _GlobalSearchModalState extends BaseCustomModalState<GlobalSearchModal> {
     return Padding(
       padding: EdgeInsets.only(top: 10 * scale, bottom: 6 * scale, left: 4 * scale),
       child: Text(
-        title,
+        title.toUpperCase(),
         style: TextStyle(
           color: isDark ? Colors.white38 : Colors.black38,
           fontSize: 10 * scale,
@@ -377,15 +386,15 @@ class _GlobalSearchModalState extends BaseCustomModalState<GlobalSearchModal> {
     );
   }
 
-  Widget _buildResultItem(Map<String, dynamic> item, String type, bool isDark, double scale) {
+  Widget _buildResultItem(Map<String, dynamic> item, String type, bool isDark, double scale, String lang) {
     String name = '';
     String subtitle = '';
     IconData iconData = Icons.person_rounded;
     Color iconColor = const Color(0xFF2563EB);
 
     if (type == 'favorites') {
-      name = (AppLocalizations.of(context)?.izbrannoe_2fc4 ?? 'Fallback');
-      subtitle = (AppLocalizations.of(context)?.sohranennyeSoobscheniya_6b62 ?? 'Fallback');
+      name = _SearchL10n.get('favorites', lang);
+      subtitle = _SearchL10n.get('saved_sub', lang);
       iconData = Icons.bookmark_rounded;
       iconColor = const Color(0xFF8B5CF6);
     } else if (type == 'user') {
@@ -398,20 +407,20 @@ class _GlobalSearchModalState extends BaseCustomModalState<GlobalSearchModal> {
       iconData = Icons.person_rounded;
       iconColor = const Color(0xFF2563EB);
     } else if (type == 'bot') {
-      name = item['first_name']?.toString() ?? item['username']?.toString() ?? (AppLocalizations.of(context)?.bot_0ae1 ?? 'Bot');
-      subtitle = '@${item['username'] ?? (AppLocalizations.of(context)?.bot_0f46 ?? 'bot')}';
+      name = item['first_name']?.toString() ?? item['username']?.toString() ?? _SearchL10n.get('bot_label', lang);
+      subtitle = '@${item['username'] ?? _SearchL10n.get('bot_label', lang).toLowerCase()}';
       iconData = Icons.smart_toy_rounded;
       iconColor = const Color(0xFF10B981);
     } else if (type == 'group') {
-      name = item['name']?.toString() ?? (AppLocalizations.of(context)?.gruppa_99d9 ?? 'Group');
+      name = item['name']?.toString() ?? _SearchL10n.get('group_label', lang);
       final count = item['members_count'] is int ? item['members_count'] as int : int.tryParse(item['members_count']?.toString() ?? '0') ?? 0;
-      subtitle = AppLocalizations.of(context)?.membersCount(count) ?? '$count members';
+      subtitle = _SearchL10n.formatMembers(count, lang);
       iconData = Icons.groups_rounded;
       iconColor = const Color(0xFFA855F7);
     } else if (type == 'channel') {
-      name = item['name']?.toString() ?? (AppLocalizations.of(context)?.kanal_2710 ?? 'Channel');
+      name = item['name']?.toString() ?? _SearchL10n.get('channel_label', lang);
       final count = item['subscribers_count'] is int ? item['subscribers_count'] as int : int.tryParse(item['subscribers_count']?.toString() ?? '0') ?? 0;
-      subtitle = AppLocalizations.of(context)?.subscribersCount(count) ?? '$count subscribers';
+      subtitle = _SearchL10n.formatSubscribers(count, lang);
       iconData = Icons.campaign_rounded;
       iconColor = const Color(0xFFF59E0B);
     }
@@ -498,7 +507,7 @@ class _GlobalSearchModalState extends BaseCustomModalState<GlobalSearchModal> {
     String? avatarGradient,
   }) {
     final size = 36.0 * scale;
-    final initials = displayName.isNotEmpty ? displayName.substring(0, 1).toUpperCase() : "?";
+    final initials = displayName.isNotEmpty ? displayName.substring(0, 1).toUpperCase() : '?';
 
     if (avatarUrl != null && avatarUrl.isNotEmpty) {
       if (avatarUrl.startsWith('data:image/svg+xml')) {
@@ -513,95 +522,25 @@ class _GlobalSearchModalState extends BaseCustomModalState<GlobalSearchModal> {
               svgString = Uri.decodeComponent(avatarUrl.substring(commaIndex + 1));
             }
           }
-
           if (svgString.isNotEmpty) {
-            if (svgString.contains('<text') && svgString.contains('</text>')) {
-              Gradient? gradient;
-              final stopColors = <String>[];
-              final matches = RegExp(r'stop-color:(#[A-Fa-f0-9]{6})|stop-color="(#[A-Fa-f0-9]{6})"').allMatches(svgString);
-              for (var m in matches) {
-                final c = m.group(1) ?? m.group(2);
-                if (c != null && !stopColors.contains(c)) {
-                  stopColors.add(c);
-                }
-              }
-
-              String? gradStr;
-              if (stopColors.length >= 2) {
-                gradStr = '${stopColors[0]}|${stopColors[1]}';
-              } else if (stopColors.length == 1) {
-                gradStr = '${stopColors[0]}|${stopColors[0]}';
-              } else {
-                final rectMatch = RegExp(r'fill="(#[A-Fa-f0-9]{6})"').firstMatch(svgString);
-                if (rectMatch != null) {
-                  final col = rectMatch.group(1);
-                  if (col != null) gradStr = '$col|$col';
-                }
-              }
-              gradStr ??= avatarGradient;
-
-              if (gradStr != null && gradStr.contains('|')) {
-                try {
-                  final colors = gradStr.split('|');
-                  if (colors.length == 2) {
-                    final color1 = Color(int.parse(colors[0].trim().replaceFirst('#', ''), radix: 16) + 0xFF000000);
-                    final color2 = Color(int.parse(colors[1].trim().replaceFirst('#', ''), radix: 16) + 0xFF000000);
-                    gradient = LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [color1, color2],
-                    );
-                  }
-                } catch (_) {}
-              }
-
-              return Container(
-                width: size,
-                height: size,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: gradient == null ? iconColor.withValues(alpha: 0.15) : null,
-                  gradient: gradient,
-                ),
-                child: CustomPaint(
-                  painter: _InitialsPainter(
-                    initial: initials,
-                    color: Colors.white,
-                    fontSize: size * 0.45,
-                  ),
-                ),
-              );
-            }
-
             return ClipOval(
-              child: SizedBox(
+              child: SvgPicture.string(
+                svgString,
                 width: size,
                 height: size,
-                child: SvgPicture.string(
-                  svgString,
-                  width: size,
-                  height: size,
-                  fit: BoxFit.cover,
-                ),
+                fit: BoxFit.cover,
               ),
             );
           }
-        } catch (e) {
-          debugPrint('Error parsing SVG avatar in search: $e');
-        }
+        } catch (_) {}
       } else {
-        // PNG / JPEG / Network image
         return ClipOval(
-          child: SizedBox(
+          child: Image.network(
+            avatarUrl,
             width: size,
             height: size,
-            child: Image.network(
-              avatarUrl,
-              width: size,
-              height: size,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => _buildFallbackAvatar(initials, iconColor, size, scale, avatarGradient: avatarGradient),
-            ),
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => _buildFallbackAvatar(initials, iconColor, size, scale, avatarGradient: avatarGradient),
           ),
         );
       }
@@ -611,18 +550,19 @@ class _GlobalSearchModalState extends BaseCustomModalState<GlobalSearchModal> {
   }
 
   Widget _buildFallbackAvatar(String initials, Color iconColor, double size, double scale, {String? avatarGradient}) {
-    Gradient? gradient;
-    if (avatarGradient != null && avatarGradient.contains('|')) {
+    List<Color> gradientColors = [
+      iconColor.withValues(alpha: 0.8),
+      iconColor.withValues(alpha: 0.4),
+    ];
+
+    if (avatarGradient != null && avatarGradient.isNotEmpty) {
       try {
-        final colors = avatarGradient.split('|');
-        if (colors.length == 2) {
-          final color1 = Color(int.parse(colors[0].trim().replaceFirst('#', ''), radix: 16) + 0xFF000000);
-          final color2 = Color(int.parse(colors[1].trim().replaceFirst('#', ''), radix: 16) + 0xFF000000);
-          gradient = LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [color1, color2],
-          );
+        final hexes = avatarGradient.split(',').map((s) => s.trim()).toList();
+        if (hexes.length >= 2) {
+          gradientColors = hexes.map((h) {
+            final clean = h.replaceAll('#', '');
+            return Color(int.parse('FF$clean', radix: 16));
+          }).toList();
         }
       } catch (_) {}
     }
@@ -631,65 +571,228 @@ class _GlobalSearchModalState extends BaseCustomModalState<GlobalSearchModal> {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: gradient == null ? iconColor.withValues(alpha: 0.15) : null,
-        gradient: gradient,
         shape: BoxShape.circle,
-        border: gradient == null
-            ? Border.all(
-                color: iconColor.withValues(alpha: 0.3),
-                width: 1,
-              )
-            : null,
+        gradient: LinearGradient(
+          colors: gradientColors,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
       ),
-      child: CustomPaint(
-        painter: _InitialsPainter(
-          initial: initials,
-          color: gradient != null ? Colors.white : iconColor,
-          fontSize: size * 0.45,
+      child: Center(
+        child: Text(
+          initials,
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 14 * scale,
+            fontFamily: 'Inter',
+          ),
         ),
       ),
     );
   }
 }
 
-class _InitialsPainter extends CustomPainter {
-  final String initial;
-  final Color color;
-  final double fontSize;
+class _SearchL10n {
+  static const Map<String, Map<String, String>> _map = {
+    'ru': {
+      'header': 'ГЛОБАЛЬНЫЙ ПОИСК',
+      'hint': 'Поиск контактов, чатов, каналов, ботов...',
+      'all': 'Все',
+      'users': 'Люди',
+      'groups': 'Группы',
+      'channels': 'Каналы',
+      'bots': 'Боты',
+      'favorites': 'Избранное',
+      'empty_query': 'Введите запрос для поиска по контактам, сообщениям и глобальной базе',
+      'nothing_found': 'Ничего не найдено',
+      'sec_favorites': 'Избранное',
+      'sec_bots': 'Боты',
+      'sec_channels': 'Каналы',
+      'sec_groups': 'Группы',
+      'sec_users': 'Пользователи',
+      'saved_sub': 'Сохраненные сообщения',
+      'bot_label': 'Бот',
+      'group_label': 'Группа',
+      'channel_label': 'Канал',
+    },
+    'en': {
+      'header': 'GLOBAL SEARCH',
+      'hint': 'Search contacts, chats, channels, bots...',
+      'all': 'All',
+      'users': 'People',
+      'groups': 'Groups',
+      'channels': 'Channels',
+      'bots': 'Bots',
+      'favorites': 'Saved',
+      'empty_query': 'Type to search contacts, chats, channels and global directory',
+      'nothing_found': 'Nothing found',
+      'sec_favorites': 'Saved Messages',
+      'sec_bots': 'Bots',
+      'sec_channels': 'Channels',
+      'sec_groups': 'Groups',
+      'sec_users': 'Users',
+      'saved_sub': 'Saved messages',
+      'bot_label': 'Bot',
+      'group_label': 'Group',
+      'channel_label': 'Channel',
+    },
+    'zh': {
+      'header': '全局搜索',
+      'hint': '搜索联系人、聊天、频道、机器人...',
+      'all': '全部',
+      'users': '用户',
+      'groups': '群组',
+      'channels': '频道',
+      'bots': '机器人',
+      'favorites': '收藏',
+      'empty_query': '输入内容以搜索联系人、聊天记录和全局目录',
+      'nothing_found': '未找到匹配结果',
+      'sec_favorites': '收藏夹',
+      'sec_bots': '机器人',
+      'sec_channels': '频道',
+      'sec_groups': '群组',
+      'sec_users': '用户',
+      'saved_sub': '已保存的消息',
+      'bot_label': '机器人',
+      'group_label': '群组',
+      'channel_label': '频道',
+    },
+    'es': {
+      'header': 'BÚSQUEDA GLOBAL',
+      'hint': 'Buscar contactos, chats, canales, bots...',
+      'all': 'Todo',
+      'users': 'Personas',
+      'groups': 'Grupos',
+      'channels': 'Canales',
+      'bots': 'Bots',
+      'favorites': 'Guardados',
+      'empty_query': 'Escribe para buscar contactos, chats y directorio global',
+      'nothing_found': 'No se encontraron resultados',
+      'sec_favorites': 'Mensajes guardados',
+      'sec_bots': 'Bots',
+      'sec_channels': 'Canales',
+      'sec_groups': 'Grupos',
+      'sec_users': 'Usuarios',
+      'saved_sub': 'Mensajes guardados',
+      'bot_label': 'Bot',
+      'group_label': 'Grupo',
+      'channel_label': 'Canal',
+    },
+    'fr': {
+      'header': 'RECHERCHE GLOBALE',
+      'hint': 'Rechercher contacts, discussions, chaînes, bots...',
+      'all': 'Tout',
+      'users': 'Personnes',
+      'groups': 'Groupes',
+      'channels': 'Chaînes',
+      'bots': 'Bots',
+      'favorites': 'Favoris',
+      'empty_query': 'Saisissez votre recherche dans les contacts et le répertoire global',
+      'nothing_found': 'Aucun résultat trouvé',
+      'sec_favorites': 'Messages enregistrés',
+      'sec_bots': 'Bots',
+      'sec_channels': 'Chaînes',
+      'sec_groups': 'Groupes',
+      'sec_users': 'Utilisateurs',
+      'saved_sub': 'Messages enregistrés',
+      'bot_label': 'Bot',
+      'group_label': 'Groupe',
+      'channel_label': 'Chaîne',
+    },
+    'ar': {
+      'header': 'البحث العالمي',
+      'hint': 'البحث في جهات الاتصال والمحادثات والقنوات...',
+      'all': 'الكل',
+      'users': 'أشخاص',
+      'groups': 'مجموعات',
+      'channels': 'قنوات',
+      'bots': 'روبوتات',
+      'favorites': 'المحفوظات',
+      'empty_query': 'اكتب للبحث في جهات الاتصال والمحادثات والدليل العام',
+      'nothing_found': 'لم يتم العثور على نتائج',
+      'sec_favorites': 'الرسائل المحفوظة',
+      'sec_bots': 'البوتات',
+      'sec_channels': 'القنوات',
+      'sec_groups': 'المجموعات',
+      'sec_users': 'المستخدمون',
+      'saved_sub': 'الرسائل المحفوظة',
+      'bot_label': 'بوت',
+      'group_label': 'مجموعة',
+      'channel_label': 'قناة',
+    },
+    'ja': {
+      'header': 'グローバル検索',
+      'hint': '連絡先、チャット、チャンネル、ボットを検索...',
+      'all': 'すべて',
+      'users': 'ユーザー',
+      'groups': 'グループ',
+      'channels': 'チャンネル',
+      'bots': 'ボット',
+      'favorites': '保存済み',
+      'empty_query': 'キーワードを入力して検索します',
+      'nothing_found': '結果が見つかりませんでした',
+      'sec_favorites': '保存済みメッセージ',
+      'sec_bots': 'ボット',
+      'sec_channels': 'チャンネル',
+      'sec_groups': 'グループ',
+      'sec_users': 'ユーザー',
+      'saved_sub': '保存済みメッセージ',
+      'bot_label': 'ボット',
+      'group_label': 'グループ',
+      'channel_label': 'チャンネル',
+    },
+    'ko': {
+      'header': '글로벌 검색',
+      'hint': '연락처, 대화, 채널, 봇 검색...',
+      'all': '전체',
+      'users': '사용자',
+      'groups': '그룹',
+      'channels': '채널',
+      'bots': '봇',
+      'favorites': '보관함',
+      'empty_query': '검색어를 입력하여 전체 디렉토리를 검색하세요',
+      'nothing_found': '검색 결과가 없습니다',
+      'sec_favorites': '저장된 메시지',
+      'sec_bots': '봇',
+      'sec_channels': '채널',
+      'sec_groups': '그룹',
+      'sec_users': '사용자',
+      'saved_sub': '저장된 메시지',
+      'bot_label': '봇',
+      'group_label': '그룹',
+      'channel_label': '채널',
+    },
+  };
 
-  const _InitialsPainter({
-    required this.initial,
-    required this.color,
-    required this.fontSize,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final textPainter = TextPainter(
-      text: TextSpan(
-        text: initial,
-        style: TextStyle(
-          color: color,
-          fontSize: fontSize,
-          fontWeight: FontWeight.bold,
-          fontFamily: 'Inter',
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-    );
-    textPainter.layout();
-
-    final baseline = textPainter.computeDistanceToActualBaseline(TextBaseline.alphabetic);
-    final capHeight = fontSize * 0.72;
-    final glyphTop = baseline - capHeight;
-    final glyphVisualCenter = glyphTop + capHeight / 2;
-
-    final dy = size.height / 2 - glyphVisualCenter;
-    final dx = (size.width - textPainter.width) / 2;
-    textPainter.paint(canvas, Offset(dx, dy));
+  static String get(String key, String lang) {
+    final l = _map.containsKey(lang) ? lang : 'en';
+    return _map[l]?[key] ?? _map['en']?[key] ?? key;
   }
 
-  @override
-  bool shouldRepaint(_InitialsPainter old) =>
-      old.initial != initial || old.color != color || old.fontSize != fontSize;
+  static String formatMembers(int count, String lang) {
+    switch (lang) {
+      case 'ru': return '$count участников';
+      case 'zh': return '$count 位成员';
+      case 'es': return '$count miembros';
+      case 'fr': return '$count membres';
+      case 'ar': return '$count عضو';
+      case 'ja': return '$count メンバー';
+      case 'ko': return '$count 명의 멤버';
+      default: return '$count members';
+    }
+  }
+
+  static String formatSubscribers(int count, String lang) {
+    switch (lang) {
+      case 'ru': return '$count подписчиков';
+      case 'zh': return '$count 位订阅者';
+      case 'es': return '$count suscriptores';
+      case 'fr': return '$count abonnés';
+      case 'ar': return '$count مشترك';
+      case 'ja': return '$count 登録者';
+      case 'ko': return '$count 명의 구독자';
+      default: return '$count subscribers';
+    }
+  }
 }

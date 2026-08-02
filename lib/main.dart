@@ -46,6 +46,12 @@ void main(List<String> args) async {
     return;
   }
 
+  // Single instance check: if another instance is already running, focus it and exit.
+  final isPrimary = await _ensureSingleInstance();
+  if (!isPrimary) {
+    exit(0);
+  }
+
   // Intercept and ignore harmless platform/formatting exceptions to keep console clean
   final originalOnError = FlutterError.onError;
   FlutterError.onError = (FlutterErrorDetails details) {
@@ -299,5 +305,34 @@ class NotificationOverlayApp extends StatelessWidget {
         arguments: arguments,
       ),
     );
+  }
+}
+
+/// Ensures only a single instance of the application is running.
+/// If an instance is already running, sends a message to bring it to focus and exits.
+Future<bool> _ensureSingleInstance() async {
+  const port = 49543;
+  try {
+    final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, port);
+    server.listen((Socket socket) {
+      socket.listen((data) async {
+        final message = String.fromCharCodes(data).trim();
+        if (message == 'focus') {
+          await windowManager.show();
+          await windowManager.restore();
+          await windowManager.focus();
+        }
+      });
+    });
+    return true;
+  } catch (_) {
+    try {
+      final socket = await Socket.connect(InternetAddress.loopbackIPv4, port,
+          timeout: const Duration(seconds: 1));
+      socket.write('focus');
+      await socket.flush();
+      await socket.close();
+    } catch (_) {}
+    return false;
   }
 }

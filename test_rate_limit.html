@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Тест защиты Rate Limit</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #0f172a; color: #f8fafc; padding: 2rem; }
+    .card { background: #1e293b; padding: 1.5rem; border-radius: 12px; max-width: 650px; margin: 0 auto; box-shadow: 0 10px 25px rgba(0,0,0,0.3); }
+    h2 { margin-top: 0; color: #38bdf8; }
+    button { background: #2563eb; color: #fff; border: none; padding: 12px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 14px; }
+    button:hover { background: #1d4ed8; }
+    #log { margin-top: 1.5rem; background: #020617; padding: 1rem; border-radius: 8px; font-family: monospace; font-size: 13px; max-height: 400px; overflow-y: auto; white-space: pre-wrap; line-height: 1.5; }
+    .badge-success { color: #4ade80; font-weight: bold; }
+    .badge-danger { color: #f87171; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>🛡️ Тест блокировки спама кодов (Rate Limit)</h2>
+    <p>Тестируемый Email: <b>huskarnat@gmail.com</b></p>
+    <button onclick="runTest()">Запустить тест уязвимости</button>
+    <div id="log">Нажмите кнопку для запуска теста...</div>
+  </div>
+
+  <script src="./test_rate_limit.js"></script>
+  <script>
+    async function runTest() {
+      const logEl = document.getElementById('log');
+      logEl.innerHTML = "⏳ Выполнение теста...\n";
+      const targetEmail = "huskarnat@gmail.com";
+      const apiEndpoint = "/api/v1/auth/send-verification-code/";
+
+      function log(msg, cls = "") {
+        const span = cls ? `<span class="${cls}">${msg}</span>` : msg;
+        logEl.innerHTML += span + "\n";
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      async function sendRequest() {
+        try {
+          const res = await fetch(apiEndpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email: targetEmail, username: "security_test" })
+          });
+          const data = await res.json();
+          return { status: res.status, data };
+        } catch (e) {
+          return { status: 0, error: e.message };
+        }
+      }
+
+      log("1. Отправка 1-го запроса...");
+      const r1 = await sendRequest();
+      log(`   Запрос 1 -> HTTP ${r1.status}: ${JSON.stringify(r1.data)}`);
+
+      log("\n2. Мгновенная попытка 2-го запроса...");
+      const r2 = await sendRequest();
+      log(`   Запрос 2 -> HTTP ${r2.status}: ${JSON.stringify(r2.data)}`);
+
+      if (r2.status === 429) {
+        log("\n✅ ИТОГ: УЯЗВИМОСТЬ УСПЕШНО ЗАКРЫТА!", "badge-success");
+        log(`🔒 Сервер вернул HTTP 429 (${r2.data.code}). Кулдаун: ${r2.data.retry_after || 60} сек.`, "badge-success");
+      } else {
+        log("\n🚨 ИТОГ: УЯЗВИМОСТЬ НЕ ЗАКРЫТА! Второй запрос прошёл!", "badge-danger");
+      }
+    }
+  </script>
+</body>
+</html>

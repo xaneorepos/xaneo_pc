@@ -342,22 +342,43 @@ class ApiService {
     required String passwordConfirm,
     required String birthDate,
     String? firstName,
+    File? avatarFile,
   }) async {
     try {
       final urlStr = '$_baseUrl/auth/register/';
-      final data = {
-        'username': username,
-        'email': email,
-        'password': password,
-        'password_confirm': passwordConfirm,
-        'birth_date': birthDate,
-        'email_verified': true, // Обязательно true после подтверждения кода
-        if (firstName != null) 'realname': firstName,
-      };
-      final options = _getOptions(contentType: 'application/json');
+      dynamic data;
+      Options options;
+
+      if (avatarFile != null) {
+        final fileName = avatarFile.path.split('/').last;
+        data = FormData.fromMap({
+          'username': username,
+          'email': email,
+          'password': password,
+          'password_confirm': passwordConfirm,
+          'birth_date': birthDate,
+          'email_verified': true,
+          if (firstName != null) 'realname': firstName,
+          'avatar': await MultipartFile.fromFile(
+            avatarFile.path,
+            filename: fileName,
+          ),
+        });
+        options = _getOptions(contentType: 'multipart/form-data');
+      } else {
+        data = {
+          'username': username,
+          'email': email,
+          'password': password,
+          'password_confirm': passwordConfirm,
+          'birth_date': birthDate,
+          'email_verified': true,
+          if (firstName != null) 'realname': firstName,
+        };
+        options = _getOptions(contentType: 'application/json');
+      }
       
       print('DEBUG API: POST to $urlStr');
-      print('DEBUG API: Request Body: $data');
       print('DEBUG API: Request Headers: ${options.headers}');
       final cookiesBefore = await _cookieJar.loadForRequest(Uri.parse(urlStr));
       print('DEBUG API: Cookies before request: $cookiesBefore');
@@ -369,7 +390,6 @@ class ApiService {
       );
       
       print('DEBUG API: Response Code: ${response.statusCode}');
-      print('DEBUG API: Response Headers: ${response.headers}');
       print('DEBUG API: Response Body: ${response.data}');
       final cookiesAfter = await _cookieJar.loadForRequest(Uri.parse(urlStr));
       print('DEBUG API: Cookies after request: $cookiesAfter');
@@ -392,6 +412,35 @@ class ApiService {
       return ApiResponse(
         success: false,
         error: 'Ошибка регистрации: $e',
+      );
+    }
+  }
+
+  /// Загрузить аватарку профиля пользователя
+  Future<ApiResponse> uploadAvatar(File file) async {
+    try {
+      final options = await _getAuthOptions();
+      options.contentType = 'multipart/form-data';
+
+      final fileName = file.path.split('/').last;
+      final formData = FormData.fromMap({
+        'avatar': await MultipartFile.fromFile(
+          file.path,
+          filename: fileName,
+        ),
+      });
+
+      final response = await _dio.post(
+        '$_baseUrl/user/upload-avatar/',
+        data: formData,
+        options: options,
+      );
+
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(
+        success: false,
+        error: 'Ошибка загрузки аватара: $e',
       );
     }
   }
@@ -980,6 +1029,128 @@ class ApiService {
       return ApiResponse(
         success: false,
         error: 'Ошибка отметки сообщений как прочитанных: $e',
+      );
+    }
+  }
+
+  /// Создать новый канал (POST /api/v1/channels/create/)
+  Future<ApiResponse> createChannel({
+    required String name,
+    String? username,
+    String? description,
+    bool isPrivate = false,
+    File? avatarFile,
+  }) async {
+    try {
+      final options = await _getAuthOptions();
+      final String privacy = isPrivate ? 'private' : 'public';
+      final Map<String, dynamic> mapData = {
+        'name': name,
+        'privacy': privacy,
+        if (description != null && description.isNotEmpty) 'description': description,
+        if (!isPrivate && username != null && username.isNotEmpty)
+          'username': username.replaceAll('@', '').trim(),
+      };
+
+      dynamic dataToSend;
+      if (avatarFile != null) {
+        dataToSend = FormData.fromMap({
+          ...mapData,
+          'avatar': await MultipartFile.fromFile(
+            avatarFile.path,
+            filename: avatarFile.path.split(Platform.pathSeparator).last,
+          ),
+        });
+      } else {
+        dataToSend = mapData;
+      }
+
+      final response = await _dio.post(
+        '$_baseUrl/channels/create/',
+        data: dataToSend,
+        options: options,
+      );
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(
+        success: false,
+        error: 'Ошибка создания канала: $e',
+      );
+    }
+  }
+
+  /// Создать новую группу (POST /api/v1/groups/create/)
+  Future<ApiResponse> createGroup({
+    required String name,
+    String? username,
+    String? description,
+    bool isPrivate = false,
+    File? avatarFile,
+  }) async {
+    try {
+      final options = await _getAuthOptions();
+      final String privacy = isPrivate ? 'private' : 'public';
+      final Map<String, dynamic> mapData = {
+        'name': name,
+        'privacy': privacy,
+        if (description != null && description.isNotEmpty) 'description': description,
+        if (!isPrivate && username != null && username.isNotEmpty)
+          'username': username.replaceAll('@', '').trim(),
+      };
+
+      dynamic dataToSend;
+      if (avatarFile != null) {
+        dataToSend = FormData.fromMap({
+          ...mapData,
+          'avatar': await MultipartFile.fromFile(
+            avatarFile.path,
+            filename: avatarFile.path.split(Platform.pathSeparator).last,
+          ),
+        });
+      } else {
+        dataToSend = mapData;
+      }
+
+      final response = await _dio.post(
+        '$_baseUrl/groups/create/',
+        data: dataToSend,
+        options: options,
+      );
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(
+        success: false,
+        error: 'Ошибка создания группы: $e',
+      );
+    }
+  }
+
+  /// Получить подробную информацию о канале (включая owner_id, can_post, is_owner и т.д.)
+  Future<ApiResponse> getChannelDetails(dynamic channelId) async {
+    try {
+      final options = await _getAuthOptions();
+      final idStr = channelId.toString().replaceFirst('channel_', '');
+      final id = int.tryParse(idStr) ?? idStr;
+      
+      try {
+        final response = await _dio.get(
+          '$_baseUrl/channels/$id/',
+          options: options,
+        );
+        if (response.statusCode != null && response.statusCode! < 400) {
+          return _handleDioResponse(response);
+        }
+      } catch (_) {}
+
+      final response2 = await _dio.get(
+        '$_baseUrl/channels/info/$id/',
+        options: options,
+      );
+      return _handleDioResponse(response2);
+    } catch (e) {
+      return ApiResponse(
+        success: false,
+        error: 'Ошибка получения детальной информации о канале: $e',
       );
     }
   }

@@ -995,7 +995,7 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String get vyDelitesSvoimEkranom_16b1 => '您正在共享屏幕';
   @override
-  String get polzovatel_f154 => 'Пользователь';
+  String get polzovatel_f154 => '用户';
   @override
   String get ishodyaschiyVyzov_650b => '正在呼出...';
   @override
@@ -1319,7 +1319,7 @@ class AppLocalizationsZh extends AppLocalizations {
   @override
   String get oshibkaZagruzkiFayla_86e5 => 'Ошибка загрузки файла';
   @override
-  String get sohranitFaylKak_0f93 => 'Сохранить файл как';
+  String get sohranitFaylKak_0f93 => '另存为';
   @override
   String get oshibkaSkachivaniyaFayla_34ac => 'Ошибка скачивания файла';
   @override

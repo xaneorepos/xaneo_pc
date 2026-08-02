@@ -53,6 +53,9 @@ abstract class BaseCustomModalState<T extends BaseCustomModal> extends State<T> 
   /// Базовая ширина модалки в логических пикселях (умножается на scale)
   double get modalWidth => 520.0;
 
+  /// Дополнительный коэффициент масштабирования (по умолчанию 1.0)
+  double get customScale => 1.0;
+
   /// Процент максимальной высоты экрана
   double get modalHeightFactor => 0.80;
 
@@ -75,8 +78,8 @@ abstract class BaseCustomModalState<T extends BaseCustomModal> extends State<T> 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final scaleProvider = Provider.of<ScaleProvider>(context, listen: false);
-    final scale = scaleProvider.scale;
+    final scaleProvider = Provider.of<ScaleProvider>(context);
+    final scale = scaleProvider.scale * customScale;
     final screenSize = MediaQuery.of(context).size;
 
     final bgColor = isDark ? const Color(0xFF0C0C0C) : Colors.white;

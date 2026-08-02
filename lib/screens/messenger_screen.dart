@@ -9,6 +9,7 @@ import 'package:record/record.dart';
 import 'package:camera/camera.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -25,6 +26,9 @@ import '../widgets/voice_waveform_slider.dart';
 import '../widgets/settings_modal.dart'; // деактивировано — используем XaneoSettingsModal
 import '../widgets/xaneo_settings_modal.dart';
 import '../widgets/global_search_modal.dart';
+import '../widgets/create_options_modal.dart';
+import '../widgets/create_channel_modal.dart';
+import '../widgets/create_group_modal.dart';
 import '../widgets/music_playlist_modal.dart';
 import '../services/api_service.dart';
 import '../services/crypto_service.dart';
@@ -89,6 +93,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
   Map<String, dynamic>? _myProfile;
   int? _myId;
   String? _myUsername;
+  String? _apiAccessToken;
   List<AccountInfo> _accounts = [];
 
   // Предзагруженные профили собеседников (userId -> данные с применённой приватностью)
@@ -104,7 +109,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
   bool _isSearchLoading = false;
 
   // Message input controller
-  final TextEditingController _messageController = TextEditingController();
+  final FormattedTextEditingController _messageController = FormattedTextEditingController();
   final ScrollController _scrollController = ScrollController();
 
   // Polling timer
@@ -264,6 +269,167 @@ class _MessengerScreenState extends State<MessengerScreen> {
     super.dispose();
   }
 
+  // --- LOCAL CACHING / DB PERSISTENCE METHODS ---
+
+  Future<void> _loadKeysFromLocalCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final myIdStr = _myId?.toString() ?? 'default';
+
+      final peerKeysRaw = prefs.getString('cached_peer_public_keys_$myIdStr');
+      if (peerKeysRaw != null) {
+        _peerPublicKeys.clear();
+        final map = jsonDecode(peerKeysRaw) as Map<String, dynamic>;
+        map.forEach((k, v) {
+          if (v is String && k != myIdStr) _peerPublicKeys[k] = v;
+        });
+      }
+
+      final chatKeysRaw = prefs.getString('cached_chat_symmetric_keys_$myIdStr');
+      if (chatKeysRaw != null) {
+        final map = jsonDecode(chatKeysRaw) as Map<String, dynamic>;
+        map.forEach((k, v) {
+          if (v is String) _chatSymmetricKeys[k] = v;
+        });
+      }
+    } catch (e) {
+      print('Error loading keys from local cache: $e');
+    }
+  }
+
+  Future<void> _savePeerPublicKeys() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final myIdStr = _myId?.toString() ?? 'default';
+      await prefs.setString('cached_peer_public_keys_$myIdStr', jsonEncode(_peerPublicKeys));
+    } catch (_) {}
+  }
+
+  Future<void> _saveChatSymmetricKeys() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final myIdStr = _myId?.toString() ?? 'default';
+      await prefs.setString('cached_chat_symmetric_keys_$myIdStr', jsonEncode(_chatSymmetricKeys));
+    } catch (_) {}
+  }
+
+  Future<void> _loadChatsFromLocalCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final myIdStr = _myId?.toString() ?? 'default';
+
+      final chatsRaw = prefs.getString('cached_chats_$myIdStr');
+      final archivedRaw = prefs.getString('cached_archived_chats_$myIdStr');
+
+      if (chatsRaw != null || archivedRaw != null) {
+        final chatList = chatsRaw != null
+            ? (jsonDecode(chatsRaw) as List).map((c) => Map<String, dynamic>.from(c as Map)).toList()
+            : <Map<String, dynamic>>[];
+        final archivedList = archivedRaw != null
+            ? (jsonDecode(archivedRaw) as List).map((c) => Map<String, dynamic>.from(c as Map)).toList()
+            : <Map<String, dynamic>>[];
+
+        if (mounted && chatList.isNotEmpty) {
+          setState(() {
+            _chats = chatList;
+            _archivedChats = archivedList;
+            _isChatsLoading = false;
+
+            final joinedIds = <String>{};
+            for (final c in [...chatList, ...archivedList]) {
+              final id = c['chat_id'] as String?;
+              if (id != null) joinedIds.add(id);
+            }
+            _joinedChatIds = joinedIds;
+          });
+
+          for (var chat in [...chatList, ...archivedList]) {
+            final lastMsg = chat['last_message'];
+            if (lastMsg != null) {
+              _decryptSingleMessage(lastMsg, chat['chat_id'] as String, chat['other_user']);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      print('Error loading chats from local cache: $e');
+    }
+  }
+
+  Future<void> _saveChatsToLocalCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final myIdStr = _myId?.toString() ?? 'default';
+      await prefs.setString('cached_chats_$myIdStr', jsonEncode(_chats));
+      await prefs.setString('cached_archived_chats_$myIdStr', jsonEncode(_archivedChats));
+    } catch (_) {}
+  }
+
+  bool _isCurrentChat(String? chatId) {
+    if (chatId == null || _selectedChat == null) return false;
+    final selectedId = (_selectedChat!['chat_id'] ?? _selectedChat!['id'])?.toString();
+    return _areSameChat(selectedId, chatId);
+  }
+
+  Future<void> _loadMessagesFromLocalCache(String chatId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final myIdStr = _myId?.toString() ?? 'default';
+      final cachedMsgsRaw = prefs.getString('cached_messages_${myIdStr}_$chatId');
+      final cachedDecryptedRaw = prefs.getString('cached_decrypted_${myIdStr}_$chatId');
+
+      if (cachedDecryptedRaw != null) {
+        try {
+          final Map<String, dynamic> decMap = jsonDecode(cachedDecryptedRaw);
+          decMap.forEach((k, v) {
+            final id = int.tryParse(k);
+            if (id != null) _decryptedMessages[id] = v.toString();
+          });
+        } catch (_) {}
+      }
+
+      if (cachedMsgsRaw != null) {
+        final msgList = (jsonDecode(cachedMsgsRaw) as List)
+            .map((m) => Map<String, dynamic>.from(m as Map))
+            .toList();
+
+        if (mounted && msgList.isNotEmpty) {
+          for (final msg in msgList) {
+            _cacheAuthorProfileFromMsg(msg);
+          }
+          await _decryptAllMessages(msgList, chatId, _selectedChat?['other_user']);
+          if (mounted && _isCurrentChat(chatId)) {
+            setState(() {
+              _messages = msgList;
+              _isMessagesLoading = false;
+            });
+          }
+        }
+      }
+    } catch (e) {
+      print('Error loading messages from local cache: $e');
+    }
+  }
+
+  Future<void> _saveMessagesToLocalCache(String chatId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final myIdStr = _myId?.toString() ?? 'default';
+      final msgsToStore = _messages.take(50).toList();
+      await prefs.setString('cached_messages_${myIdStr}_$chatId', jsonEncode(msgsToStore));
+
+      final decryptedToStore = <String, String>{};
+      for (final msg in msgsToStore) {
+        final dynamic rawId = msg['id'];
+        final id = rawId is int ? rawId : int.tryParse(rawId?.toString() ?? '');
+        if (id != null && _decryptedMessages.containsKey(id)) {
+          decryptedToStore[id.toString()] = _decryptedMessages[id]!;
+        }
+      }
+      await prefs.setString('cached_decrypted_${myIdStr}_$chatId', jsonEncode(decryptedToStore));
+    } catch (_) {}
+  }
+
   Future<void> _initMessenger() async {
     // 1. Load keys from local storage
     if (!_cryptoService.hasKeys) {
@@ -277,11 +443,13 @@ class _MessengerScreenState extends State<MessengerScreen> {
     }
 
     // 2. Load profile & save current account to switcher list
+    final token = await _apiService.getAccessToken();
     final profileRes = await _apiService.getProfile();
     if (profileRes.success && profileRes.data != null) {
       await AccountService().saveCurrentAccount(profileRes.data!);
       if (mounted) {
         setState(() {
+          _apiAccessToken = token;
           _myProfile = profileRes.data;
           final dynamic rawMyId = profileRes.data!['id'];
           _myId = rawMyId is int ? rawMyId : int.tryParse(rawMyId.toString());
@@ -313,7 +481,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
       });
     }
 
-    // 3. Load contacts, chats & start polling
+    // 3. Load cached keys, chats, contacts & start network sync
+    await _loadKeysFromLocalCache();
+    await _loadChatsFromLocalCache();
     await _loadContactsCache();
     await _loadChats();
     _startPolling();
@@ -712,7 +882,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
         if (myUserId == null) return;
         encryptedText = await _cryptoService.encryptFavoritesMessage(plaintextToEncrypt, myUserId);
       } else if (chatId.startsWith('personal_')) {
-        final peerPubKey = await _getPeerPublicKey(otherUser);
+        final peerPubKey = await _getPeerPublicKey(otherUser, chatId: chatId);
         if (peerPubKey == null) return;
         if (peerPubKey == 'bot') {
           final chatKeyHex = await _getGroupChatKey(chatId);
@@ -911,6 +1081,37 @@ class _MessengerScreenState extends State<MessengerScreen> {
     return norm(s1) == norm(s2);
   }
 
+  bool _isMessageFromMe(dynamic msg) {
+    if (msg == null || _myId == null) return false;
+    final myIdStr = _myId.toString();
+
+    final authorId = msg['author_id']?.toString();
+    if (authorId == myIdStr) return true;
+
+    final senderId = msg['sender_id']?.toString();
+    if (senderId == myIdStr) return true;
+
+    final userId = msg['user_id']?.toString();
+    if (userId == myIdStr) return true;
+
+    if (msg['sender'] is Map) {
+      final sId = (msg['sender'] as Map)['id']?.toString();
+      if (sId == myIdStr) return true;
+    }
+
+    if (msg['author'] is Map) {
+      final aId = (msg['author'] as Map)['id']?.toString();
+      if (aId == myIdStr) return true;
+    }
+
+    if (msg['user'] is Map) {
+      final uId = (msg['user'] as Map)['id']?.toString();
+      if (uId == myIdStr) return true;
+    }
+
+    return false;
+  }
+
   Future<void> _handleWebSocketMessage(Map<String, dynamic> data, String activeChatId) async {
     final type = data['type'] as String?;
 
@@ -929,7 +1130,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
       // Обновляем список чатов
       _loadChats(silent: true);
 
-      final isMe = data['author_id']?.toString() == _myId?.toString();
+      final isMe = _isMessageFromMe(data);
       final isCurrentChat = _areSameChat(msgChatId, activeChatId);
 
       // Ищем чат в текущем списке чатов для информации об отправителе
@@ -1002,7 +1203,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
           _cacheAuthorProfileFromMsg(data);
 
           if (mounted) {
-            final isMyEcho = data['author_id']?.toString() == _myId?.toString();
+            final isMyEcho = _isMessageFromMe(data);
             final pendingIndex = isMyEcho
                 ? _messages.indexWhere((m) =>
                     m['is_pending'] == true ||
@@ -1279,6 +1480,18 @@ class _MessengerScreenState extends State<MessengerScreen> {
           _checkForNewMessages(_chats, chatList);
         }
         setState(() {
+          for (int i = 0; i < chatList.length; i++) {
+            final chatId = chatList[i]['chat_id'];
+            final existing = _chats.cast<Map<String, dynamic>?>().firstWhere(
+                  (c) => c != null && c['chat_id'] == chatId,
+                  orElse: () => null,
+                );
+            if (existing != null) {
+              final merged = Map<String, dynamic>.from(existing)..addAll(chatList[i]);
+              chatList[i] = merged;
+            }
+          }
+
           _chats = chatList;
           _archivedChats = archivedList;
           _isChatsLoading = false;
@@ -1297,7 +1510,8 @@ class _MessengerScreenState extends State<MessengerScreen> {
                   orElse: () => null,
                 );
             if (updatedChat != null) {
-              _selectedChat = updatedChat;
+              final mergedSelected = Map<String, dynamic>.from(_selectedChat!)..addAll(updatedChat);
+              _selectedChat = mergedSelected;
             }
           }
         });
@@ -1309,6 +1523,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
             _decryptSingleMessage(lastMsg, chat['chat_id'] as String, chat['other_user']);
           }
         }
+        _saveChatsToLocalCache();
       }
     } else {
       if (mounted) {
@@ -1548,29 +1763,54 @@ class _MessengerScreenState extends State<MessengerScreen> {
   }
 
   Future<void> _loadMessages(String chatId, {bool silent = false}) async {
-    if (!silent) {
+    await _loadMessagesFromLocalCache(chatId);
+    if (!_isCurrentChat(chatId)) return;
+
+    if (chatId.startsWith('channel_')) {
+      _apiService.getChannelDetails(chatId).then((resChannel) {
+        if (mounted && resChannel.success && resChannel.data != null && _isCurrentChat(chatId)) {
+          final detailData = resChannel.data!['channel'] is Map
+              ? resChannel.data!['channel'] as Map<String, dynamic>
+              : resChannel.data!;
+          setState(() {
+            if (_selectedChat != null && _areSameChat(_selectedChat!['chat_id']?.toString(), chatId)) {
+              _selectedChat!.addAll(Map<String, dynamic>.from(detailData));
+            }
+            final idx = _chats.indexWhere((c) => _areSameChat(c['chat_id']?.toString(), chatId));
+            if (idx >= 0) {
+              _chats[idx].addAll(Map<String, dynamic>.from(detailData));
+            }
+          });
+          _saveChatsToLocalCache();
+        }
+      });
+    }
+
+    if (!silent && _messages.isEmpty && _isCurrentChat(chatId)) {
       setState(() => _isMessagesLoading = true);
     }
     _hasMoreMessages = true;
     _isLoadingMore = false;
     final res = await _apiService.getMessages(chatId, limit: 20, offset: 0);
+
+    if (!_isCurrentChat(chatId)) return;
+
     if (res.success && res.data != null) {
       final msgList = res.data!['results'] as List? ?? [];
       for (final msg in msgList) {
         if (msg is Map<String, dynamic>) _cacheAuthorProfileFromMsg(msg);
       }
-      if (mounted) {
+      await _decryptAllMessages(msgList, chatId, _selectedChat?['other_user']);
+      if (mounted && _isCurrentChat(chatId)) {
         setState(() {
           _messages = msgList.toList();
           _isMessagesLoading = false;
           _hasMoreMessages = msgList.length >= 20;
         });
-        
-        // Decrypt all fetched messages
-        _decryptAllMessages(_messages, chatId, _selectedChat?['other_user']);
+        _saveMessagesToLocalCache(chatId);
       }
     } else {
-      if (mounted) {
+      if (mounted && _isCurrentChat(chatId)) {
         setState(() => _isMessagesLoading = false);
       }
     }
@@ -1589,7 +1829,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
   Future<void> _loadMoreMessages() async {
     if (_isLoadingMore || !_hasMoreMessages || _selectedChat == null) return;
 
-    final chatId = _selectedChat!['chat_id'] as String;
+    final chatId = (_selectedChat!['chat_id'] ?? _selectedChat!['id'])?.toString();
+    if (chatId == null || chatId.isEmpty) return;
+
     setState(() {
       _isLoadingMore = true;
     });
@@ -1597,23 +1839,24 @@ class _MessengerScreenState extends State<MessengerScreen> {
     final currentOffset = _messages.length;
     final res = await _apiService.getMessages(chatId, limit: 20, offset: currentOffset);
 
+    if (!_isCurrentChat(chatId)) return;
+
     if (res.success && res.data != null) {
       final msgList = res.data!['results'] as List? ?? [];
       for (final msg in msgList) {
         if (msg is Map<String, dynamic>) _cacheAuthorProfileFromMsg(msg);
       }
-      if (mounted) {
+      await _decryptAllMessages(msgList, chatId, _selectedChat?['other_user']);
+      if (mounted && _isCurrentChat(chatId)) {
         setState(() {
           _messages.addAll(msgList.toList());
           _isLoadingMore = false;
           _hasMoreMessages = msgList.length >= 20;
         });
-
-        // Decrypt only the new batch of messages
-        _decryptAllMessages(msgList, chatId, _selectedChat?['other_user']);
+        _saveMessagesToLocalCache(chatId);
       }
     } else {
-      if (mounted) {
+      if (mounted && _isCurrentChat(chatId)) {
         setState(() {
           _isLoadingMore = false;
         });
@@ -1622,36 +1865,82 @@ class _MessengerScreenState extends State<MessengerScreen> {
   }
 
   /// Get the peer's public key hex for personal chats
-  Future<String?> _getPeerPublicKey(Map<String, dynamic>? otherUser) async {
-    if (otherUser == null) return null;
+  Future<String?> _getPeerPublicKey(Map<String, dynamic>? otherUser, {String? chatId}) async {
+    String? targetUserIdStr;
+    final myIdStr = _myId?.toString();
 
-    final isBot = otherUser['is_bot'] == true ||
-        otherUser['bot'] == true ||
-        otherUser['username'] == 'bot_constructor' ||
-        (otherUser['username']?.toString().toLowerCase().endsWith('bot') ?? false) ||
-        (otherUser['username']?.toString().toLowerCase().startsWith('bot_') ?? false);
-    if (isBot) {
-      return 'bot';
+    // 1. Derive peer ID directly from personal chatId (e.g. personal_2_15)
+    if (chatId != null && chatId.startsWith('personal_')) {
+      final parts = chatId.split('_');
+      if (parts.length >= 3) {
+        final u1 = parts[1];
+        final u2 = parts[2];
+        if (myIdStr != null) {
+          targetUserIdStr = (u1 == myIdStr) ? u2 : u1;
+        }
+      }
     }
 
-    final userId = otherUser['id'];
-    if (userId == null) return null;
-    final userIdStr = userId.toString();
+    // 2. Fallback to otherUser if targetUserIdStr not found or equals myIdStr
+    if ((targetUserIdStr == null || targetUserIdStr == myIdStr) && otherUser != null) {
+      final isBot = otherUser['is_bot'] == true ||
+          otherUser['bot'] == true ||
+          otherUser['username'] == 'bot_constructor' ||
+          (otherUser['username']?.toString().toLowerCase().endsWith('bot') ?? false) ||
+          (otherUser['username']?.toString().toLowerCase().startsWith('bot_') ?? false);
+      if (isBot) {
+        return 'bot';
+      }
 
-    if (_peerPublicKeys.containsKey(userIdStr)) {
-      return _peerPublicKeys[userIdStr];
+      final userId = otherUser['id'];
+      if (userId != null && userId.toString() != myIdStr) {
+        targetUserIdStr = userId.toString();
+      }
     }
 
-    // The web client uses userId in the URL: /xsec2/keys/{userId}/
-    final res = await _apiService.getUserPublicKey(userIdStr);
+    // 3. Last fallback to chatId if still null or equals myIdStr
+    if (targetUserIdStr == null || targetUserIdStr == myIdStr) {
+      if (chatId != null && chatId.startsWith('personal_')) {
+        final parts = chatId.split('_');
+        if (parts.length >= 3) {
+          final u1 = parts[1];
+          final u2 = parts[2];
+          targetUserIdStr = (myIdStr != null && u1 == myIdStr) ? u2 : u1;
+        }
+      }
+    }
+
+    if (targetUserIdStr == null || targetUserIdStr == myIdStr) {
+      return null;
+    }
+
+    final myPubKeyHex = _cryptoService.x25519PublicKeyHex;
+
+    // Check cached peer keys, but invalidate if cached key erroneously matches my own public key!
+    if (_peerPublicKeys.containsKey(targetUserIdStr)) {
+      final cachedKey = _peerPublicKeys[targetUserIdStr];
+      if (cachedKey != null && cachedKey != 'bot' && myPubKeyHex != null && cachedKey == myPubKeyHex) {
+        _peerPublicKeys.remove(targetUserIdStr);
+      } else {
+        return cachedKey;
+      }
+    }
+
+    // Fetch peer public key from API
+    final res = await _apiService.getUserPublicKey(targetUserIdStr);
     if (res.success && res.data != null) {
       if (res.data!['is_bot'] == true) {
-        _peerPublicKeys[userIdStr] = 'bot';
+        _peerPublicKeys[targetUserIdStr] = 'bot';
+        _savePeerPublicKeys();
         return 'bot';
       }
       final key = res.data!['x25519_public_key'] as String?;
       if (key != null) {
-        _peerPublicKeys[userIdStr] = key;
+        if (myPubKeyHex != null && key == myPubKeyHex) {
+          print("WARNING: API returned own public key for peer $targetUserIdStr");
+        }
+        _peerPublicKeys[targetUserIdStr] = key;
+        _savePeerPublicKeys();
         return key;
       }
     }
@@ -1669,6 +1958,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
       final key = res.data!['key'] as String?;
       if (key != null) {
         _chatSymmetricKeys[chatId] = key;
+        _saveChatSymmetricKeys();
         return key;
       }
     }
@@ -1700,7 +1990,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
     }
 
     if (chatId.startsWith('personal_')) {
-      final peerPubKey = await _getPeerPublicKey(otherUser);
+      final peerPubKey = await _getPeerPublicKey(otherUser, chatId: chatId);
       if (peerPubKey == null) return (AppLocalizations.of(context)?.netKlyucha_337b ?? 'Fallback');
       if (peerPubKey == 'bot') {
         final chatKeyHex = await _getGroupChatKey(chatId);
@@ -1725,7 +2015,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
     if (id == null) return;
     final existing = _decryptedMessages[id];
     final isCall = (msg['type'] == 'call' || msg['message_type'] == 'call');
-    if (existing != null && (!isCall || existing.startsWith('{'))) return;
+    if (existing != null && !existing.startsWith('[') && (!isCall || existing.startsWith('{'))) return;
 
     final type = msg['type'] as String?;
     final messageType = msg['message_type'] as String?;
@@ -1828,7 +2118,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
       if (id == null) continue;
       final existing = _decryptedMessages[id];
       final isCall = (msg['type'] == 'call' || msg['message_type'] == 'call');
-      if (existing != null && (!isCall || existing.startsWith('{'))) continue;
+      if (existing != null && !existing.startsWith('[') && (!isCall || existing.startsWith('{'))) continue;
 
       final type = msg['type'] as String?;
       final messageType = msg['message_type'] as String?;
@@ -1944,7 +2234,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
         }
         encryptedText = await _cryptoService.encryptFavoritesMessage(plaintextToEncrypt, myUserId);
       } else if (chatId.startsWith('personal_')) {
-        final peerPubKey = await _getPeerPublicKey(otherUser);
+        final peerPubKey = await _getPeerPublicKey(otherUser, chatId: chatId);
         if (peerPubKey == null) {
           CustomToast.show(
             context,
@@ -2063,6 +2353,139 @@ class _MessengerScreenState extends State<MessengerScreen> {
     });
   }
 
+  void _wrapSelectionInInput(String prefix, String suffix) {
+    final text = _messageController.text;
+    final selection = _messageController.selection;
+    if (!selection.isValid || selection.isCollapsed) return;
+
+    final selectedText = text.substring(selection.start, selection.end);
+    final newText = text.replaceRange(selection.start, selection.end, '$prefix$selectedText$suffix');
+
+    _messageController.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection(
+        baseOffset: selection.start + prefix.length,
+        extentOffset: selection.start + prefix.length + selectedText.length,
+      ),
+    );
+  }
+
+  Widget _buildFormatButton({
+    required String label,
+    required String tooltip,
+    required TextStyle style,
+    required VoidCallback onTap,
+    required bool isDark,
+    required double scale,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(6 * scale),
+          hoverColor: isDark ? Colors.white24 : Colors.black12,
+          child: Container(
+            width: 32 * scale,
+            height: 32 * scale,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: isDark ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.05),
+              borderRadius: BorderRadius.circular(6 * scale),
+            ),
+            child: Text(
+              label,
+              style: style.copyWith(
+                color: isDark ? Colors.white : Colors.black87,
+                fontSize: 13 * scale,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFormattedText(String text, TextStyle baseStyle) {
+    final spans = _parseFormattedSpans(text, baseStyle);
+    return SelectableText.rich(
+      TextSpan(children: spans),
+      style: baseStyle,
+    );
+  }
+
+  List<InlineSpan> _parseFormattedSpans(String text, TextStyle baseStyle) {
+    final List<InlineSpan> spans = [];
+    final pattern = RegExp(
+      r'(\*\*|__)(.*?)\1|(\*|_)(.*?)\3|(~|~~)(.*?)\5|`([^`]+)`',
+      dotAll: true,
+    );
+
+    int lastIndex = 0;
+
+    for (final match in pattern.allMatches(text)) {
+      if (match.start > lastIndex) {
+        spans.add(TextSpan(
+          text: text.substring(lastIndex, match.start),
+          style: baseStyle,
+        ));
+      }
+
+      final fullMatch = match.group(0) ?? '';
+
+      if (fullMatch.startsWith('**') || fullMatch.startsWith('__')) {
+        final content = match.group(2) ?? '';
+        spans.add(TextSpan(
+          text: content,
+          style: baseStyle.copyWith(fontWeight: FontWeight.bold),
+        ));
+      } else if (fullMatch.startsWith('*') || fullMatch.startsWith('_')) {
+        final content = match.group(4) ?? '';
+        spans.add(TextSpan(
+          text: content,
+          style: baseStyle.copyWith(fontStyle: FontStyle.italic),
+        ));
+      } else if (fullMatch.startsWith('~')) {
+        final content = match.group(6) ?? '';
+        spans.add(TextSpan(
+          text: content,
+          style: baseStyle.copyWith(decoration: TextDecoration.lineThrough),
+        ));
+      } else if (fullMatch.startsWith('`')) {
+        final content = match.group(7) ?? '';
+        spans.add(WidgetSpan(
+          alignment: PlaceholderAlignment.middle,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+            decoration: BoxDecoration(
+              color: (baseStyle.color ?? Colors.white).withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text(
+              content,
+              style: baseStyle.copyWith(
+                fontFamily: 'monospace',
+                fontSize: (baseStyle.fontSize ?? 14) * 0.92,
+              ),
+            ),
+          ),
+        ));
+      }
+
+      lastIndex = match.end;
+    }
+
+    if (lastIndex < text.length) {
+      spans.add(TextSpan(
+        text: text.substring(lastIndex),
+        style: baseStyle,
+      ));
+    }
+
+    return spans;
+  }
+
   Future<void> _markChatAsRead(String chatId) async {
     final res = await _apiService.markMessagesAsRead(chatId);
     if (res.success) {
@@ -2101,13 +2524,21 @@ class _MessengerScreenState extends State<MessengerScreen> {
     _isMeTyping = false;
     _activeTypingUsers.clear();
     
+    final chatId = (chat['chat_id'] ?? chat['id'])?.toString();
+    final existingChat = _chats.cast<Map<String, dynamic>?>().firstWhere(
+          (c) => c != null && c['chat_id'] == chatId,
+          orElse: () => null,
+        );
+    final fullChat = existingChat != null
+        ? (Map<String, dynamic>.from(existingChat)..addAll(chat))
+        : chat;
+
     setState(() {
-      _selectedChat = chat;
+      _selectedChat = fullChat;
       _messages = [];
       _messagesToAnimate.clear();
       _isMessagesLoading = true;
     });
-    final chatId = (chat['chat_id'] ?? chat['id'])?.toString();
     if (chatId == null || chatId.isEmpty) return;
     _loadMessages(chatId);
     _connectWebSocket(chatId);
@@ -2338,6 +2769,48 @@ class _MessengerScreenState extends State<MessengerScreen> {
     );
   }
 
+  bool _isChannelOwnerOrAdmin(Map<String, dynamic>? chat) {
+    if (chat == null) return false;
+    final isChannel = chat['chat_type'] == 'channel';
+    
+    final isOwnerFlag = chat['is_owner'] == true;
+    final isCreatorFlag = chat['is_creator'] == true;
+    final isAdminFlag = chat['is_admin'] == true;
+    final canPostFlag = chat['can_post'] == true;
+
+    final role = (chat['user_role'] ?? chat['role'] ?? chat['member_role'] ?? '').toString().toLowerCase();
+    final isRoleMatch = (role == 'owner' || role == 'creator' || role == 'admin' || role == 'administrator' || role == 'author');
+
+    final dynamic ownerObj = chat['owner'] ?? chat['creator'] ?? chat['author'];
+    dynamic ownerId = chat['owner_id'] ?? chat['creator_id'] ?? chat['admin_id'] ?? chat['user_id'];
+    if (ownerId == null && ownerObj is Map) {
+      ownerId = ownerObj['id'] ?? ownerObj['user_id'];
+    }
+
+    bool isIdMatch = false;
+    if (ownerId != null && _myId != null) {
+      final sOwner = ownerId.toString().replaceAll(RegExp(r'[^0-9]'), '');
+      final sMyId = _myId.toString().replaceAll(RegExp(r'[^0-9]'), '');
+      if (sOwner.isNotEmpty && sOwner == sMyId) {
+        isIdMatch = true;
+      }
+    }
+
+    dynamic ownerUsername = chat['owner_username'] ?? chat['creator_username'];
+    if (ownerUsername == null && ownerObj is Map) {
+      ownerUsername = ownerObj['username'];
+    }
+    bool isUsernameMatch = false;
+    if (ownerUsername != null && _myProfile != null) {
+      final myUser = _myProfile!['username']?.toString();
+      if (myUser != null && myUser.isNotEmpty && ownerUsername.toString().toLowerCase() == myUser.toLowerCase()) {
+        isUsernameMatch = true;
+      }
+    }
+
+    return isOwnerFlag || isCreatorFlag || isAdminFlag || canPostFlag || isRoleMatch || isIdMatch || isUsernameMatch;
+  }
+
   bool _isUserSubscribedOrJoined(Map<String, dynamic>? chat) {
     if (chat == null) return false;
     final chatType = chat['chat_type'] as String?;
@@ -2485,17 +2958,17 @@ class _MessengerScreenState extends State<MessengerScreen> {
       final groupId = item['id'];
       final chatId = 'group_$groupId';
       final isMember = item['is_member'] == true || _joinedChatIds.contains(chatId);
-      final groupChat = {
-        'chat_id': chatId,
-        'chat_type': 'group',
-        'chat_display_name': item['name'] ?? (AppLocalizations.of(context)?.gruppa_99d9 ?? 'Fallback'),
-        'group_id': groupId,
-        'members_count': item['members_count'] ?? 0,
-        'avatar_url': item['avatar'] ?? item['avatar_url'],
-        'avatar_gradient': item['avatar_gradient'] ?? '',
-        'is_member': isMember,
-        'is_joined': isMember,
-      };
+      final groupChat = Map<String, dynamic>.from(item);
+      groupChat['chat_id'] = chatId;
+      groupChat['chat_type'] = 'group';
+      groupChat['chat_display_name'] = item['name'] ?? item['chat_display_name'] ?? (AppLocalizations.of(context)?.gruppa_99d9 ?? 'Fallback');
+      groupChat['group_id'] = groupId;
+      groupChat['members_count'] = item['members_count'] ?? 0;
+      groupChat['avatar_url'] = item['avatar'] ?? item['avatar_url'];
+      groupChat['avatar_gradient'] = item['avatar_gradient'] ?? '';
+      groupChat['is_member'] = isMember;
+      groupChat['is_joined'] = isMember;
+
       setState(() {
         _selectedChat = groupChat;
         if (isMember) {
@@ -2512,17 +2985,16 @@ class _MessengerScreenState extends State<MessengerScreen> {
       final channelId = item['id'];
       final chatId = 'channel_$channelId';
       final isSubscribed = item['is_subscribed'] == true || _joinedChatIds.contains(chatId);
-      final channelChat = {
-        'chat_id': chatId,
-        'chat_type': 'channel',
-        'chat_display_name': item['name'] ?? (AppLocalizations.of(context)?.kanal_2710 ?? 'Fallback'),
-        'channel_id': channelId,
-        'subscribers_count': item['subscribers_count'] ?? 0,
-        'avatar_url': item['avatar'] ?? item['avatar_url'],
-        'avatar_gradient': item['avatar_gradient'] ?? '',
-        'is_subscribed': isSubscribed,
-        'is_joined': isSubscribed,
-      };
+      final channelChat = Map<String, dynamic>.from(item);
+      channelChat['chat_id'] = chatId;
+      channelChat['chat_type'] = 'channel';
+      channelChat['chat_display_name'] = item['name'] ?? item['chat_display_name'] ?? (AppLocalizations.of(context)?.kanal_2710 ?? 'Fallback');
+      channelChat['channel_id'] = channelId;
+      channelChat['subscribers_count'] = item['subscribers_count'] ?? 0;
+      channelChat['avatar_url'] = item['avatar'] ?? item['avatar_url'];
+      channelChat['avatar_gradient'] = item['avatar_gradient'] ?? '';
+      channelChat['is_subscribed'] = isSubscribed;
+      channelChat['is_joined'] = isSubscribed;
       setState(() {
         _selectedChat = channelChat;
         if (isSubscribed) {
@@ -4095,7 +4567,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
               if (_viewingArchive)
                 IconButton(
                   icon: Icon(Icons.arrow_back_rounded, size: 20 * scale),
-                  tooltip: (AppLocalizations.of(context)?.nazadKChatam_7edb ?? 'Fallback'),
+                  tooltip: _TooltipL10n.get('back_to_chats', context),
                   onPressed: () {
                     setState(() {
                       _viewingArchive = false;
@@ -4106,7 +4578,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
               else
                 IconButton(
                   icon: Icon(Icons.menu_rounded, size: 20 * scale),
-                  tooltip: (AppLocalizations.of(context)?.nastroyki_c919 ?? 'Fallback'),
+                  tooltip: _TooltipL10n.get('settings', context),
                   onPressed: () {
                     XaneoSettingsModal.open(
                       context,
@@ -4177,10 +4649,27 @@ class _MessengerScreenState extends State<MessengerScreen> {
                 ),
               ),
               const Spacer(),
-              if (!_viewingArchive)
+              if (!_viewingArchive) ...[
+                IconButton(
+                  icon: Icon(Icons.add_rounded, size: 20 * scale),
+                  tooltip: _TooltipL10n.get('create_chat', context),
+                  onPressed: () {
+                    CreateOptionsModal.show(
+                      context: context,
+                      onSelectPersonalChat: () {
+                        GlobalSearchModal.show(
+                          context: context,
+                          apiService: _apiService,
+                          onResultSelected: (item, type) => _handleSearchResultSelected(item, type),
+                        );
+                      },
+                    );
+                  },
+                  color: isDark ? Colors.white70 : Colors.black54,
+                ),
                 IconButton(
                   icon: Icon(Icons.search_rounded, size: 20 * scale),
-                  tooltip: (AppLocalizations.of(context)?.globalnyyPoisk_7ff2 ?? 'Fallback'),
+                  tooltip: _TooltipL10n.get('global_search', context),
                   onPressed: () {
                     GlobalSearchModal.show(
                       context: context,
@@ -4190,6 +4679,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                   },
                   color: isDark ? Colors.white70 : Colors.black54,
                 ),
+              ],
             ],
           ),
         ),
@@ -4415,7 +4905,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                               // Logout action icon
                               IconButton(
                                 icon: Icon(Icons.logout_rounded, size: 16 * scale),
-                                tooltip: (AppLocalizations.of(context)?.vyytiIzAkkaunta_6d41 ?? 'Fallback'),
+                                tooltip: _TooltipL10n.get('logout', context),
                                 onPressed: _logout,
                                 color: isDark ? Colors.white54 : Colors.black54,
                                 constraints: const BoxConstraints(),
@@ -4516,6 +5006,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
         } catch (_) {}
       }
 
+      lastMsgText = _stripFormatting(lastMsgText);
       lastMsgTime = _formatMessageTime(lastMsg['created_at'] as String?);
     }
     
@@ -4942,6 +5433,15 @@ class _MessengerScreenState extends State<MessengerScreen> {
     return chat['chat_display_name'] as String? ?? (AppLocalizations.of(context)?.chat_c52b ?? 'Fallback');
   }
 
+  String _stripFormatting(String text) {
+    if (text.isEmpty) return text;
+    return text
+        .replaceAllMapped(RegExp(r'(\*\*|__)(.*?)\1', dotAll: true), (m) => m[2] ?? '')
+        .replaceAllMapped(RegExp(r'(\*|_)(.*?)\3', dotAll: true), (m) => m[2] ?? '')
+        .replaceAllMapped(RegExp(r'(~|~~)(.*?)\5', dotAll: true), (m) => m[2] ?? '')
+        .replaceAllMapped(RegExp(r'`([^`]+)`', dotAll: true), (m) => m[1] ?? '');
+  }
+
   String _formatMessageTime(String? createdAtStr) {
     if (createdAtStr == null || createdAtStr.isEmpty) return "";
     try {
@@ -5109,7 +5609,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
               if (_canMakeCallInCurrentChat())
                 IconButton(
                   icon: Icon(Icons.phone_rounded, size: 20 * scale),
-                  tooltip: l10n?.call ?? 'Позвонить',
+                  tooltip: _TooltipL10n.get('call', context),
                   onPressed: () {
                     _showCallChoiceModal(context, scale, isDark);
                   },
@@ -5118,7 +5618,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
               IconButton(
                 key: _headerSettingsKey,
                 icon: Icon(Icons.settings_rounded, size: 20 * scale),
-                tooltip: l10n?.chatSettings ?? 'Настройки чата',
+                tooltip: _TooltipL10n.get('chat_settings', context),
                 onPressed: () {
                   final renderBox = _headerSettingsKey.currentContext?.findRenderObject() as RenderBox?;
                   if (renderBox != null) {
@@ -5152,22 +5652,25 @@ class _MessengerScreenState extends State<MessengerScreen> {
                         );
                       }
                     } else if (isChannel) {
-                      if (isSubscribed) {
-                        items.add(
-                          CustomContextMenuItem(
-                            icon: FaIcon(FontAwesomeIcons.bellSlash, size: 14 * scale, color: Colors.redAccent),
-                            label: l10n?.unsubscribeChannel ?? 'Отписаться от канала',
-                            onTap: () => _handleLeaveChat(_selectedChat!),
-                          ),
-                        );
-                      } else {
-                        items.add(
-                          CustomContextMenuItem(
-                            icon: FaIcon(FontAwesomeIcons.bullhorn, size: 14 * scale, color: const Color(0xFF2563EB)),
-                            label: l10n?.subscribeChannel ?? 'Подписаться на канал',
-                            onTap: () => _handleJoinChat(_selectedChat!),
-                          ),
-                        );
+                      final isOwner = _isChannelOwnerOrAdmin(_selectedChat);
+                      if (!isOwner) {
+                        if (isSubscribed) {
+                          items.add(
+                            CustomContextMenuItem(
+                              icon: FaIcon(FontAwesomeIcons.bellSlash, size: 14 * scale, color: Colors.redAccent),
+                              label: l10n?.unsubscribeChannel ?? 'Отписаться от канала',
+                              onTap: () => _handleLeaveChat(_selectedChat!),
+                            ),
+                          );
+                        } else {
+                          items.add(
+                            CustomContextMenuItem(
+                              icon: FaIcon(FontAwesomeIcons.bullhorn, size: 14 * scale, color: const Color(0xFF2563EB)),
+                              label: l10n?.subscribeChannel ?? 'Подписаться на канал',
+                              onTap: () => _handleJoinChat(_selectedChat!),
+                            ),
+                          );
+                        }
                       }
                     }
 
@@ -5796,19 +6299,21 @@ class _MessengerScreenState extends State<MessengerScreen> {
         ?? (AppLocalizations.of(context)?.polzovatel_f154 ?? 'Fallback');
     final authorAvatar = authorProfile?['avatar']?.toString() ?? msg['author_avatar']?.toString();
     final authorGradient = authorProfile?['avatar_gradient']?.toString() ?? msg['author_avatar_gradient']?.toString();
-    final isGroup = _selectedChat!['chat_type'] == 'group' || _selectedChat!['chat_type'] == 'channel';
+    final isChannel = _selectedChat!['chat_type'] == 'channel';
+    final isGroup = _selectedChat!['chat_type'] == 'group';
 
     if (customPayload != null && customPayload['type'] == 'video_message') {
+      final alignLeft = isChannel || !isMe;
       return Align(
-        alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+        alignment: alignLeft ? Alignment.centerLeft : Alignment.centerRight,
         child: Column(
-          crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: alignLeft ? CrossAxisAlignment.start : CrossAxisAlignment.end,
           children: [
-            if (!isMe && isGroup)
+            if (isChannel || (!isMe && isGroup))
               Padding(
                 padding: const EdgeInsets.only(left: 4, bottom: 4),
                 child: Text(
-                  authorFirstName,
+                  isChannel ? _getChatName(_selectedChat!) : authorFirstName,
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 12,
@@ -5838,6 +6343,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
     }
 
     final hasReply = isReplyFieldValid(msg['reply_to_id']) || isReplyFieldValid(msg['reply_to_ref']) || isReplyFieldValid(msg['reply_to']) || isReplyFieldValid(msg['reply_text']);
+    final mediaItems = _getMediaItemsFromMsg(msg, customPayload);
 
     final bubbleContent = GestureDetector(
         onTap: () {
@@ -5852,7 +6358,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
             maxWidth: MediaQuery.of(context).size.width * 0.6,
           ),
           decoration: BoxDecoration(
-            gradient: isMe
+            gradient: (isMe && !isChannel)
                 ? LinearGradient(
                     colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
                     begin: Alignment.topLeft,
@@ -5866,11 +6372,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
             borderRadius: BorderRadius.only(
               topLeft: const Radius.circular(16),
               topRight: const Radius.circular(16),
-              bottomLeft: Radius.circular(isMe ? 16 : 2),
-              bottomRight: Radius.circular(isMe ? 2 : 16),
+              bottomLeft: Radius.circular((isMe && !isChannel) ? 16 : 2),
+              bottomRight: Radius.circular((isMe && !isChannel) ? 2 : 16),
             ),
             border: Border.all(
-              color: isMe 
+              color: (isMe && !isChannel) 
                   ? Colors.transparent 
                   : (isDark ? Colors.white.withOpacity(0.1) : Colors.black.withOpacity(0.05)),
             ),
@@ -5878,12 +6384,12 @@ class _MessengerScreenState extends State<MessengerScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Sender name (for group chats if not me)
-              if (!isMe && isGroup)
+              // Sender name (channel name for channels, author name for groups if not me)
+              if (isChannel || (!isMe && isGroup))
                 Padding(
                   padding: const EdgeInsets.only(bottom: 4),
                   child: Text(
-                    authorFirstName,
+                    isChannel ? _getChatName(_selectedChat!) : authorFirstName,
                     style: const TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 14,
@@ -5895,18 +6401,33 @@ class _MessengerScreenState extends State<MessengerScreen> {
               if (hasReply)
                 _buildReplyQuote(msg, isMe, isDark, scale),
 
-            // Decrypted Plaintext
-            if (customPayload != null && customPayload['type'] == 'voice')
+            // Decrypted Plaintext or Media Collage / Attachments
+            if (mediaItems.isNotEmpty) ...[
+              _buildMediaCollageWidget(mediaItems, isMe, isDark, scale),
+              if (decryptedText.trim().isNotEmpty && !decryptedText.trim().startsWith('{')) ...[
+                const SizedBox(height: 8),
+                _buildFormattedText(
+                  decryptedText,
+                  TextStyle(
+                    color: (isMe && !isChannel) ? Colors.white : (isDark ? Colors.white.withOpacity(0.9) : Colors.black87),
+                    fontSize: 15 * scale,
+                  ),
+                ),
+              ],
+            ]
+            else if (customPayload != null && customPayload['type'] == 'voice')
               _VoiceMessageBubblePlayer(
                 payload: customPayload,
                 isMe: isMe,
                 isDark: isDark,
                 scale: scale,
-                senderName: isMe
-                    ? (AppLocalizations.of(context)?.vy_0101 ?? 'Fallback')
-                    : (_selectedChat?['chat_type'] == 'personal'
-                        ? _getChatName(_selectedChat!)
-                        : authorFirstName),
+                senderName: isChannel
+                    ? _getChatName(_selectedChat!)
+                    : (isMe
+                        ? (AppLocalizations.of(context)?.vy_0101 ?? 'Fallback')
+                        : (_selectedChat?['chat_type'] == 'personal'
+                            ? _getChatName(_selectedChat!)
+                            : authorFirstName)),
               )
             else if (customPayload != null && customPayload['type'] == 'video_message')
               _VideoMessageMockBubble(
@@ -5930,10 +6451,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
               ),
               if (decryptedText.trim().isNotEmpty && !decryptedText.trim().startsWith('{')) ...[
                 SizedBox(height: 8),
-                Text(
+                _buildFormattedText(
                   decryptedText,
-                  style: TextStyle(
-                    color: isMe ? Colors.white : (isDark ? Colors.white.withOpacity(0.9) : Colors.black87),
+                  TextStyle(
+                    color: (isMe && !isChannel) ? Colors.white : (isDark ? Colors.white.withOpacity(0.9) : Colors.black87),
                     fontSize: 15 * scale,
                   ),
                 ),
@@ -5943,10 +6464,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
               _buildFileAttachmentWidget(customPayload, isMe, isDark, scale),
               if (decryptedText.trim().isNotEmpty && !decryptedText.trim().startsWith('{')) ...[
                 const SizedBox(height: 8),
-                Text(
+                _buildFormattedText(
                   decryptedText,
-                  style: TextStyle(
-                    color: isMe ? Colors.white : (isDark ? Colors.white.withOpacity(0.9) : Colors.black87),
+                  TextStyle(
+                    color: (isMe && !isChannel) ? Colors.white : (isDark ? Colors.white.withOpacity(0.9) : Colors.black87),
                     fontSize: 15 * scale,
                   ),
                 ),
@@ -5982,10 +6503,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
               ),
               if (decryptedText.trim().isNotEmpty && !decryptedText.trim().startsWith('{')) ...[
                 const SizedBox(height: 8),
-                Text(
+                _buildFormattedText(
                   decryptedText,
-                  style: TextStyle(
-                    color: isMe ? Colors.white : (isDark ? Colors.white.withOpacity(0.9) : Colors.black87),
+                  TextStyle(
+                    color: (isMe && !isChannel) ? Colors.white : (isDark ? Colors.white.withOpacity(0.9) : Colors.black87),
                     fontSize: 15 * scale,
                   ),
                 ),
@@ -6002,10 +6523,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
             else if (customPayload != null && customPayload['type'] == 'call')
               _buildCallWidget(customPayload, isMe, isDark, scale)
             else
-              Text(
+              _buildFormattedText(
                 decryptedText,
-                style: TextStyle(
-                  color: isMe ? Colors.white : (isDark ? Colors.white.withOpacity(0.9) : Colors.black87),
+                TextStyle(
+                  color: (isMe && !isChannel) ? Colors.white : (isDark ? Colors.white.withOpacity(0.9) : Colors.black87),
                   fontSize: 15 * scale,
                 ),
               ),
@@ -6019,11 +6540,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
                 Text(
                   timeStr,
                   style: TextStyle(
-                    color: isMe ? Colors.white60 : Colors.grey,
+                    color: (isMe && !isChannel) ? Colors.white60 : Colors.grey,
                     fontSize: 10,
                   ),
                 ),
-                if (isMe && customPayload?['type'] != 'call') ...[
+                if (isMe && !isChannel && customPayload?['type'] != 'call') ...[
                   const SizedBox(width: 4),
                   Builder(
                     builder: (context) {
@@ -6056,6 +6577,16 @@ class _MessengerScreenState extends State<MessengerScreen> {
         ),
       ),
     );
+
+    if (isChannel) {
+      return Align(
+        alignment: Alignment.centerLeft,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 8),
+          child: bubbleContent,
+        ),
+      );
+    }
 
     if (!isMe && isGroup) {
       return Align(
@@ -6218,6 +6749,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
         return _buildMessageInput(isDark, scale);
       }
     } else if (chatType == 'channel') {
+      final isOwnerOrAdmin = _isChannelOwnerOrAdmin(_selectedChat);
+      if (isOwnerOrAdmin) {
+        return _buildMessageInput(isDark, scale);
+      }
+
       if (!isSubscribedOrJoined) {
         return _buildJoinSubscribeBar(
           isDark: isDark,
@@ -6228,21 +6764,16 @@ class _MessengerScreenState extends State<MessengerScreen> {
           onPressed: () => _handleJoinChat(_selectedChat!),
         );
       } else {
-        final canPost = _selectedChat!['can_post'] == true || _selectedChat!['is_admin'] == true;
-        if (canPost) {
-          return _buildMessageInput(isDark, scale);
-        } else {
-          return _buildJoinSubscribeBar(
-            isDark: isDark,
-            scale: scale,
-            label: l10n?.unsubscribeChannel ?? 'Отписаться от канала',
-            icon: Icons.notifications_off_rounded,
-            color: isDark ? const Color(0xFF2A2A2A) : const Color(0xFFEFEFEF),
-            textColor: isDark ? Colors.redAccent : const Color(0xFFDC2626),
-            isDanger: true,
-            onPressed: () => _handleLeaveChat(_selectedChat!),
-          );
-        }
+        return _buildJoinSubscribeBar(
+          isDark: isDark,
+          scale: scale,
+          label: l10n?.unsubscribeChannel ?? 'Отписаться от канала',
+          icon: Icons.notifications_off_rounded,
+          color: isDark ? const Color(0xFF2A2A2A) : const Color(0xFFEFEFEF),
+          textColor: isDark ? Colors.redAccent : const Color(0xFFDC2626),
+          isDanger: true,
+          onPressed: () => _handleLeaveChat(_selectedChat!),
+        );
       }
     }
 
@@ -6587,6 +7118,122 @@ class _MessengerScreenState extends State<MessengerScreen> {
                             minLines: 1,
                             maxLines: 3,
                             keyboardType: TextInputType.multiline,
+                            contextMenuBuilder: (context, editableTextState) {
+                              final selection = editableTextState.textEditingValue.selection;
+                              final hasSelection = selection.isValid && !selection.isCollapsed;
+                              final cardBg = isDark ? const Color(0xFF1A1A1A) : const Color(0xFFFFFFFF);
+                              final borderColor = isDark ? const Color(0xFF2C2C2C) : const Color(0xFFE2E8F0);
+                              final textColor = isDark ? Colors.white : const Color(0xFF0F172A);
+                              final hoverColor = isDark ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.05);
+
+                              return DesktopTextSelectionToolbar(
+                                anchor: editableTextState.contextMenuAnchors.primaryAnchor,
+                                children: [
+                                  Container(
+                                    width: 220 * scale,
+                                    decoration: BoxDecoration(
+                                      color: cardBg,
+                                      borderRadius: BorderRadius.circular(10 * scale),
+                                      border: Border.all(color: borderColor, width: 1),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black.withValues(alpha: isDark ? 0.6 : 0.15),
+                                          blurRadius: 18 * scale,
+                                          offset: Offset(0, 4 * scale),
+                                        ),
+                                      ],
+                                    ),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                                      children: [
+                                        if (hasSelection) ...[
+                                          Padding(
+                                            padding: EdgeInsets.all(8 * scale),
+                                            child: Row(
+                                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                              children: [
+                                                _buildFormatButton(
+                                                  label: 'B',
+                                                  tooltip: _FormattingL10n.get('bold', context),
+                                                  style: const TextStyle(fontWeight: FontWeight.bold),
+                                                  onTap: () {
+                                                    editableTextState.hideToolbar();
+                                                    _wrapSelectionInInput('**', '**');
+                                                  },
+                                                  isDark: isDark,
+                                                  scale: scale,
+                                                ),
+                                                _buildFormatButton(
+                                                  label: 'I',
+                                                  tooltip: _FormattingL10n.get('italic', context),
+                                                  style: const TextStyle(fontStyle: FontStyle.italic),
+                                                  onTap: () {
+                                                    editableTextState.hideToolbar();
+                                                    _wrapSelectionInInput('*', '*');
+                                                  },
+                                                  isDark: isDark,
+                                                  scale: scale,
+                                                ),
+                                                _buildFormatButton(
+                                                  label: 'S',
+                                                  tooltip: _FormattingL10n.get('strikethrough', context),
+                                                  style: const TextStyle(decoration: TextDecoration.lineThrough),
+                                                  onTap: () {
+                                                    editableTextState.hideToolbar();
+                                                    _wrapSelectionInInput('~', '~');
+                                                  },
+                                                  isDark: isDark,
+                                                  scale: scale,
+                                                ),
+                                                _buildFormatButton(
+                                                  label: '</>',
+                                                  tooltip: _FormattingL10n.get('code', context),
+                                                  style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+                                                  onTap: () {
+                                                    editableTextState.hideToolbar();
+                                                    _wrapSelectionInInput('`', '`');
+                                                  },
+                                                  isDark: isDark,
+                                                  scale: scale,
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          Divider(height: 1, color: borderColor),
+                                        ],
+                                        ...editableTextState.contextMenuButtonItems.map((item) {
+                                          return Material(
+                                            color: Colors.transparent,
+                                            child: InkWell(
+                                              onTap: () {
+                                                editableTextState.hideToolbar();
+                                                item.onPressed?.call();
+                                              },
+                                              hoverColor: hoverColor,
+                                              child: Padding(
+                                                padding: EdgeInsets.symmetric(horizontal: 14 * scale, vertical: 8 * scale),
+                                                child: Text(
+                                                  AdaptiveTextSelectionToolbar.getButtonLabel(
+                                                    context,
+                                                    item,
+                                                  ),
+                                                  style: TextStyle(
+                                                    color: textColor,
+                                                    fontSize: 13 * scale,
+                                                    fontFamily: 'Inter',
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          );
+                                        }),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              );
+                            },
                             decoration: InputDecoration(
                               hintText: l10n?.typeMessage ?? 'Написать сообщение...',
                               hintStyle: TextStyle(
@@ -7292,6 +7939,889 @@ class _MessengerScreenState extends State<MessengerScreen> {
     );
   }
 
+  Map<String, String>? _getAuthHeader() {
+    if (_apiAccessToken != null && _apiAccessToken!.isNotEmpty) {
+      return {'Authorization': 'Bearer $_apiAccessToken'};
+    }
+    return null;
+  }
+
+  bool _isImageFile(String fileName, String mimeType) {
+    final name = fileName.toLowerCase();
+    final mime = mimeType.toLowerCase();
+    if (mime.startsWith('image/') || mime.contains('image')) return true;
+    const exts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.heic', '.heif', '.svg'];
+    return exts.any((ext) => name.endsWith(ext));
+  }
+
+  bool _isVideoFile(String fileName, String mimeType) {
+    final name = fileName.toLowerCase();
+    final mime = mimeType.toLowerCase();
+    if (mime.startsWith('video/') || mime.contains('video')) return true;
+    const exts = ['.mp4', '.mov', '.avi', '.mkv', '.webm', '.3gp', '.flv', '.m4v'];
+    return exts.any((ext) => name.endsWith(ext));
+  }
+
+  List<Map<String, dynamic>> _getMediaItemsFromMsg(Map<String, dynamic> msg, Map<String, dynamic>? customPayload) {
+    // Voice messages, circular video messages, and audio tracks are handled by dedicated player widgets
+    final type = customPayload?['type']?.toString().toLowerCase() ?? '';
+    final msgType = msg['message_type']?.toString().toLowerCase() ?? msg['type']?.toString().toLowerCase() ?? '';
+    
+    if (type == 'voice' || type == 'voice_message' || type == 'video_message' || type == 'audio' ||
+        msgType == 'voice' || msgType == 'voice_message' || msgType == 'video_message' || msgType == 'audio') {
+      return [];
+    }
+
+    if (customPayload != null && _isAudioFile(customPayload)) {
+      return [];
+    }
+
+    final items = <Map<String, dynamic>>[];
+
+    void addIfMedia(Map<String, dynamic> map) {
+      final itemType = map['type']?.toString().toLowerCase() ?? '';
+      if (itemType == 'voice' || itemType == 'voice_message' || itemType == 'video_message' || itemType == 'audio' || _isAudioFile(map)) {
+        return;
+      }
+
+      final fileId = map['file_id']?.toString() ?? map['id']?.toString() ?? map['attached_file_id']?.toString() ?? '';
+      final fileName = (map['file_name'] ?? map['attached_file_name'] ?? map['name'] ?? map['original_filename'] ?? '').toString();
+      final mimeType = (map['mime_type'] ?? map['attached_file_type'] ?? map['file_type'] ?? '').toString();
+      final fileSize = (map['file_size'] ?? map['attached_file_size'] ?? map['size'] ?? 0) as int? ?? 0;
+      final fileUrl = map['file_url']?.toString() ?? map['url']?.toString();
+
+      if (_isImageFile(fileName, mimeType)) {
+        items.add({
+          'file_id': fileId,
+          'file_name': fileName.isNotEmpty ? fileName : 'photo.jpg',
+          'mime_type': mimeType,
+          'file_size': fileSize,
+          'media_type': 'image',
+          'url': fileUrl,
+        });
+      } else if (_isVideoFile(fileName, mimeType)) {
+        items.add({
+          'file_id': fileId,
+          'file_name': fileName.isNotEmpty ? fileName : 'video.mp4',
+          'mime_type': mimeType,
+          'file_size': fileSize,
+          'media_type': 'video',
+          'url': fileUrl,
+        });
+      }
+    }
+
+    if (customPayload != null) {
+      if (customPayload['type'] == 'file' || customPayload['type'] == 'image' || customPayload['type'] == 'video' || customPayload['type'] == 'media') {
+        addIfMedia(customPayload);
+      }
+      if (customPayload['files'] is List) {
+        for (final f in customPayload['files'] as List) {
+          if (f is Map<String, dynamic>) addIfMedia(f);
+        }
+      }
+      if (customPayload['media'] is List) {
+        for (final f in customPayload['media'] as List) {
+          if (f is Map<String, dynamic>) addIfMedia(f);
+        }
+      }
+      if (customPayload['images'] is List) {
+        for (final f in customPayload['images'] as List) {
+          if (f is Map<String, dynamic>) addIfMedia(f);
+        }
+      }
+    }
+
+    if (items.isEmpty) {
+      addIfMedia(msg);
+    }
+
+    if (msg['files'] is List) {
+      for (final f in msg['files'] as List) {
+        if (f is Map<String, dynamic>) addIfMedia(f);
+      }
+    }
+    if (msg['images'] is List) {
+      for (final f in msg['images'] as List) {
+        if (f is Map<String, dynamic>) addIfMedia(f);
+      }
+    }
+    if (msg['attachments'] is List) {
+      for (final f in msg['attachments'] as List) {
+        if (f is Map<String, dynamic>) addIfMedia(f);
+      }
+    }
+
+    final uniqueItems = <Map<String, dynamic>>[];
+    final seenKeys = <String>{};
+    for (final item in items) {
+      final key = item['file_id'] != '' ? item['file_id'] : (item['url'] ?? item['file_name']);
+      if (key != null && key.toString().isNotEmpty && seenKeys.add(key.toString())) {
+        uniqueItems.add(item);
+      }
+    }
+    return uniqueItems;
+  }
+
+  String _getMediaUrl(Map<String, dynamic> item) {
+    final url = item['url']?.toString();
+    if (url != null && url.isNotEmpty) {
+      if (url.startsWith('http')) return url;
+      if (url.startsWith('/')) return 'https://xaneo.ru$url';
+    }
+    final fileId = item['file_id']?.toString();
+    if (fileId != null && fileId.isNotEmpty) {
+      final uri = Uri.parse(ApiService.baseUrl);
+      final port = uri.hasPort ? ':${uri.port}' : '';
+      final host = '${uri.scheme}://${uri.host}$port';
+      return '$host/api/files/download/$fileId/';
+    }
+    return '';
+  }
+
+  List<Map<String, dynamic>> _getAllChatMediaItems() {
+    final allMedia = <Map<String, dynamic>>[];
+    final l10n = AppLocalizations.of(context);
+    final fallbackUser = l10n?.polzovatel_f154 ?? 'Пользователь';
+
+    for (final msg in _messages.reversed) {
+      Map<String, dynamic>? customPayload;
+      final decryptedText = _decryptedMessages[msg['id']] ?? msg['decrypted_text'] ?? msg['text'] ?? msg['content'] ?? '';
+      if (decryptedText.trim().startsWith('{')) {
+        try {
+          final parsed = jsonDecode(decryptedText);
+          if (parsed is Map<String, dynamic>) {
+            customPayload = parsed;
+          }
+        } catch (_) {}
+      }
+
+      final attachedFileId = msg['attached_file_id']?.toString() ?? msg['file_id']?.toString();
+      if (customPayload == null && attachedFileId != null) {
+        if (msg['attached_file_name'] != null) {
+          customPayload = {
+            'type': 'file',
+            'file_id': attachedFileId,
+            'file_name': msg['attached_file_name'],
+            'file_size': msg['attached_file_size'] ?? 0,
+            'mime_type': msg['attached_file_type'] ?? 'application/octet-stream',
+            'file_url': msg['attached_file_url'] ?? msg['file_url'],
+          };
+        } else if (_fileMetadataCache.containsKey(attachedFileId)) {
+          final cache = _fileMetadataCache[attachedFileId]!;
+          customPayload = {
+            'type': 'file',
+            'file_id': attachedFileId,
+            'file_name': cache['original_filename'] ?? cache['file_name'] ?? (l10n?.fayl_2d46 ?? 'Файл'),
+            'file_size': cache['file_size'] ?? 0,
+            'mime_type': cache['mime_type'] ?? cache['file_type'] ?? 'application/octet-stream',
+            'file_url': cache['file_url'] ?? cache['url'],
+          };
+        } else {
+          customPayload = {
+            'type': 'file',
+            'file_id': attachedFileId,
+            'file_name': (l10n?.fayl_2d46 ?? 'Файл'),
+            'mime_type': '',
+            'file_url': msg['attached_file_url'] ?? msg['file_url'],
+          };
+        }
+      }
+
+      final authorKey = msg['author_username']?.toString() ?? msg['author_id']?.toString() ?? '';
+      final authorProfile = _msgAuthorProfiles[authorKey];
+      final isChannel = _selectedChat!['chat_type'] == 'channel';
+      final authorName = isChannel
+          ? _getChatName(_selectedChat!)
+          : (authorProfile?['first_name']?.toString()
+              ?? msg['author_first_name']?.toString()
+              ?? msg['author_username']?.toString()
+              ?? fallbackUser);
+
+      final items = _getMediaItemsFromMsg(msg, customPayload);
+      for (final item in items) {
+        final map = Map<String, dynamic>.from(item);
+        map['caption'] = decryptedText.trim().startsWith('{') ? '' : decryptedText.trim();
+        map['msg_created_at'] = msg['created_at'];
+        map['author_name'] = authorName;
+        if ((map['file_id'] == null || map['file_id'] == '') && attachedFileId != null) {
+          map['file_id'] = attachedFileId;
+        }
+        allMedia.add(map);
+      }
+    }
+    return allMedia;
+  }
+
+  void _openMediaGallery(Map<String, dynamic> clickedItem, double scale) {
+    final allMedia = _getAllChatMediaItems();
+    int targetIndex = 0;
+    if (allMedia.isNotEmpty) {
+      final clickedKey = (clickedItem['file_id'] != null && clickedItem['file_id'] != '')
+          ? clickedItem['file_id'].toString()
+          : (clickedItem['url'] ?? clickedItem['file_name']).toString();
+      final found = allMedia.indexWhere((it) {
+        final k = (it['file_id'] != null && it['file_id'] != '')
+            ? it['file_id'].toString()
+            : (it['url'] ?? it['file_name']).toString();
+        return k == clickedKey;
+      });
+      if (found != -1) {
+        targetIndex = found;
+      }
+    } else {
+      allMedia.add(clickedItem);
+    }
+    _showMediaGalleryModal(context, allMedia, targetIndex, scale);
+  }
+
+  void _showMediaGalleryModal(BuildContext context, List<Map<String, dynamic>> items, int initialIndex, double scale) {
+    final l10n = AppLocalizations.of(context);
+    final downloadLabel = l10n?.downloadVersion ?? (l10n?.sohranitFaylKak_0f93 ?? 'Download');
+    final defaultAuthor = l10n?.polzovatel_f154 ?? 'User';
+
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierColor: Colors.black.withOpacity(0.94),
+      builder: (context) {
+        int currentIndex = initialIndex;
+        final pageController = PageController(initialPage: initialIndex);
+
+        String formatBytes(int bytes, int decimals) {
+          if (bytes <= 0) return '';
+          var suffixes = ['B', 'KB', 'MB', 'GB', 'TB'];
+          var i = (log(bytes) / log(1024)).floor();
+          if (i >= suffixes.length) i = suffixes.length - 1;
+          return ((bytes / pow(1024, i)).toStringAsFixed(decimals)) + ' ' + suffixes[i];
+        }
+
+        String formatMediaTime(dynamic rawCreatedAt) {
+          if (rawCreatedAt == null) return '';
+          try {
+            final dt = DateTime.parse(rawCreatedAt.toString()).toLocal();
+            final now = DateTime.now();
+            final isToday = dt.year == now.year && dt.month == now.month && dt.day == now.day;
+            final timeStr = '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+            if (isToday) {
+              return timeStr;
+            }
+            final dateStr = '${dt.day}.${dt.month.toString().padLeft(2, '0')}.${dt.year}';
+            return '$dateStr $timeStr';
+          } catch (_) {
+            return '';
+          }
+        }
+
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final currentItem = items[currentIndex];
+            final authorName = currentItem['author_name']?.toString() ?? defaultAuthor;
+            final fileName = currentItem['file_name']?.toString() ?? '';
+            final fileId = currentItem['file_id']?.toString() ?? '';
+            final fileSize = (currentItem['file_size'] as int?) ?? 0;
+            final caption = (currentItem['caption'] as String?) ?? '';
+            final formattedTime = formatMediaTime(currentItem['msg_created_at']);
+            final formattedSize = formatBytes(fileSize, 1);
+
+            return Dialog(
+              backgroundColor: Colors.transparent,
+              insetPadding: EdgeInsets.zero,
+              child: Stack(
+                children: [
+                  PageView.builder(
+                    controller: pageController,
+                    itemCount: items.length,
+                    onPageChanged: (index) {
+                      setModalState(() {
+                        currentIndex = index;
+                      });
+                    },
+                    itemBuilder: (context, index) {
+                      final item = items[index];
+                      final mediaUrl = _getMediaUrl(item);
+                      final isVid = item['media_type'] == 'video';
+
+                      return Listener(
+                        onPointerSignal: (pointerSignal) {
+                          // Prevent mouse scroll wheel from scaling/zooming InteractiveViewer
+                          if (pointerSignal is PointerScrollEvent) {}
+                        },
+                        child: InteractiveViewer(
+                          trackpadScrollCausesScale: false,
+                          minScale: 1.0,
+                          maxScale: 4.0,
+                          child: Center(
+                            child: Container(
+                              constraints: BoxConstraints(
+                                maxWidth: MediaQuery.of(context).size.width * 0.92,
+                                maxHeight: MediaQuery.of(context).size.height * 0.82,
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(12 * scale),
+                                child: Stack(
+                                  alignment: Alignment.center,
+                                  children: [
+                                    if (mediaUrl.isNotEmpty)
+                                      Image.network(
+                                        mediaUrl,
+                                        headers: _getAuthHeader(),
+                                        fit: BoxFit.contain,
+                                        errorBuilder: (_, __, ___) => Center(
+                                          child: Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                isVid ? Icons.movie_rounded : Icons.broken_image_rounded,
+                                                color: Colors.white60,
+                                                size: 48 * scale,
+                                              ),
+                                              SizedBox(height: 12 * scale),
+                                              Text(
+                                                item['file_name']?.toString() ?? '',
+                                                style: TextStyle(color: Colors.white70, fontSize: 14 * scale),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    if (isVid)
+                                      IconButton(
+                                        iconSize: 64 * scale,
+                                        icon: const Icon(Icons.play_circle_fill_rounded, color: Colors.white),
+                                        onPressed: () {
+                                          final fId = item['file_id']?.toString() ?? '';
+                                          final fName = item['file_name']?.toString() ?? 'video.mp4';
+                                          if (fId.isNotEmpty) {
+                                            _downloadFile(fId, fName);
+                                          }
+                                        },
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+
+                  // Top bar
+                  Positioned(
+                    top: 24 * scale,
+                    left: 24 * scale,
+                    right: 24 * scale,
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: EdgeInsets.symmetric(horizontal: 10 * scale, vertical: 4 * scale),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.5),
+                            borderRadius: BorderRadius.circular(12 * scale),
+                          ),
+                          child: Text(
+                            '${currentIndex + 1} / ${items.length}',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 14 * scale,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        const Spacer(),
+                        IconButton(
+                          icon: Container(
+                            padding: EdgeInsets.all(6 * scale),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.5),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(Icons.close_rounded, color: Colors.white, size: 20 * scale),
+                          ),
+                          onPressed: () => Navigator.of(context).pop(),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // Navigation Arrows if multiple items
+                  if (items.length > 1 && currentIndex > 0)
+                    Positioned(
+                      left: 16 * scale,
+                      top: 0,
+                      bottom: 0,
+                      child: Center(
+                        child: IconButton(
+                          icon: Container(
+                            padding: EdgeInsets.all(8 * scale),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.4),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(Icons.arrow_back_ios_rounded, color: Colors.white, size: 22 * scale),
+                          ),
+                          onPressed: () {
+                            pageController.previousPage(
+                              duration: const Duration(milliseconds: 250),
+                              curve: Curves.easeInOut,
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  if (items.length > 1 && currentIndex < items.length - 1)
+                    Positioned(
+                      right: 16 * scale,
+                      top: 0,
+                      bottom: 0,
+                      child: Center(
+                        child: IconButton(
+                          icon: Container(
+                            padding: EdgeInsets.all(8 * scale),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.4),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(Icons.arrow_forward_ios_rounded, color: Colors.white, size: 22 * scale),
+                          ),
+                          onPressed: () {
+                            pageController.nextPage(
+                              duration: const Duration(milliseconds: 250),
+                              curve: Curves.easeInOut,
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+
+                  // Bottom Bar Overlay
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: Container(
+                      padding: EdgeInsets.fromLTRB(20 * scale, 24 * scale, 20 * scale, 20 * scale),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [
+                            Colors.transparent,
+                            Colors.black.withOpacity(0.65),
+                            Colors.black.withOpacity(0.92),
+                          ],
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                        ),
+                      ),
+                      child: SafeArea(
+                        top: false,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (caption.isNotEmpty) ...[
+                              Text(
+                                caption,
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 14.5 * scale,
+                                  fontWeight: FontWeight.w400,
+                                  height: 1.35,
+                                ),
+                                maxLines: 4,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              SizedBox(height: 8 * scale),
+                            ],
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        authorName,
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 14 * scale,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      SizedBox(height: 2 * scale),
+                                      Text(
+                                        '${fileName.isNotEmpty ? "$fileName • " : ""}$formattedSize${(formattedSize.isNotEmpty && formattedTime.isNotEmpty) ? ' • ' : ''}$formattedTime',
+                                        style: TextStyle(
+                                          color: Colors.white60,
+                                          fontSize: 11.5 * scale,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                if (fileId.isNotEmpty)
+                                  Material(
+                                    color: Colors.transparent,
+                                    child: InkWell(
+                                      borderRadius: BorderRadius.circular(20 * scale),
+                                      onTap: () => _downloadFile(fileId, fileName),
+                                      child: Container(
+                                        padding: EdgeInsets.symmetric(horizontal: 14 * scale, vertical: 8 * scale),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white.withOpacity(0.18),
+                                          borderRadius: BorderRadius.circular(20 * scale),
+                                          border: Border.all(color: Colors.white.withOpacity(0.25)),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(Icons.download_rounded, color: Colors.white, size: 16 * scale),
+                                            SizedBox(width: 6 * scale),
+                                            Text(
+                                              downloadLabel,
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 12.5 * scale,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildMediaCollageWidget(List<Map<String, dynamic>> items, bool isMe, bool isDark, double scale) {
+    final count = items.length;
+    final maxCollageWidth = 320.0 * scale;
+
+    Widget buildCell(Map<String, dynamic> item, int index, {double? width, double? height, int remainingCount = 0}) {
+      final url = _getMediaUrl(item);
+      final isVideo = item['media_type'] == 'video';
+
+      return GestureDetector(
+        onTap: () => _openMediaGallery(item, scale),
+        child: Container(
+          width: width,
+          height: height,
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            color: isDark ? Colors.white.withOpacity(0.06) : Colors.black.withOpacity(0.04),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (url.isNotEmpty)
+                Image.network(
+                  url,
+                  headers: _getAuthHeader(),
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => Container(
+                    color: isDark ? const Color(0xFF1E1E1E) : const Color(0xFFE5E5E5),
+                    child: Center(
+                      child: Icon(
+                        isVideo ? Icons.movie_rounded : Icons.image_rounded,
+                        color: isDark ? Colors.white38 : Colors.black38,
+                        size: 28 * scale,
+                      ),
+                    ),
+                  ),
+                )
+              else
+                Container(
+                  color: isDark ? const Color(0xFF1E1E1E) : const Color(0xFFE5E5E5),
+                  child: Center(
+                    child: Icon(
+                      isVideo ? Icons.movie_rounded : Icons.image_rounded,
+                      color: isDark ? Colors.white38 : Colors.black38,
+                      size: 28 * scale,
+                    ),
+                  ),
+                ),
+
+              if (isVideo)
+                Center(
+                  child: Container(
+                    width: 42 * scale,
+                    height: 42 * scale,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.6),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white.withOpacity(0.8), width: 1.5),
+                    ),
+                    child: Icon(
+                      Icons.play_arrow_rounded,
+                      color: Colors.white,
+                      size: 26 * scale,
+                    ),
+                  ),
+                ),
+
+              if (isVideo)
+                Positioned(
+                  left: 6,
+                  bottom: 6,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.7),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.play_arrow_rounded, color: Colors.white, size: 12 * scale),
+                        const SizedBox(width: 2),
+                        Text(
+                          'VIDEO',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 9 * scale,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+              if (remainingCount > 0)
+                Container(
+                  color: Colors.black.withOpacity(0.65),
+                  child: Center(
+                    child: Text(
+                      '+$remainingCount',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 20 * scale,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    Widget collageBody;
+    const gap = 4.0;
+
+    if (count == 1) {
+      final item = items[0];
+      final url = _getMediaUrl(item);
+      final isVideo = item['media_type'] == 'video';
+
+      collageBody = GestureDetector(
+        onTap: () => _openMediaGallery(item, scale),
+        child: Container(
+          constraints: BoxConstraints(
+            maxHeight: 340 * scale,
+            maxWidth: maxCollageWidth,
+          ),
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            color: isDark ? Colors.white.withOpacity(0.06) : Colors.black.withOpacity(0.04),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              if (url.isNotEmpty)
+                Image.network(
+                  url,
+                  headers: _getAuthHeader(),
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => Container(
+                    height: 180 * scale,
+                    color: isDark ? const Color(0xFF1E1E1E) : const Color(0xFFE5E5E5),
+                    child: Center(
+                      child: Icon(
+                        isVideo ? Icons.movie_rounded : Icons.image_rounded,
+                        color: isDark ? Colors.white38 : Colors.black38,
+                        size: 32 * scale,
+                      ),
+                    ),
+                  ),
+                )
+              else
+                Container(
+                  height: 180 * scale,
+                  color: isDark ? const Color(0xFF1E1E1E) : const Color(0xFFE5E5E5),
+                  child: Center(
+                    child: Icon(
+                      isVideo ? Icons.movie_rounded : Icons.image_rounded,
+                      color: isDark ? Colors.white38 : Colors.black38,
+                      size: 32 * scale,
+                    ),
+                  ),
+                ),
+
+              if (isVideo)
+                Center(
+                  child: Container(
+                    width: 48 * scale,
+                    height: 48 * scale,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.6),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white.withOpacity(0.8), width: 1.5),
+                    ),
+                    child: Icon(
+                      Icons.play_arrow_rounded,
+                      color: Colors.white,
+                      size: 30 * scale,
+                    ),
+                  ),
+                ),
+
+              if (isVideo)
+                Positioned(
+                  left: 8,
+                  bottom: 8,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.7),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.play_arrow_rounded, color: Colors.white, size: 12 * scale),
+                        const SizedBox(width: 2),
+                        Text(
+                          'VIDEO',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 9 * scale,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      );
+    } else if (count == 2) {
+      collageBody = SizedBox(
+        height: 160 * scale,
+        child: Row(
+          children: [
+            Expanded(child: buildCell(items[0], 0)),
+            const SizedBox(width: gap),
+            Expanded(child: buildCell(items[1], 1)),
+          ],
+        ),
+      );
+    } else if (count == 3) {
+      collageBody = SizedBox(
+        height: 200 * scale,
+        child: Row(
+          children: [
+            Expanded(flex: 3, child: buildCell(items[0], 0)),
+            const SizedBox(width: gap),
+            Expanded(
+              flex: 2,
+              child: Column(
+                children: [
+                  Expanded(child: buildCell(items[1], 1)),
+                  const SizedBox(height: gap),
+                  Expanded(child: buildCell(items[2], 2)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    } else if (count == 4) {
+      collageBody = SizedBox(
+        height: 220 * scale,
+        child: Column(
+          children: [
+            Expanded(
+              child: Row(
+                children: [
+                  Expanded(child: buildCell(items[0], 0)),
+                  const SizedBox(width: gap),
+                  Expanded(child: buildCell(items[1], 1)),
+                ],
+              ),
+            ),
+            const SizedBox(height: gap),
+            Expanded(
+              child: Row(
+                children: [
+                  Expanded(child: buildCell(items[2], 2)),
+                  const SizedBox(width: gap),
+                  Expanded(child: buildCell(items[3], 3)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    } else {
+      final remaining = count - 4;
+      collageBody = SizedBox(
+        height: 220 * scale,
+        child: Column(
+          children: [
+            Expanded(
+              child: Row(
+                children: [
+                  Expanded(child: buildCell(items[0], 0)),
+                  const SizedBox(width: gap),
+                  Expanded(child: buildCell(items[1], 1)),
+                ],
+              ),
+            ),
+            const SizedBox(height: gap),
+            Expanded(
+              child: Row(
+                children: [
+                  Expanded(child: buildCell(items[2], 2)),
+                  const SizedBox(width: gap),
+                  Expanded(child: buildCell(items[3], 3, remainingCount: remaining)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      constraints: BoxConstraints(maxWidth: maxCollageWidth),
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      child: collageBody,
+    );
+  }
+
   Widget _buildFileAttachmentWidget(Map<String, dynamic> payload, bool isMe, bool isDark, double scale) {
     final fileName = payload['file_name']?.toString() ?? (AppLocalizations.of(context)?.fayl_2d46 ?? 'Fallback');
     final fileSize = payload['file_size'] as int? ?? 0;
@@ -7530,7 +9060,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
         if (myUserId == null) return;
         encryptedText = await _cryptoService.encryptFavoritesMessage(text, myUserId);
       } else if (chatId.startsWith('personal_')) {
-        final peerPubKey = await _getPeerPublicKey(otherUser);
+        final peerPubKey = await _getPeerPublicKey(otherUser, chatId: chatId);
         if (peerPubKey == null) return;
         if (peerPubKey == 'bot') {
           final chatKeyHex = await _getGroupChatKey(chatId);
@@ -7558,7 +9088,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
           if (myUserId == null) return "";
           return await _cryptoService.encryptFavoritesMessage(plaintext, myUserId);
         } else if (chatId.startsWith('personal_')) {
-          final peerPubKey = await _getPeerPublicKey(otherUser);
+          final peerPubKey = await _getPeerPublicKey(otherUser, chatId: chatId);
           if (peerPubKey == null) return "";
           if (peerPubKey == 'bot') {
             final chatKeyHex = await _getGroupChatKey(chatId);
@@ -10246,5 +11776,266 @@ class _CircleProgressPainter extends CustomPainter {
   }
 }
 
+class _TooltipL10n {
+  static const Map<String, Map<String, String>> _map = {
+    'ru': {
+      'settings': 'Настройки',
+      'create_chat': 'Создать новый чат',
+      'global_search': 'Глобальный поиск',
+      'back_to_chats': 'Назад к чатам',
+      'logout': 'Выйти из аккаунта',
+      'call': 'Позвонить',
+      'chat_settings': 'Настройки чата',
+      'emoji': 'Эмодзи',
+    },
+    'en': {
+      'settings': 'Settings',
+      'create_chat': 'Create new chat',
+      'global_search': 'Global search',
+      'back_to_chats': 'Back to chats',
+      'logout': 'Log out',
+      'call': 'Call',
+      'chat_settings': 'Chat settings',
+      'emoji': 'Emoji',
+    },
+    'zh': {
+      'settings': '设置',
+      'create_chat': '发起新对话',
+      'global_search': '全局搜索',
+      'back_to_chats': '返回聊天列表',
+      'logout': '退出账号',
+      'call': '拨打电话',
+      'chat_settings': '聊天设置',
+      'emoji': '表情',
+    },
+    'es': {
+      'settings': 'Configuración',
+      'create_chat': 'Crear nuevo chat',
+      'global_search': 'Búsqueda global',
+      'back_to_chats': 'Volver a chats',
+      'logout': 'Cerrar sesión',
+      'call': 'Llamar',
+      'chat_settings': 'Ajustes del chat',
+      'emoji': 'Emoticonos',
+    },
+    'fr': {
+      'settings': 'Paramètres',
+      'create_chat': 'Créer une discussion',
+      'global_search': 'Recherche globale',
+      'back_to_chats': 'Retour aux discussions',
+      'logout': 'Se déconnecter',
+      'call': 'Appeler',
+      'chat_settings': 'Paramètres du chat',
+      'emoji': 'Émoticônes',
+    },
+    'ar': {
+      'settings': 'الإعدادات',
+      'create_chat': 'إنشاء محادثة جديدة',
+      'global_search': 'البحث العالمي',
+      'back_to_chats': 'العودة للمحادثات',
+      'logout': 'تسجيل الخروج',
+      'call': 'إجراء مكالمة',
+      'chat_settings': 'إعدادات المحادثة',
+      'emoji': 'ملصقات',
+    },
+    'ja': {
+      'settings': '設定',
+      'create_chat': '新しいチャットを作成',
+      'global_search': 'グローバル検索',
+      'back_to_chats': 'チャット一覧に戻る',
+      'logout': 'ログアウト',
+      'call': '通話',
+      'chat_settings': 'チャット設定',
+      'emoji': '絵文字',
+    },
+    'ko': {
+      'settings': '설정',
+      'create_chat': '새 대화 만들기',
+      'global_search': '글로벌 검색',
+      'back_to_chats': '대화 목록으로 돌아가기',
+      'logout': '로그아웃',
+      'call': '통화하기',
+      'chat_settings': '대화방 설정',
+      'emoji': '이모티콘',
+    },
+  };
+
+  static String get(String key, BuildContext context) {
+    final lang = Localizations.localeOf(context).languageCode.toLowerCase();
+    final l = _map.containsKey(lang) ? lang : 'en';
+    return _map[l]?[key] ?? _map['en']?[key] ?? key;
+  }
+}
+
+class _FormattingL10n {
+  static const Map<String, Map<String, String>> _map = {
+    'ru': {
+      'bold': 'Жирный',
+      'italic': 'Курсив',
+      'strikethrough': 'Зачеркнутый',
+      'code': 'Моноширинный',
+    },
+    'en': {
+      'bold': 'Bold',
+      'italic': 'Italic',
+      'strikethrough': 'Strikethrough',
+      'code': 'Monospace',
+    },
+    'zh': {
+      'bold': '加粗',
+      'italic': '斜体',
+      'strikethrough': '删除线',
+      'code': '等宽字体',
+    },
+    'es': {
+      'bold': 'Negrita',
+      'italic': 'Cursiva',
+      'strikethrough': 'Tachado',
+      'code': 'Monoespaciado',
+    },
+    'fr': {
+      'bold': 'Gras',
+      'italic': 'Italique',
+      'strikethrough': 'Barré',
+      'code': 'Monospace',
+    },
+    'ar': {
+      'bold': 'عريض',
+      'italic': 'مائل',
+      'strikethrough': 'مشطوب',
+      'code': 'احادي المسافة',
+    },
+    'ja': {
+      'bold': '太字',
+      'italic': '斜体',
+      'strikethrough': '打ち消し線',
+      'code': '等幅',
+    },
+    'ko': {
+      'bold': '굵게',
+      'italic': '기울임꼴',
+      'strikethrough': '취소선',
+      'code': '고정폭',
+    },
+  };
+
+  static String get(String key, BuildContext context) {
+    final lang = Localizations.localeOf(context).languageCode.toLowerCase();
+    final l = _map.containsKey(lang) ? lang : 'en';
+    return _map[l]?[key] ?? _map['en']?[key] ?? key;
+  }
+}
+
+class FormattedTextEditingController extends TextEditingController {
+  FormattedTextEditingController({super.text});
+
+  @override
+  TextSpan buildTextSpan({
+    required BuildContext context,
+    TextStyle? style,
+    required bool withComposing,
+  }) {
+    final baseStyle = style ?? const TextStyle();
+    final String fullText = text;
+
+    if (fullText.isEmpty) {
+      return TextSpan(style: baseStyle, text: fullText);
+    }
+
+    final List<InlineSpan> spans = [];
+    final pattern = RegExp(
+      r'(\*\*|__)(.*?)\1|(\*|_)(.*?)\3|(~|~~)(.*?)\5|`([^`]+)`',
+      dotAll: true,
+    );
+
+    int lastIndex = 0;
+
+    for (final match in pattern.allMatches(fullText)) {
+      if (match.start > lastIndex) {
+        spans.add(TextSpan(
+          text: fullText.substring(lastIndex, match.start),
+          style: baseStyle,
+        ));
+      }
+
+      final fullMatch = match.group(0) ?? '';
+
+      if (fullMatch.startsWith('**') || fullMatch.startsWith('__')) {
+        final content = match.group(2) ?? '';
+        final marker = fullMatch.substring(0, 2);
+        spans.add(TextSpan(
+          text: marker,
+          style: baseStyle.copyWith(fontSize: 0.001, color: Colors.transparent),
+        ));
+        spans.add(TextSpan(
+          text: content,
+          style: baseStyle.copyWith(fontWeight: FontWeight.bold),
+        ));
+        spans.add(TextSpan(
+          text: marker,
+          style: baseStyle.copyWith(fontSize: 0.001, color: Colors.transparent),
+        ));
+      } else if (fullMatch.startsWith('*') || fullMatch.startsWith('_')) {
+        final content = match.group(4) ?? '';
+        final marker = fullMatch.substring(0, 1);
+        spans.add(TextSpan(
+          text: marker,
+          style: baseStyle.copyWith(fontSize: 0.001, color: Colors.transparent),
+        ));
+        spans.add(TextSpan(
+          text: content,
+          style: baseStyle.copyWith(fontStyle: FontStyle.italic),
+        ));
+        spans.add(TextSpan(
+          text: marker,
+          style: baseStyle.copyWith(fontSize: 0.001, color: Colors.transparent),
+        ));
+      } else if (fullMatch.startsWith('~')) {
+        final content = match.group(6) ?? '';
+        final marker = fullMatch.startsWith('~~') ? '~~' : '~';
+        spans.add(TextSpan(
+          text: marker,
+          style: baseStyle.copyWith(fontSize: 0.001, color: Colors.transparent),
+        ));
+        spans.add(TextSpan(
+          text: content,
+          style: baseStyle.copyWith(decoration: TextDecoration.lineThrough),
+        ));
+        spans.add(TextSpan(
+          text: marker,
+          style: baseStyle.copyWith(fontSize: 0.001, color: Colors.transparent),
+        ));
+      } else if (fullMatch.startsWith('`')) {
+        final content = match.group(7) ?? '';
+        spans.add(TextSpan(
+          text: '`',
+          style: baseStyle.copyWith(fontSize: 0.001, color: Colors.transparent),
+        ));
+        spans.add(TextSpan(
+          text: content,
+          style: baseStyle.copyWith(
+            fontFamily: 'monospace',
+            backgroundColor: (baseStyle.color ?? Colors.white).withValues(alpha: 0.15),
+          ),
+        ));
+        spans.add(TextSpan(
+          text: '`',
+          style: baseStyle.copyWith(fontSize: 0.001, color: Colors.transparent),
+        ));
+      }
+
+      lastIndex = match.end;
+    }
+
+    if (lastIndex < fullText.length) {
+      spans.add(TextSpan(
+        text: fullText.substring(lastIndex),
+        style: baseStyle,
+      ));
+    }
+
+    return TextSpan(style: baseStyle, children: spans);
+  }
+}
 
 

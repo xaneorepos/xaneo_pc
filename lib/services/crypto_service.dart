@@ -813,27 +813,70 @@ class CryptoService {
     String base64Message,
     String myUserId,
   ) async {
+    final trimmed = base64Message.trim().replaceAll('"', '');
+    if (trimmed.isEmpty) return "";
+
+    Uint8List rawData;
+    try {
+      rawData = base64Decode(trimmed);
+    } catch (_) {
+      return base64Message;
+    }
+
     if (!hasKeys) {
       throw Exception("Crypto keys not loaded");
     }
 
-    // Try candidates for both favorites_1 and favorites_user_1 formats
+    // Try candidates for favorites_1, favorites_user_1, and favorites formats
     final candidates1 = await _candidateDecryptKeys(chatId: "favorites_$myUserId");
     final candidates2 = await _candidateDecryptKeys(chatId: "favorites_user_$myUserId");
+    final candidates3 = await _candidateDecryptKeys(chatId: "favorites");
     
     final allCandidates = <Uint8List>[];
     final seen = <String>{};
-    for (final key in [...candidates1, ...candidates2]) {
+    for (final key in [...candidates1, ...candidates2, ...candidates3]) {
       if (seen.add(_bytesToHex(key))) {
         allCandidates.add(key);
       }
     }
 
+    // 1. Try AES-GCM with all candidates
     for (final key in allCandidates) {
       final decrypted = await decryptMessageWithKey(base64Message, key, quiet: true);
       if (decrypted != "[Ошибка дешифрования]") {
         return decrypted;
       }
+    }
+
+    // 2. Try XChaCha20-Poly1305 if rawData length >= 40 (24 nonce + MAC)
+    if (rawData.length >= 40) {
+      for (final key in allCandidates) {
+        try {
+          final nonce = rawData.sublist(0, 24);
+          final ciphertextWithMac = rawData.sublist(24);
+          final ciphertext = ciphertextWithMac.sublist(0, ciphertextWithMac.length - 16);
+          final mac = ciphertextWithMac.sublist(ciphertextWithMac.length - 16);
+
+          final xchacha20 = crypto.Xchacha20.poly1305Aead();
+          final secretBox = crypto.SecretBox(
+            ciphertext,
+            nonce: nonce,
+            mac: crypto.Mac(mac),
+          );
+
+          final decryptedBytes = await xchacha20.decrypt(
+            secretBox,
+            secretKey: crypto.SecretKey(key),
+          );
+          return utf8.decode(decryptedBytes);
+        } catch (_) {}
+      }
+    }
+
+    // 3. Special case: 28 bytes = 12 bytes nonce + 0 bytes ciphertext + 16 bytes MAC
+    // Plaintext of 0-byte ciphertext is "" (empty string)
+    if (rawData.length == 28) {
+      return "";
     }
 
     final defaultKey = deriveFavoritesChatKey(myUserId);

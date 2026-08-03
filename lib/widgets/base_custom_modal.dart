@@ -9,24 +9,21 @@ abstract class BaseCustomModal extends StatefulWidget {
   final String modalTag;
   final String title;
 
-  const BaseCustomModal({
-    super.key,
-    this.modalTag = '',
-    this.title = '',
-  });
+  const BaseCustomModal({super.key, this.modalTag = '', this.title = ''});
 
   /// Вызов модального окна через showGeneralDialog в едином стиле Xaneo PC
   static Future<T?> show<T>({
     required BuildContext context,
     required Widget modal,
     String barrierLabel = 'XaneoModal',
+    bool barrierDismissible = true,
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return showGeneralDialog<T>(
       context: context,
       barrierLabel: barrierLabel,
-      barrierDismissible: true,
+      barrierDismissible: barrierDismissible,
       barrierColor: isDark
           ? Colors.black.withValues(alpha: 0.85)
           : Colors.black.withValues(alpha: 0.3),
@@ -35,9 +32,10 @@ abstract class BaseCustomModal extends StatefulWidget {
         return FadeTransition(
           opacity: anim1,
           child: ScaleTransition(
-            scale: Tween<double>(begin: 0.98, end: 1.0).animate(
-              CurvedAnimation(parent: anim1, curve: Curves.easeOut),
-            ),
+            scale: Tween<double>(
+              begin: 0.98,
+              end: 1.0,
+            ).animate(CurvedAnimation(parent: anim1, curve: Curves.easeOut)),
             child: child,
           ),
         );
@@ -47,7 +45,8 @@ abstract class BaseCustomModal extends StatefulWidget {
   }
 }
 
-abstract class BaseCustomModalState<T extends BaseCustomModal> extends State<T> {
+abstract class BaseCustomModalState<T extends BaseCustomModal>
+    extends State<T> {
   late final ScrollController internalScrollController = ScrollController();
 
   /// Базовая ширина модалки в логических пикселях (умножается на scale)
@@ -60,7 +59,12 @@ abstract class BaseCustomModalState<T extends BaseCustomModal> extends State<T> 
   double get modalHeightFactor => 0.80;
 
   /// Метод отрисовки содержимого
-  Widget buildContent(BuildContext context, ScrollController scrollController, bool isDark, double scale);
+  Widget buildContent(
+    BuildContext context,
+    ScrollController scrollController,
+    bool isDark,
+    double scale,
+  );
 
   @override
   void dispose() {
@@ -83,7 +87,9 @@ abstract class BaseCustomModalState<T extends BaseCustomModal> extends State<T> 
     final screenSize = MediaQuery.of(context).size;
 
     final bgColor = isDark ? const Color(0xFF0C0C0C) : Colors.white;
-    final borderColor = isDark ? const Color(0xFF1E1E1E) : const Color(0xFFEBEBEB);
+    final borderColor = isDark
+        ? const Color(0xFF1E1E1E)
+        : const Color(0xFFEBEBEB);
 
     final headerText = getModalTitle(context);
 
@@ -99,10 +105,7 @@ abstract class BaseCustomModalState<T extends BaseCustomModal> extends State<T> 
           decoration: BoxDecoration(
             color: bgColor,
             borderRadius: BorderRadius.circular(14 * scale),
-            border: Border.all(
-              color: borderColor,
-              width: 1,
-            ),
+            border: Border.all(color: borderColor, width: 1),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: isDark ? 0.6 : 0.06),
@@ -119,7 +122,12 @@ abstract class BaseCustomModalState<T extends BaseCustomModal> extends State<T> 
               children: [
                 // Шапка (Заголовок категории в стиле Account Switcher + кнопка Закрыть)
                 Padding(
-                  padding: EdgeInsets.fromLTRB(20 * scale, 18 * scale, 20 * scale, 12 * scale),
+                  padding: EdgeInsets.fromLTRB(
+                    20 * scale,
+                    18 * scale,
+                    20 * scale,
+                    12 * scale,
+                  ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -151,8 +159,18 @@ abstract class BaseCustomModalState<T extends BaseCustomModal> extends State<T> 
                 // Контент
                 Flexible(
                   child: Padding(
-                    padding: EdgeInsets.fromLTRB(20 * scale, 0, 20 * scale, 18 * scale),
-                    child: buildContent(context, internalScrollController, isDark, scale),
+                    padding: EdgeInsets.fromLTRB(
+                      20 * scale,
+                      0,
+                      20 * scale,
+                      18 * scale,
+                    ),
+                    child: buildContent(
+                      context,
+                      internalScrollController,
+                      isDark,
+                      scale,
+                    ),
                   ),
                 ),
               ],

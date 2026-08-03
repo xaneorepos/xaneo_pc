@@ -15,6 +15,7 @@ import '../services/account_service.dart';
 import '../services/logger_service.dart';
 import '../widgets/settings_modal.dart';
 import '../widgets/custom_toast.dart';
+import '../widgets/tfa_verification_dialog.dart';
 import 'register_screen.dart';
 
 /// Экран входа в систему с продвинутыми 3D эффектами
@@ -26,11 +27,11 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen>
-  with TickerProviderStateMixin {
+    with TickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
   final _loginController = TextEditingController();
   final _passwordController = TextEditingController();
-  
+
   bool _isLoading = false;
   bool _hasAccounts = false;
   int _currentStep = 0; // 0: login/username, 1: password
@@ -49,12 +50,12 @@ class _LoginScreenState extends State<LoginScreen>
   void initState() {
     super.initState();
     _checkAccounts();
-    
+
     _fadeController = AnimationController(
       duration: const Duration(milliseconds: 800),
       vsync: this,
     );
-    
+
     _slideController = AnimationController(
       duration: const Duration(milliseconds: 1000),
       vsync: this,
@@ -73,18 +74,12 @@ class _LoginScreenState extends State<LoginScreen>
     _fadeAnimation = Tween<double>(
       begin: 0.0,
       end: 1.0,
-    ).animate(CurvedAnimation(
-      parent: _fadeController,
-      curve: Curves.easeOut,
-    ));
+    ).animate(CurvedAnimation(parent: _fadeController, curve: Curves.easeOut));
 
-    _slideAnimation = Tween<Offset>(
-      begin: const Offset(0, 0.15),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _slideController,
-      curve: Curves.easeOutCubic,
-    ));
+    _slideAnimation =
+        Tween<Offset>(begin: const Offset(0, 0.15), end: Offset.zero).animate(
+          CurvedAnimation(parent: _slideController, curve: Curves.easeOutCubic),
+        );
 
     _fadeController.forward();
     _slideController.forward();
@@ -128,8 +123,9 @@ class _LoginScreenState extends State<LoginScreen>
 
   Future<void> _handleLogin() async {
     final username = _loginController.text.trim();
+    final l10n = AppLocalizations.of(context)!;
     Logger.info('LoginScreen', 'Login attempt started for user: $username');
-    
+
     if (_formKey.currentState!.validate()) {
       setState(() {
         _isLoading = true;
@@ -137,93 +133,260 @@ class _LoginScreenState extends State<LoginScreen>
 
       try {
         final password = _passwordController.text;
-        
+        var authenticatedWithTfa = false;
+
+        // Mobile-login — обязательный preflight: он проверяет credentials и
+        // выдаёт временный challenge для аккаунтов с включённой 2FA.
+        final preflight = await _apiService.mobileLogin(username, password);
+        if (!preflight.success || preflight.data == null) {
+          if (mounted) {
+            setState(() => _isLoading = false);
+            CustomToast.show(
+              context,
+              preflight.error ?? l10n.invalidCredentials,
+              type: ToastType.error,
+            );
+          }
+          return;
+        }
+
+        final preflightData = preflight.data!;
+        final requiresTfa =
+            preflightData['tfa_required'] == true ||
+            preflightData['requires_2fa'] == true;
+        Logger.info(
+          'AuthTrace',
+          'LoginScreen decision: requiresTfa=$requiresTfa '
+              'authSuccess=${preflightData['auth_success']} '
+              'responseTfaEnabled=${preflightData['user_info']?['tfa_enabled']}',
+        );
+        if (requiresTfa) {
+          Logger.info(
+            'AuthTrace',
+            'LoginScreen entering 2FA branch; modal will be requested',
+          );
+          final tfaToken =
+              (preflightData['token'] ?? preflightData['temp_token'])
+                  as String?;
+          if (tfaToken == null || tfaToken.isEmpty) {
+            if (mounted) {
+              setState(() => _isLoading = false);
+              CustomToast.show(
+                context,
+                l10n.serverError,
+                type: ToastType.error,
+              );
+            }
+            return;
+          }
+
+          final sendResult = await _apiService.sendTfaCode(tfaToken);
+          if (!sendResult.success || sendResult.data?['success'] != true) {
+            if (mounted) {
+              setState(() => _isLoading = false);
+              CustomToast.show(
+                context,
+                sendResult.error ??
+                    sendResult.data?['message'] as String? ??
+                    l10n.sendCodeError,
+                type: ToastType.error,
+              );
+            }
+            return;
+          }
+
+          if (mounted) setState(() => _isLoading = false);
+          if (!mounted) return;
+          final tfaJwtIssued = await TfaVerificationDialog.show(
+            context: context,
+            token: tfaToken,
+            apiService: _apiService,
+            emailMasked: preflightData['user_info']?['email'] as String?,
+          );
+          Logger.info(
+            'AuthTrace',
+            '2FA modal completed: cancelled=${tfaJwtIssued == null} '
+                'jwtCameFromVerify=${tfaJwtIssued == true}',
+          );
+          if (tfaJwtIssued == null || !mounted) return;
+          authenticatedWithTfa = tfaJwtIssued;
+          setState(() => _isLoading = true);
+        } else if (preflightData['auth_success'] != true) {
+          if (mounted) {
+            setState(() => _isLoading = false);
+            CustomToast.show(
+              context,
+              preflightData['message'] as String? ?? l10n.invalidCredentials,
+              type: ToastType.error,
+            );
+          }
+          return;
+        } else {
+          Logger.warning(
+            'AuthTrace',
+            'LoginScreen accepted non-2FA branch because server returned '
+                'auth_success=true and no 2FA flag',
+          );
+        }
+
         // Получаем JWT токен
         Logger.info('LoginScreen', 'Requesting JWT token for user: $username');
-        final tokenResponse = await _apiService.obtainToken(username, password);
+        final tokenResponse = authenticatedWithTfa
+            ? ApiResponse(success: true)
+            : await _apiService.obtainToken(username, password);
+        Logger.info(
+          'AuthTrace',
+          'JWT decision: skipPasswordTokenEndpoint=$authenticatedWithTfa '
+              'tokenResponseSuccess=${tokenResponse.success}',
+        );
 
         if (tokenResponse.success) {
-          Logger.info('LoginScreen', 'Token obtained successfully. Fetching E2EE keys from server.');
+          Logger.info(
+            'LoginScreen',
+            'Token obtained successfully. Fetching E2EE keys from server.',
+          );
           // Токен получен успешно, теперь настраиваем крипто-ключи (E2EE)
           final keysResponse = await _apiService.getMyKeys();
           bool cryptoSetupSuccess = false;
 
-          if (keysResponse.success && keysResponse.data != null && keysResponse.data!['xsec2'] != null) {
+          if (keysResponse.success &&
+              keysResponse.data != null &&
+              keysResponse.data!['xsec2'] != null) {
             // Ключи есть на сервере, расшифровываем их
-            Logger.info('LoginScreen', 'Keys found on server. Attempting to unlock/decrypt key bundle.');
+            Logger.info(
+              'LoginScreen',
+              'Keys found on server. Attempting to unlock/decrypt key bundle.',
+            );
             final xsec2 = keysResponse.data!['xsec2'] as Map<String, dynamic>;
-            final encryptedBlob = xsec2['encrypted_blob'] as Map<String, dynamic>;
-            
-            cryptoSetupSuccess = await CryptoService().unlockFromBlob(encryptedBlob, password);
-            Logger.info('LoginScreen', 'Key bundle decryption result: $cryptoSetupSuccess');
+            final encryptedBlob =
+                xsec2['encrypted_blob'] as Map<String, dynamic>;
+
+            cryptoSetupSuccess = await CryptoService().unlockFromBlob(
+              encryptedBlob,
+              password,
+            );
+            Logger.info(
+              'LoginScreen',
+              'Key bundle decryption result: $cryptoSetupSuccess',
+            );
 
             if (!cryptoSetupSuccess) {
               // В случае неудачи (например, старый Argon2id blob с веб-клиента),
               // генерируем новые ключи в поддерживаемом формате pbkdf2-aes-gcm и загружаем их.
-              Logger.warning('LoginScreen', 'Failed to decrypt server keys. Regenerating new keys under pbkdf2-aes-gcm...');
+              Logger.warning(
+                'LoginScreen',
+                'Failed to decrypt server keys. Regenerating new keys under pbkdf2-aes-gcm...',
+              );
               try {
-                final newBlob = await CryptoService().generateAndStoreKeys(password);
+                final newBlob = await CryptoService().generateAndStoreKeys(
+                  password,
+                );
                 final uploadResponse = await _apiService.uploadKeys(
                   x25519PublicKey: newBlob['pub']['x25519'] as String,
                   ed25519PublicKey: newBlob['pub']['ed25519'] as String,
                   encryptedBlob: newBlob,
                 );
                 cryptoSetupSuccess = uploadResponse.success;
-                Logger.info('LoginScreen', 'Fallback key regeneration and upload success status: $cryptoSetupSuccess');
+                Logger.info(
+                  'LoginScreen',
+                  'Fallback key regeneration and upload success status: $cryptoSetupSuccess',
+                );
                 if (!cryptoSetupSuccess) {
-                  Logger.error('LoginScreen', 'Failed to upload regenerated keys: ${uploadResponse.error}');
+                  Logger.error(
+                    'LoginScreen',
+                    'Failed to upload regenerated keys: ${uploadResponse.error}',
+                  );
                   if (mounted) {
                     CustomToast.show(
                       context,
-                      uploadResponse.error ?? (AppLocalizations.of(context)?.oshibkaVosstanovleniyaKlyucheyNeUdalos_fe7b ?? 'Fallback'),
+                      uploadResponse.error ??
+                          (AppLocalizations.of(
+                                context,
+                              )?.oshibkaVosstanovleniyaKlyucheyNeUdalos_fe7b ??
+                              'Fallback'),
                       type: ToastType.error,
                     );
                   }
                 }
               } catch (e) {
-                Logger.error('LoginScreen', 'Error during fallback key generation', e);
+                Logger.error(
+                  'LoginScreen',
+                  'Error during fallback key generation',
+                  e,
+                );
                 if (mounted) {
                   CustomToast.show(
                     context,
-                    (AppLocalizations.of(context)?.kriticheskayaOshibkaPriPeresozdaniiKlyuchey_b6d7 ?? 'Fallback'),
+                    (AppLocalizations.of(
+                          context,
+                        )?.kriticheskayaOshibkaPriPeresozdaniiKlyuchey_b6d7 ??
+                        'Fallback'),
                     type: ToastType.error,
                   );
                 }
               }
             }
-          } else if (keysResponse.statusCode == 404 || (keysResponse.data != null && keysResponse.data!['code'] == 'KEYS_NOT_FOUND')) {
+          } else if (keysResponse.statusCode == 404 ||
+              (keysResponse.data != null &&
+                  keysResponse.data!['code'] == 'KEYS_NOT_FOUND')) {
             // Ключей нет на сервере, генерируем новые
-            Logger.info('LoginScreen', 'Keys not found on server (404/KEYS_NOT_FOUND). Generating new keys.');
+            Logger.info(
+              'LoginScreen',
+              'Keys not found on server (404/KEYS_NOT_FOUND). Generating new keys.',
+            );
             try {
-              final newBlob = await CryptoService().generateAndStoreKeys(password);
+              final newBlob = await CryptoService().generateAndStoreKeys(
+                password,
+              );
               final uploadResponse = await _apiService.uploadKeys(
                 x25519PublicKey: newBlob['pub']['x25519'] as String,
                 ed25519PublicKey: newBlob['pub']['ed25519'] as String,
                 encryptedBlob: newBlob,
               );
-              
+
               cryptoSetupSuccess = uploadResponse.success;
-              Logger.info('LoginScreen', 'New key generation and upload success status: $cryptoSetupSuccess');
+              Logger.info(
+                'LoginScreen',
+                'New key generation and upload success status: $cryptoSetupSuccess',
+              );
               if (!cryptoSetupSuccess) {
-                Logger.error('LoginScreen', 'Failed to upload new keys: ${uploadResponse.error}');
+                Logger.error(
+                  'LoginScreen',
+                  'Failed to upload new keys: ${uploadResponse.error}',
+                );
                 if (mounted) {
                   CustomToast.show(
                     context,
-                    uploadResponse.error ?? (AppLocalizations.of(context)?.oshibkaZagruzkiKlyucheyNaServer_ff9b ?? 'Fallback'),
+                    uploadResponse.error ??
+                        (AppLocalizations.of(
+                              context,
+                            )?.oshibkaZagruzkiKlyucheyNaServer_ff9b ??
+                            'Fallback'),
                     type: ToastType.error,
                   );
                 }
               }
             } catch (e) {
-              Logger.error('LoginScreen', 'Error generating and uploading new keys', e);
+              Logger.error(
+                'LoginScreen',
+                'Error generating and uploading new keys',
+                e,
+              );
             }
           } else {
             // Другая ошибка при получении ключей
-            Logger.error('LoginScreen', 'Failed to fetch keys from server: ${keysResponse.error} (status ${keysResponse.statusCode})');
+            Logger.error(
+              'LoginScreen',
+              'Failed to fetch keys from server: ${keysResponse.error} (status ${keysResponse.statusCode})',
+            );
             if (mounted) {
               CustomToast.show(
                 context,
-                keysResponse.error ?? (AppLocalizations.of(context)?.oshibkaPriPolucheniiKlyucheyShifrovaniya_9bb4 ?? 'Fallback'),
+                keysResponse.error ??
+                    (AppLocalizations.of(
+                          context,
+                        )?.oshibkaPriPolucheniiKlyucheyShifrovaniya_9bb4 ??
+                        'Fallback'),
                 type: ToastType.error,
               );
             }
@@ -234,24 +397,41 @@ class _LoginScreenState extends State<LoginScreen>
           });
 
           if (cryptoSetupSuccess) {
-            Logger.info('LoginScreen', 'Crypto keys successfully configured. Fetching user profile...');
+            Logger.info(
+              'LoginScreen',
+              'Crypto keys successfully configured. Fetching user profile...',
+            );
             final profileRes = await _apiService.getProfile();
             bool savedSuccess = false;
             if (profileRes.success && profileRes.data != null) {
-              Logger.info('LoginScreen', 'Profile fetched successfully. Saving current account: ${profileRes.data!['username']}');
-              savedSuccess = await AccountService().saveCurrentAccount(profileRes.data!);
+              Logger.info(
+                'LoginScreen',
+                'Profile fetched successfully. Saving current account: ${profileRes.data!['username']}',
+              );
+              savedSuccess = await AccountService().saveCurrentAccount(
+                profileRes.data!,
+              );
             } else {
-              Logger.error('LoginScreen', 'Failed to fetch user profile: ${profileRes.error}');
+              Logger.error(
+                'LoginScreen',
+                'Failed to fetch user profile: ${profileRes.error}',
+              );
             }
-            
+
             if (!savedSuccess) {
-              Logger.error('LoginScreen', 'Failed to save account locally. Exceeded account limit or save error.');
+              Logger.error(
+                'LoginScreen',
+                'Failed to save account locally. Exceeded account limit or save error.',
+              );
               await _apiService.logout();
               await CryptoService().clearKeys();
               if (mounted) {
                 CustomToast.show(
                   context,
-                  (AppLocalizations.of(context)?.prevyshenLimitV5Akkauntov_a6a9 ?? 'Fallback'),
+                  (AppLocalizations.of(
+                        context,
+                      )?.prevyshenLimitV5Akkauntov_a6a9 ??
+                      'Fallback'),
                   type: ToastType.error,
                 );
               }
@@ -262,7 +442,10 @@ class _LoginScreenState extends State<LoginScreen>
             }
 
             if (mounted) {
-              Logger.info('LoginScreen', 'Login flow completed successfully. Navigating to messenger.');
+              Logger.info(
+                'LoginScreen',
+                'Login flow completed successfully. Navigating to messenger.',
+              );
               final l10n = AppLocalizations.of(context);
               if (l10n != null) {
                 CustomToast.show(
@@ -276,7 +459,10 @@ class _LoginScreenState extends State<LoginScreen>
             }
           }
         } else {
-          Logger.warning('LoginScreen', 'Token obtain failed: ${tokenResponse.error} (status ${tokenResponse.statusCode})');
+          Logger.warning(
+            'LoginScreen',
+            'Token obtain failed: ${tokenResponse.error} (status ${tokenResponse.statusCode})',
+          );
           setState(() {
             _isLoading = false;
           });
@@ -284,21 +470,29 @@ class _LoginScreenState extends State<LoginScreen>
           if (mounted) {
             CustomToast.show(
               context,
-              tokenResponse.error ?? (AppLocalizations.of(context)?.oshibkaAvtorizatsii_9f5c ?? 'Fallback'),
+              tokenResponse.error ??
+                  (AppLocalizations.of(context)?.oshibkaAvtorizatsii_9f5c ??
+                      'Fallback'),
               type: ToastType.error,
             );
           }
         }
       } catch (e, stack) {
-        Logger.error('LoginScreen', 'Unexpected error during login process', e, stack);
+        Logger.error(
+          'LoginScreen',
+          'Unexpected error during login process',
+          e,
+          stack,
+        );
         setState(() {
           _isLoading = false;
         });
-        
+
         if (mounted) {
           CustomToast.show(
             context,
-            (AppLocalizations.of(context)?.oshibkaPodklyucheniyaKServeru_8b96 ?? 'Fallback'),
+            (AppLocalizations.of(context)?.oshibkaPodklyucheniyaKServeru_8b96 ??
+                'Fallback'),
             type: ToastType.error,
           );
         }
@@ -318,7 +512,9 @@ class _LoginScreenState extends State<LoginScreen>
     final canGoBack = Navigator.of(context).canPop() || _hasAccounts;
 
     return Scaffold(
-      backgroundColor: isDark ? const Color(0xFF070707) : const Color(0xFFFAF9FB),
+      backgroundColor: isDark
+          ? const Color(0xFF070707)
+          : const Color(0xFFFAF9FB),
       body: Stack(
         children: [
           // Main Split Screen Layout
@@ -328,21 +524,33 @@ class _LoginScreenState extends State<LoginScreen>
               Expanded(
                 flex: showRightPanel ? 5 : 10,
                 child: Container(
-                  color: isDark ? const Color(0xFF0C0C0C) : const Color(0xFFFFFFFF),
+                  color: isDark
+                      ? const Color(0xFF0C0C0C)
+                      : const Color(0xFFFFFFFF),
                   child: Center(
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 400),
                       child: SingleChildScrollView(
-                        padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 48),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 40,
+                          vertical: 48,
+                        ),
                         child: _ScaledContent(
                           child: AnimatedBuilder(
-                            animation: Listenable.merge([_fadeAnimation, _slideAnimation]),
+                            animation: Listenable.merge([
+                              _fadeAnimation,
+                              _slideAnimation,
+                            ]),
                             builder: (context, child) {
                               return FadeTransition(
                                 opacity: _fadeAnimation,
                                 child: SlideTransition(
                                   position: _slideAnimation,
-                                  child: _buildLoginForm(l10n!, isDark, showRightPanel),
+                                  child: _buildLoginForm(
+                                    l10n!,
+                                    isDark,
+                                    showRightPanel,
+                                  ),
                                 ),
                               );
                             },
@@ -353,17 +561,21 @@ class _LoginScreenState extends State<LoginScreen>
                   ),
                 ),
               ),
-              
+
               // Right Column: Minimal Branding Panel (only shown on wider screens)
               if (showRightPanel)
                 Expanded(
                   flex: 6,
                   child: Container(
                     decoration: BoxDecoration(
-                      color: isDark ? const Color(0xFF050505) : const Color(0xFFF1F0F3),
+                      color: isDark
+                          ? const Color(0xFF050505)
+                          : const Color(0xFFF1F0F3),
                       border: Border(
                         left: BorderSide(
-                          color: isDark ? Colors.white.withOpacity(0.04) : Colors.black.withOpacity(0.04),
+                          color: isDark
+                              ? Colors.white.withOpacity(0.04)
+                              : Colors.black.withOpacity(0.04),
                           width: 1,
                         ),
                       ),
@@ -391,11 +603,14 @@ class _LoginScreenState extends State<LoginScreen>
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            l10n?.secureDesktopCommunicator ?? 'secure desktop communicator',
+                            l10n?.secureDesktopCommunicator ??
+                                'secure desktop communicator',
                             style: TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w300,
-                              color: isDark ? Colors.grey.shade600 : Colors.grey.shade500,
+                              color: isDark
+                                  ? Colors.grey.shade600
+                                  : Colors.grey.shade500,
                               letterSpacing: 2,
                               fontFamily: 'Inter',
                             ),
@@ -407,11 +622,9 @@ class _LoginScreenState extends State<LoginScreen>
                 ),
             ],
           ),
-          
+
           // Settings button trigger
-          const Positioned.fill(
-            child: SettingsButton(),
-          ),
+          const Positioned.fill(child: SettingsButton()),
 
           // Back button to return to messenger
           if (canGoBack)
@@ -433,12 +646,18 @@ class _LoginScreenState extends State<LoginScreen>
                       if (Navigator.of(context).canPop()) {
                         Navigator.of(context).pop();
                       } else if (_hasAccounts) {
-                        Navigator.of(context).pushReplacementNamed('/messenger');
+                        Navigator.of(
+                          context,
+                        ).pushReplacementNamed('/messenger');
                       }
                     }
                   },
                   child: Tooltip(
-                    message: (AppLocalizations.of(context)?.nazadKMessendzheru_de29 ?? 'Fallback'),
+                    message:
+                        (AppLocalizations.of(
+                          context,
+                        )?.nazadKMessendzheru_de29 ??
+                        'Fallback'),
                     child: Container(
                       width: 44,
                       height: 44,
@@ -478,7 +697,11 @@ class _LoginScreenState extends State<LoginScreen>
     );
   }
 
-  Widget _buildLoginForm(AppLocalizations l10n, bool isDark, bool showRightPanel) {
+  Widget _buildLoginForm(
+    AppLocalizations l10n,
+    bool isDark,
+    bool showRightPanel,
+  ) {
     return Form(
       key: _formKey,
       child: Column(
@@ -496,18 +719,23 @@ class _LoginScreenState extends State<LoginScreen>
             ),
             SizedBox(height: 32),
           ],
-          
+
           // Header / Welcome Title (Step-dependent)
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 300),
-            transitionBuilder: (child, animation) => FadeTransition(opacity: animation, child: child),
+            transitionBuilder: (child, animation) =>
+                FadeTransition(opacity: animation, child: child),
             child: KeyedSubtree(
               key: ValueKey<int>(_currentStep),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    _currentStep == 0 ? (AppLocalizations.of(context)?.voytiVAkkaunt_c439 ?? 'Fallback') : (AppLocalizations.of(context)?.vvediteParol_1370 ?? 'Fallback'),
+                    _currentStep == 0
+                        ? (AppLocalizations.of(context)?.voytiVAkkaunt_c439 ??
+                              'Fallback')
+                        : (AppLocalizations.of(context)?.vvediteParol_1370 ??
+                              'Fallback'),
                     style: TextStyle(
                       fontSize: 28,
                       fontWeight: FontWeight.w700,
@@ -518,10 +746,15 @@ class _LoginScreenState extends State<LoginScreen>
                   const SizedBox(height: 8),
                   _currentStep == 0
                       ? Text(
-                          (AppLocalizations.of(context)?.vvediteSvoiDannyeDlyaDostupa_319e ?? 'Fallback'),
+                          (AppLocalizations.of(
+                                context,
+                              )?.vvediteSvoiDannyeDlyaDostupa_319e ??
+                              'Fallback'),
                           style: TextStyle(
                             fontSize: 13,
-                            color: isDark ? Colors.grey.shade500 : Colors.grey.shade600,
+                            color: isDark
+                                ? Colors.grey.shade500
+                                : Colors.grey.shade600,
                             fontFamily: 'Inter',
                           ),
                         )
@@ -531,7 +764,9 @@ class _LoginScreenState extends State<LoginScreen>
                               _loginController.text,
                               style: TextStyle(
                                 fontSize: 13,
-                                color: isDark ? Colors.grey.shade300 : Colors.grey.shade700,
+                                color: isDark
+                                    ? Colors.grey.shade300
+                                    : Colors.grey.shade700,
                                 fontFamily: 'Inter',
                               ),
                             ),
@@ -543,14 +778,19 @@ class _LoginScreenState extends State<LoginScreen>
                                   setState(() {
                                     _currentStep = 0;
                                   });
-                                  Future.delayed(const Duration(milliseconds: 100), () {
-                                    _loginFocus.requestFocus();
-                                  });
+                                  Future.delayed(
+                                    const Duration(milliseconds: 100),
+                                    () {
+                                      _loginFocus.requestFocus();
+                                    },
+                                  );
                                 },
                                 child: Icon(
                                   Icons.edit_outlined,
                                   size: 14,
-                                  color: isDark ? Colors.grey.shade500 : Colors.grey.shade600,
+                                  color: isDark
+                                      ? Colors.grey.shade500
+                                      : Colors.grey.shade600,
                                 ),
                               ),
                             ),
@@ -560,13 +800,14 @@ class _LoginScreenState extends State<LoginScreen>
               ),
             ),
           ),
-          
+
           const SizedBox(height: 40),
-          
+
           // Sequential Fields Container with Fade Animation
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 300),
-            transitionBuilder: (child, animation) => FadeTransition(opacity: animation, child: child),
+            transitionBuilder: (child, animation) =>
+                FadeTransition(opacity: animation, child: child),
             child: KeyedSubtree(
               key: ValueKey<int>(_currentStep),
               child: _currentStep == 0
@@ -574,14 +815,14 @@ class _LoginScreenState extends State<LoginScreen>
                   : _buildPasswordField(l10n, isDark),
             ),
           ),
-          
+
           const SizedBox(height: 32),
-          
+
           // Login Button
           _buildLoginButton(l10n, isDark),
-          
+
           const SizedBox(height: 24),
-          
+
           // Register Link / Back Link
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 300),
@@ -600,9 +841,12 @@ class _LoginScreenState extends State<LoginScreen>
                           });
                         },
                         child: Text(
-                          (AppLocalizations.of(context)?.nazad_2b0b ?? 'Fallback'),
+                          (AppLocalizations.of(context)?.nazad_2b0b ??
+                              'Fallback'),
                           style: TextStyle(
-                            color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                            color: isDark
+                                ? Colors.grey.shade400
+                                : Colors.grey.shade600,
                             fontSize: 12,
                             decoration: TextDecoration.underline,
                             fontFamily: 'Inter',
@@ -682,7 +926,11 @@ class _LoginScreenState extends State<LoginScreen>
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Text(
-                  isNextStep ? (AppLocalizations.of(context)?.dalee_c453 ?? 'Fallback') : (l10n?.loginButton ?? (AppLocalizations.of(context)?.voyti_63a7 ?? 'Fallback')),
+                  isNextStep
+                      ? (AppLocalizations.of(context)?.dalee_c453 ?? 'Fallback')
+                      : (l10n?.loginButton ??
+                            (AppLocalizations.of(context)?.voyti_63a7 ??
+                                'Fallback')),
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
@@ -712,9 +960,7 @@ class _LoginScreenState extends State<LoginScreen>
         child: GestureDetector(
           onTap: () {
             Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (context) => const RegisterScreen(),
-              ),
+              MaterialPageRoute(builder: (context) => const RegisterScreen()),
             );
           },
           child: Text(

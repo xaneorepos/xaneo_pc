@@ -15,7 +15,6 @@ import '../l10n/app_localizations.dart';
 
 // ─── Описание раздела настроек ──────────────────────────────────────────────
 
-
 class _SettingsSection {
   final String id;
   final String title;
@@ -38,36 +37,61 @@ List<_SettingsSection> _getAccountSections(BuildContext context) {
   return [
     _SettingsSection(
       id: 'personal',
-      title: l10n?.personalData ?? (AppLocalizations.of(context)?.lichnyeDannye_be85 ?? 'Fallback'),
-      description: l10n?.personalDataDesc ?? (AppLocalizations.of(context)?.imyaNikneymFotoProfilya_28ac ?? 'Fallback'),
+      title:
+          l10n?.personalData ??
+          (AppLocalizations.of(context)?.lichnyeDannye_be85 ?? 'Fallback'),
+      description:
+          l10n?.personalDataDesc ??
+          (AppLocalizations.of(context)?.imyaNikneymFotoProfilya_28ac ??
+              'Fallback'),
       icon: Icons.person_rounded,
       gradient: const [Color(0xFF2563EB), Color(0xFF1D4ED8)],
     ),
     _SettingsSection(
       id: 'privacy',
-      title: l10n?.privacyTitle ?? (AppLocalizations.of(context)?.privatnost_0899 ?? 'Fallback'),
-      description: l10n?.privacyDesc ?? (AppLocalizations.of(context)?.ktoMozhetPisatZvonitVidet_1789 ?? 'Fallback'),
+      title:
+          l10n?.privacyTitle ??
+          (AppLocalizations.of(context)?.privatnost_0899 ?? 'Fallback'),
+      description:
+          l10n?.privacyDesc ??
+          (AppLocalizations.of(context)?.ktoMozhetPisatZvonitVidet_1789 ??
+              'Fallback'),
       icon: Icons.lock_rounded,
       gradient: const [Color(0xFF2563EB), Color(0xFF1D4ED8)],
     ),
     _SettingsSection(
       id: 'chats',
-      title: l10n?.chatsSettings ?? (AppLocalizations.of(context)?.nastroykiChatov_7ca8 ?? 'Fallback'),
-      description: l10n?.chatsSettingsDesc ?? (AppLocalizations.of(context)?.uvedomleniyaTemyIstoriya_51da ?? 'Fallback'),
+      title:
+          l10n?.chatsSettings ??
+          (AppLocalizations.of(context)?.nastroykiChatov_7ca8 ?? 'Fallback'),
+      description:
+          l10n?.chatsSettingsDesc ??
+          (AppLocalizations.of(context)?.uvedomleniyaTemyIstoriya_51da ??
+              'Fallback'),
       icon: Icons.chat_bubble_rounded,
       gradient: const [Color(0xFF2563EB), Color(0xFF1D4ED8)],
     ),
     _SettingsSection(
       id: 'contacts',
-      title: l10n?.contacts ?? (AppLocalizations.of(context)?.kontakty_7576 ?? 'Fallback'),
-      description: l10n?.contactsDesc ?? (AppLocalizations.of(context)?.vashiSohranennyeKontakty_a641 ?? 'Fallback'),
+      title:
+          l10n?.contacts ??
+          (AppLocalizations.of(context)?.kontakty_7576 ?? 'Fallback'),
+      description:
+          l10n?.contactsDesc ??
+          (AppLocalizations.of(context)?.vashiSohranennyeKontakty_a641 ??
+              'Fallback'),
       icon: Icons.people_rounded,
       gradient: const [Color(0xFF2563EB), Color(0xFF1D4ED8)],
     ),
     _SettingsSection(
       id: 'security',
-      title: l10n?.security ?? (AppLocalizations.of(context)?.bezopasnost_3677 ?? 'Fallback'),
-      description: l10n?.securityDesc ?? (AppLocalizations.of(context)?.sessiiParolAutentifikatsiya_73f5 ?? 'Fallback'),
+      title:
+          l10n?.security ??
+          (AppLocalizations.of(context)?.bezopasnost_3677 ?? 'Fallback'),
+      description:
+          l10n?.securityDesc ??
+          (AppLocalizations.of(context)?.sessiiParolAutentifikatsiya_73f5 ??
+              'Fallback'),
       icon: Icons.shield_rounded,
       gradient: const [Color(0xFF2563EB), Color(0xFF1D4ED8)],
     ),
@@ -80,49 +104,77 @@ List<_SettingsSection> _getInterfaceSections(BuildContext context) {
   return [
     _SettingsSection(
       id: 'appearance',
-      title: l10n?.appearance ?? (AppLocalizations.of(context)?.vneshniyVid_6873 ?? 'Fallback'),
-      description: l10n?.appearanceDesc ?? (AppLocalizations.of(context)?.temaShriftMasshtab_d8c9 ?? 'Fallback'),
+      title:
+          l10n?.appearance ??
+          (AppLocalizations.of(context)?.vneshniyVid_6873 ?? 'Fallback'),
+      description:
+          l10n?.appearanceDesc ??
+          (AppLocalizations.of(context)?.temaShriftMasshtab_d8c9 ?? 'Fallback'),
       icon: Icons.palette_rounded,
       gradient: const [Color(0xFF2563EB), Color(0xFF1D4ED8)],
     ),
     _SettingsSection(
       id: 'window',
-      title: l10n?.closeActionTitle ?? (AppLocalizations.of(context)?.closeActionTitle ?? 'Действие при закрытии окна'),
-      description: l10n?.closeActionDescription ?? (AppLocalizations.of(context)?.closeActionDescription ?? 'Работа в фоне и системный трей'),
+      title:
+          l10n?.closeActionTitle ??
+          (AppLocalizations.of(context)?.closeActionTitle ??
+              'Действие при закрытии окна'),
+      description:
+          l10n?.closeActionDescription ??
+          (AppLocalizations.of(context)?.closeActionDescription ??
+              'Работа в фоне и системный трей'),
       icon: Icons.desktop_windows_rounded,
       gradient: const [Color(0xFF2563EB), Color(0xFF1D4ED8)],
     ),
     _SettingsSection(
       id: 'language',
-      title: l10n?.language ?? (AppLocalizations.of(context)?.yazyk_0577 ?? 'Fallback'),
-      description: l10n?.languageDescription ?? (AppLocalizations.of(context)?.yazykInterfeysaKlienta_2ad3 ?? 'Fallback'),
+      title:
+          l10n?.language ??
+          (AppLocalizations.of(context)?.yazyk_0577 ?? 'Fallback'),
+      description:
+          l10n?.languageDescription ??
+          (AppLocalizations.of(context)?.yazykInterfeysaKlienta_2ad3 ??
+              'Fallback'),
       icon: Icons.language_rounded,
       gradient: const [Color(0xFF2563EB), Color(0xFF1D4ED8)],
     ),
     _SettingsSection(
       id: 'notifications',
-      title: l10n?.notifications ?? (AppLocalizations.of(context)?.uvedomleniya_d2ed ?? 'Fallback'),
-      description: l10n?.notificationsDescription ?? (AppLocalizations.of(context)?.zvukiBannery_1b60 ?? 'Fallback'),
+      title:
+          l10n?.notifications ??
+          (AppLocalizations.of(context)?.uvedomleniya_d2ed ?? 'Fallback'),
+      description:
+          l10n?.notificationsDescription ??
+          (AppLocalizations.of(context)?.zvukiBannery_1b60 ?? 'Fallback'),
       icon: Icons.notifications_rounded,
       gradient: const [Color(0xFF2563EB), Color(0xFF1D4ED8)],
     ),
     _SettingsSection(
       id: 'energy',
-      title: l10n?.energySaving ?? (AppLocalizations.of(context)?.energosberezhenie_0b19 ?? 'Fallback'),
-      description: l10n?.energySavingDesc ?? (AppLocalizations.of(context)?.animatsiiIProizvoditelnost_fba8 ?? 'Fallback'),
+      title:
+          l10n?.energySaving ??
+          (AppLocalizations.of(context)?.energosberezhenie_0b19 ?? 'Fallback'),
+      description:
+          l10n?.energySavingDesc ??
+          (AppLocalizations.of(context)?.animatsiiIProizvoditelnost_fba8 ??
+              'Fallback'),
       icon: Icons.bolt_rounded,
       gradient: const [Color(0xFF2563EB), Color(0xFF1D4ED8)],
     ),
     _SettingsSection(
       id: 'about',
-      title: l10n?.about ?? (AppLocalizations.of(context)?.oPrilozhenii_322e ?? 'Fallback'),
-      description: l10n?.aboutDescription ?? (AppLocalizations.of(context)?.versiyaProverkaObnovleniySsylki_6efc ?? 'Fallback'),
+      title:
+          l10n?.about ??
+          (AppLocalizations.of(context)?.oPrilozhenii_322e ?? 'Fallback'),
+      description:
+          l10n?.aboutDescription ??
+          (AppLocalizations.of(context)?.versiyaProverkaObnovleniySsylki_6efc ??
+              'Fallback'),
       icon: Icons.info_outline_rounded,
       gradient: const [Color(0xFF2563EB), Color(0xFF1D4ED8)],
     ),
   ];
 }
-
 
 // ─── Главный виджет ──────────────────────────────────────────────────────────
 
@@ -191,7 +243,6 @@ class _XaneoSettingsModalState
   String? _updateStatusMessage;
   AppVersionInfo? _foundUpdateInfo;
 
-
   Future<void> _handleManualUpdateCheck() async {
     final l10n = AppLocalizations.of(context);
     setState(() {
@@ -209,12 +260,14 @@ class _XaneoSettingsModalState
       _isCheckingUpdate = false;
       if (update != null) {
         _foundUpdateInfo = update;
-        _updateStatusMessage = '${l10n?.newVersionAvailableTitle ?? "Доступна новая версия"} v${update.version}!';
+        _updateStatusMessage =
+            '${l10n?.newVersionAvailableTitle ?? "Доступна новая версия"} v${update.version}!';
         if (widget.onUpdateFound != null) {
           widget.onUpdateFound!(update);
         }
       } else {
-        _updateStatusMessage = '${l10n?.youHaveLatestVersion ?? "У вас установлена актуальная версия"} v$currentVersion';
+        _updateStatusMessage =
+            '${l10n?.youHaveLatestVersion ?? "У вас установлена актуальная версия"} v$currentVersion';
       }
     });
   }
@@ -245,7 +298,7 @@ class _XaneoSettingsModalState
   String _whoSeesBirthday = 'all';
   String _whoSeesOnlineTime = 'all';
   bool _privacyLoading = false;
-  bool _privacyLoaded = false;  // флаг: загружали ли уже
+  bool _privacyLoaded = false; // флаг: загружали ли уже
   bool _privacySaving = false;
   String? _privacyError;
 
@@ -262,6 +315,17 @@ class _XaneoSettingsModalState
   bool _personalSaving = false;
   String? _personalError;
   String? _personalSuccess;
+
+  // ── Security ─────────────────────────────────────────────────────────────
+  final _securityCodeCtrl = TextEditingController();
+  bool _securityLoading = false;
+  bool _securityLoaded = false;
+  bool _securityBusy = false;
+  bool _tfaEnabled = false;
+  String? _pendingTfaAction;
+  String? _securityError;
+  String? _securitySuccess;
+  List<Map<String, dynamic>> _securitySessions = const [];
 
   bool get _isLoggedIn => widget.currentUser != null;
 
@@ -281,7 +345,9 @@ class _XaneoSettingsModalState
   Future<void> _fetchFreshProfile() async {
     try {
       final res = await ApiService().dio.get('/user/profile/');
-      final data = res.data is Map<String, dynamic> ? res.data as Map<String, dynamic> : null;
+      final data = res.data is Map<String, dynamic>
+          ? res.data as Map<String, dynamic>
+          : null;
       if (data != null && mounted) {
         setState(() {
           if (widget.currentUser != null) {
@@ -300,7 +366,320 @@ class _XaneoSettingsModalState
     _firstNameCtrl.dispose();
     _usernameCtrl.dispose();
     _bioCtrl.dispose();
+    _securityCodeCtrl.dispose();
     super.dispose();
+  }
+
+  static const Map<String, Map<String, String>> _securityTranslations = {
+    'loadError': {
+      'ru': 'Не удалось загрузить настройки безопасности',
+      'en': 'Failed to load security settings',
+      'fr': 'Impossible de charger les paramètres de sécurité',
+      'es': 'No se pudieron cargar los ajustes de seguridad',
+      'zh': '无法加载安全设置',
+      'ja': 'セキュリティ設定を読み込めませんでした',
+      'ko': '보안 설정을 불러오지 못했습니다',
+      'ar': 'تعذر تحميل إعدادات الأمان',
+    },
+    'codeSent': {
+      'ru': 'Код отправлен на email',
+      'en': 'Code sent to email',
+      'fr': 'Code envoyé par e-mail',
+      'es': 'Código enviado por correo electrónico',
+      'zh': '验证码已发送至邮箱',
+      'ja': 'コードをメールで送信しました',
+      'ko': '이메일로 코드를 전송했습니다',
+      'ar': 'تم إرسال الرمز إلى البريد الإلكتروني',
+    },
+    'sendCodeError': {
+      'ru': 'Ошибка отправки кода',
+      'en': 'Failed to send code',
+      'fr': 'Échec de l’envoi du code',
+      'es': 'No se pudo enviar el código',
+      'zh': '无法发送验证码',
+      'ja': 'コードを送信できませんでした',
+      'ko': '코드를 전송하지 못했습니다',
+      'ar': 'تعذر إرسال الرمز',
+    },
+    'validCode': {
+      'ru': 'Введите корректный 6-значный код',
+      'en': 'Enter a valid 6-digit code',
+      'fr': 'Saisissez un code valide à 6 chiffres',
+      'es': 'Introduce un código válido de 6 dígitos',
+      'zh': '请输入有效的 6 位验证码',
+      'ja': '有効な6桁のコードを入力してください',
+      'ko': '유효한 6자리 코드를 입력하세요',
+      'ar': 'أدخل رمزًا صالحًا مكونًا من 6 أرقام',
+    },
+    'updated': {
+      'ru': 'Настройки 2FA обновлены',
+      'en': '2FA settings updated',
+      'fr': 'Paramètres 2FA mis à jour',
+      'es': 'Ajustes de 2FA actualizados',
+      'zh': '双重验证设置已更新',
+      'ja': '2FA設定を更新しました',
+      'ko': '2FA 설정이 업데이트되었습니다',
+      'ar': 'تم تحديث إعدادات المصادقة الثنائية',
+    },
+    'invalidCode': {
+      'ru': 'Неверный код',
+      'en': 'Invalid code',
+      'fr': 'Code incorrect',
+      'es': 'Código incorrecto',
+      'zh': '验证码无效',
+      'ja': 'コードが正しくありません',
+      'ko': '잘못된 코드입니다',
+      'ar': 'الرمز غير صحيح',
+    },
+    'terminateError': {
+      'ru': 'Не удалось завершить сессию',
+      'en': 'Failed to terminate session',
+      'fr': 'Impossible de terminer la session',
+      'es': 'No se pudo finalizar la sesión',
+      'zh': '无法终止会话',
+      'ja': 'セッションを終了できませんでした',
+      'ko': '세션을 종료하지 못했습니다',
+      'ar': 'تعذر إنهاء الجلسة',
+    },
+    'twoFactorTitle': {
+      'ru': 'Двухфакторная аутентификация',
+      'en': 'Two-factor authentication',
+      'fr': 'Authentification à deux facteurs',
+      'es': 'Autenticación de dos factores',
+      'zh': '双重验证',
+      'ja': '二要素認証',
+      'ko': '이중 인증',
+      'ar': 'المصادقة الثنائية',
+    },
+    'tfaEnabled': {
+      'ru': '2FA включена',
+      'en': '2FA enabled',
+      'fr': '2FA activée',
+      'es': '2FA activada',
+      'zh': '双重验证已启用',
+      'ja': '2FAは有効です',
+      'ko': '2FA가 활성화되었습니다',
+      'ar': 'المصادقة الثنائية مفعّلة',
+    },
+    'tfaDisabled': {
+      'ru': '2FA отключена',
+      'en': '2FA disabled',
+      'fr': '2FA désactivée',
+      'es': '2FA desactivada',
+      'zh': '双重验证已停用',
+      'ja': '2FAは無効です',
+      'ko': '2FA가 비활성화되었습니다',
+      'ar': 'المصادقة الثنائية معطّلة',
+    },
+    'twoFactorDesc': {
+      'ru': 'Защита аккаунта одноразовым паролем',
+      'en': 'Protect your account with a one-time password',
+      'fr': 'Protégez votre compte avec un mot de passe à usage unique',
+      'es': 'Protege tu cuenta con una contraseña de un solo uso',
+      'zh': '使用一次性密码保护您的账户',
+      'ja': 'ワンタイムパスワードでアカウントを保護します',
+      'ko': '일회용 비밀번호로 계정을 보호하세요',
+      'ar': 'احمِ حسابك بكلمة مرور تُستخدم لمرة واحدة',
+    },
+    'disable': {
+      'ru': 'Отключить',
+      'en': 'Disable',
+      'fr': 'Désactiver',
+      'es': 'Desactivar',
+      'zh': '停用',
+      'ja': '無効にする',
+      'ko': '비활성화',
+      'ar': 'تعطيل',
+    },
+    'enable': {
+      'ru': 'Включить',
+      'en': 'Enable',
+      'fr': 'Activer',
+      'es': 'Activar',
+      'zh': '启用',
+      'ja': '有効にする',
+      'ko': '활성화',
+      'ar': 'تفعيل',
+    },
+    'confirm': {
+      'ru': 'Подтвердить',
+      'en': 'Confirm',
+      'fr': 'Confirmer',
+      'es': 'Confirmar',
+      'zh': '确认',
+      'ja': '確認',
+      'ko': '확인',
+      'ar': 'تأكيد',
+    },
+    'activeSessions': {
+      'ru': 'Активные сессии',
+      'en': 'Active sessions',
+      'fr': 'Sessions actives',
+      'es': 'Sesiones activas',
+      'zh': '活动会话',
+      'ja': 'アクティブなセッション',
+      'ko': '활성 세션',
+      'ar': 'الجلسات النشطة',
+    },
+    'refresh': {
+      'ru': 'Обновить',
+      'en': 'Refresh',
+      'fr': 'Actualiser',
+      'es': 'Actualizar',
+      'zh': '刷新',
+      'ja': '更新',
+      'ko': '새로고침',
+      'ar': 'تحديث',
+    },
+    'noSessions': {
+      'ru': 'Нет активных сессий',
+      'en': 'No active sessions',
+      'fr': 'Aucune session active',
+      'es': 'No hay sesiones activas',
+      'zh': '没有活动会话',
+      'ja': 'アクティブなセッションはありません',
+      'ko': '활성 세션이 없습니다',
+      'ar': 'لا توجد جلسات نشطة',
+    },
+    'unknownDevice': {
+      'ru': 'Неизвестное устройство',
+      'en': 'Unknown device',
+      'fr': 'Appareil inconnu',
+      'es': 'Dispositivo desconocido',
+      'zh': '未知设备',
+      'ja': '不明なデバイス',
+      'ko': '알 수 없는 기기',
+      'ar': 'جهاز غير معروف',
+    },
+    'thisDevice': {
+      'ru': 'Это устройство',
+      'en': 'This device',
+      'fr': 'Cet appareil',
+      'es': 'Este dispositivo',
+      'zh': '此设备',
+      'ja': 'このデバイス',
+      'ko': '이 기기',
+      'ar': 'هذا الجهاز',
+    },
+    'active': {
+      'ru': 'Активно',
+      'en': 'Active',
+      'fr': 'Actif',
+      'es': 'Activa',
+      'zh': '活动',
+      'ja': 'アクティブ',
+      'ko': '활성',
+      'ar': 'نشطة',
+    },
+    'terminate': {
+      'ru': 'Завершить',
+      'en': 'Terminate',
+      'fr': 'Terminer',
+      'es': 'Finalizar',
+      'zh': '终止',
+      'ja': '終了',
+      'ko': '종료',
+      'ar': 'إنهاء',
+    },
+  };
+
+  String _securityText(String key) {
+    final translations = _securityTranslations[key]!;
+    final languageCode = Localizations.localeOf(context).languageCode;
+    return translations[languageCode] ?? translations['en']!;
+  }
+
+  Future<void> _loadSecurity({bool force = false}) async {
+    if (_securityLoading || (_securityLoaded && !force)) return;
+    setState(() {
+      _securityLoading = true;
+      _securityError = null;
+    });
+    final result = await ApiService().getSecurityOverview();
+    if (!mounted) return;
+    final data = result.data ?? const <String, dynamic>{};
+    setState(() {
+      _securityLoading = false;
+      _securityLoaded = result.success;
+      if (result.success) {
+        _tfaEnabled = data['tfa_enabled'] == true;
+        _securitySessions = (data['sessions'] as List? ?? const [])
+            .whereType<Map>()
+            .map((item) => Map<String, dynamic>.from(item))
+            .toList();
+      } else {
+        _securityError = _securityText('loadError');
+      }
+    });
+  }
+
+  Future<void> _requestSecurityTfaCode() async {
+    final action = _tfaEnabled ? 'disable' : 'enable';
+    setState(() {
+      _securityBusy = true;
+      _securityError = null;
+      _securitySuccess = null;
+    });
+    final result = await ApiService().requestTfaSettingsCode(action);
+    if (!mounted) return;
+    setState(() {
+      _securityBusy = false;
+      if (result.success) {
+        _pendingTfaAction = action;
+        _securitySuccess =
+            AppLocalizations.of(context)?.codeSent ?? _securityText('codeSent');
+      } else {
+        _securityError =
+            AppLocalizations.of(context)?.sendCodeError ??
+            _securityText('sendCodeError');
+      }
+    });
+  }
+
+  Future<void> _confirmSecurityTfa() async {
+    final action = _pendingTfaAction;
+    final code = _securityCodeCtrl.text.trim();
+    if (action == null || !RegExp(r'^\d{6}$').hasMatch(code)) {
+      setState(() => _securityError = _securityText('validCode'));
+      return;
+    }
+    setState(() {
+      _securityBusy = true;
+      _securityError = null;
+    });
+    final result = await ApiService().confirmTfaSettings(action, code);
+    if (!mounted) return;
+    setState(() {
+      _securityBusy = false;
+      if (result.success) {
+        _tfaEnabled = action == 'enable';
+        _pendingTfaAction = null;
+        _securityCodeCtrl.clear();
+        _securitySuccess = _securityText('updated');
+        if (widget.currentUser != null) {
+          widget.currentUser!['tfa_enabled'] = _tfaEnabled;
+        }
+      } else {
+        _securityError = _securityText('invalidCode');
+      }
+    });
+  }
+
+  Future<void> _terminateSecuritySession(int sessionId) async {
+    setState(() {
+      _securityBusy = true;
+      _securityError = null;
+    });
+    final result = await ApiService().terminateSession(sessionId);
+    if (!mounted) return;
+    setState(() {
+      _securityBusy = false;
+      if (result.success) {
+        _securitySessions.removeWhere((item) => item['id'] == sessionId);
+      } else {
+        _securityError = _securityText('terminateError');
+      }
+    });
   }
 
   String _dynamicVersion = '1.0.14';
@@ -331,7 +710,8 @@ class _XaneoSettingsModalState
         _lowPowerMode = prefs.getBool('settings_low_power') ?? false;
         _messageAnimations = prefs.getBool('settings_msg_animations') ?? true;
         _autoSleep = prefs.getBool('settings_auto_sleep') ?? true;
-        _windowCloseAction = prefs.getString('window_close_action') ?? 'minimizeToTray';
+        _windowCloseAction =
+            prefs.getString('window_close_action') ?? 'minimizeToTray';
       });
     }
   }
@@ -377,7 +757,9 @@ class _XaneoSettingsModalState
         setState(() {
           _privacyLoading = false;
           _privacyLoaded = true;
-          _privacyError = (AppLocalizations.of(context)?.neUdalosZagruzitNastroyki_f753 ?? 'Fallback');
+          _privacyError =
+              (AppLocalizations.of(context)?.neUdalosZagruzitNastroyki_f753 ??
+              'Fallback');
         });
       }
     }
@@ -389,23 +771,28 @@ class _XaneoSettingsModalState
       _privacyError = null;
     });
     try {
-      await ApiService().dio.patch('/user/privacy-settings/', data: {
-        'who_can_message': _whoCanMessage,
-        'who_can_call': _whoCanCall,
-        'who_can_record_voice': _whoCanRecordVoice,
-        'who_can_send_files': _whoCanSendFiles,
-        'who_can_invite': _whoCanInvite,
-        'who_sees_nickname': _whoSeesNickname,
-        'who_sees_avatar': _whoSeesAvatar,
-        'who_sees_birthday': _whoSeesBirthday,
-        'who_sees_online_time': _whoSeesOnlineTime,
-      });
+      await ApiService().dio.patch(
+        '/user/privacy-settings/',
+        data: {
+          'who_can_message': _whoCanMessage,
+          'who_can_call': _whoCanCall,
+          'who_can_record_voice': _whoCanRecordVoice,
+          'who_can_send_files': _whoCanSendFiles,
+          'who_can_invite': _whoCanInvite,
+          'who_sees_nickname': _whoSeesNickname,
+          'who_sees_avatar': _whoSeesAvatar,
+          'who_sees_birthday': _whoSeesBirthday,
+          'who_sees_online_time': _whoSeesOnlineTime,
+        },
+      );
       if (mounted) setState(() => _privacySaving = false);
     } catch (_) {
       if (mounted) {
         setState(() {
           _privacySaving = false;
-          _privacyError = (AppLocalizations.of(context)?.oshibkaSohraneniya_0387 ?? 'Fallback');
+          _privacyError =
+              (AppLocalizations.of(context)?.oshibkaSohraneniya_0387 ??
+              'Fallback');
         });
       }
     }
@@ -421,10 +808,10 @@ class _XaneoSettingsModalState
       final newFirstName = _firstNameCtrl.text.trim();
       final newBio = _bioCtrl.text.trim();
 
-      final res = await ApiService().dio.patch('/user/profile/', data: {
-        'first_name': newFirstName,
-        'bio': newBio,
-      });
+      final res = await ApiService().dio.patch(
+        '/user/profile/',
+        data: {'first_name': newFirstName, 'bio': newBio},
+      );
 
       if (mounted) {
         if (res.statusCode == 200 || res.statusCode == 201) {
@@ -434,7 +821,9 @@ class _XaneoSettingsModalState
           }
           setState(() {
             _personalSaving = false;
-            _personalSuccess = (AppLocalizations.of(context)?.dannyeSohraneny_fd62 ?? 'Fallback');
+            _personalSuccess =
+                (AppLocalizations.of(context)?.dannyeSohraneny_fd62 ??
+                'Fallback');
           });
           Future.delayed(const Duration(seconds: 2), () {
             if (mounted) setState(() => _personalSuccess = null);
@@ -442,7 +831,9 @@ class _XaneoSettingsModalState
         } else {
           setState(() {
             _personalSaving = false;
-            _personalError = (AppLocalizations.of(context)?.oshibkaSohraneniya_0387 ?? 'Fallback');
+            _personalError =
+                (AppLocalizations.of(context)?.oshibkaSohraneniya_0387 ??
+                'Fallback');
           });
         }
       }
@@ -460,7 +851,11 @@ class _XaneoSettingsModalState
 
   @override
   Widget buildContent(
-      BuildContext context, ScrollController sc, bool isDark, double scale) {
+    BuildContext context,
+    ScrollController sc,
+    bool isDark,
+    double scale,
+  ) {
     final currentKey = ValueKey(_activeSection ?? 'menu');
     final isMenu = _activeSection == null;
 
@@ -472,7 +867,7 @@ class _XaneoSettingsModalState
       transitionBuilder: (child, animation) {
         final childKey = child.key as ValueKey<String>?;
         final isChildMenu = childKey?.value == 'menu';
-        
+
         final slideOffset = isChildMenu
             ? const Offset(-0.03, 0)
             : const Offset(0.03, 0);
@@ -500,7 +895,11 @@ class _XaneoSettingsModalState
   // ── Главное меню ────────────────────────────────────────────────────────────
 
   Widget _buildMenu(
-      BuildContext context, bool isDark, double scale, ScrollController sc) {
+    BuildContext context,
+    bool isDark,
+    double scale,
+    ScrollController sc,
+  ) {
     final divider = Divider(
       color: isDark ? const Color(0xFF1E1E1E) : const Color(0xFFEEEEEE),
       thickness: 1,
@@ -508,7 +907,8 @@ class _XaneoSettingsModalState
     );
 
     final user = widget.currentUser;
-    final firstName = user?['first_name']?.toString() ??
+    final firstName =
+        user?['first_name']?.toString() ??
         user?['username']?.toString() ??
         (AppLocalizations.of(context)?.gost_9618 ?? 'Fallback');
     final username = user?['username']?.toString() ?? '';
@@ -521,7 +921,14 @@ class _XaneoSettingsModalState
       children: [
         // Блок пользователя
         _isLoggedIn
-            ? _buildUserCard(firstName, username, avatar, gradient, isDark, scale)
+            ? _buildUserCard(
+                firstName,
+                username,
+                avatar,
+                gradient,
+                isDark,
+                scale,
+              )
             : _buildGuestCard(isDark, scale),
 
         divider,
@@ -529,18 +936,32 @@ class _XaneoSettingsModalState
 
         // Раздел аккаунта
         if (_isLoggedIn) ...[
-          _groupLabel(AppLocalizations.of(context)?.account ?? (AppLocalizations.of(context)?.akkaunt_38ac ?? 'Fallback'), isDark, scale),
+          _groupLabel(
+            AppLocalizations.of(context)?.account ??
+                (AppLocalizations.of(context)?.akkaunt_38ac ?? 'Fallback'),
+            isDark,
+            scale,
+          ),
           SizedBox(height: 6 * scale),
-          ..._getAccountSections(context).map((s) => _menuRow(s, isDark, scale)),
+          ..._getAccountSections(
+            context,
+          ).map((s) => _menuRow(s, isDark, scale)),
           SizedBox(height: 16 * scale),
           divider,
           SizedBox(height: 14 * scale),
         ],
 
         // Раздел интерфейса
-        _groupLabel(AppLocalizations.of(context)?.interface ?? (AppLocalizations.of(context)?.interfeys_49be ?? 'Fallback'), isDark, scale),
+        _groupLabel(
+          AppLocalizations.of(context)?.interface ??
+              (AppLocalizations.of(context)?.interfeys_49be ?? 'Fallback'),
+          isDark,
+          scale,
+        ),
         SizedBox(height: 6 * scale),
-        ..._getInterfaceSections(context).map((s) => _menuRow(s, isDark, scale)),
+        ..._getInterfaceSections(
+          context,
+        ).map((s) => _menuRow(s, isDark, scale)),
 
         // Выйти
         if (_isLoggedIn && widget.onLogout != null) ...[
@@ -549,7 +970,10 @@ class _XaneoSettingsModalState
           SizedBox(height: 8 * scale),
           _dangerRow(
             icon: Icons.logout_rounded,
-            label: AppLocalizations.of(context)?.logout ?? (AppLocalizations.of(context)?.vyytiIzAkkaunta_6d41 ?? 'Fallback'),
+            label:
+                AppLocalizations.of(context)?.logout ??
+                (AppLocalizations.of(context)?.vyytiIzAkkaunta_6d41 ??
+                    'Fallback'),
             isDark: isDark,
             scale: scale,
             onTap: () {
@@ -597,9 +1021,11 @@ class _XaneoSettingsModalState
                         : Colors.black.withOpacity(0.04),
                     borderRadius: BorderRadius.circular(8 * scale),
                   ),
-                  child: Icon(Icons.arrow_back_ios_new_rounded,
-                      size: 14 * scale,
-                      color: isDark ? Colors.white70 : Colors.black54),
+                  child: Icon(
+                    Icons.arrow_back_ios_new_rounded,
+                    size: 14 * scale,
+                    color: isDark ? Colors.white70 : Colors.black54,
+                  ),
                 ),
               ),
             ),
@@ -643,7 +1069,11 @@ class _XaneoSettingsModalState
   }
 
   Widget _buildSectionBody(
-      BuildContext context, String id, bool isDark, double scale) {
+    BuildContext context,
+    String id,
+    bool isDark,
+    double scale,
+  ) {
     switch (id) {
       case 'appearance':
         return _buildAppearance(context, isDark, scale);
@@ -678,20 +1108,29 @@ class _XaneoSettingsModalState
     final options = [
       {
         'value': 'minimizeToTray',
-        'title': l10n?.closeActionMinimizeToTray ?? 'Сворачивать в трей (работать в фоне)',
-        'subtitle': l10n?.closeActionMinimizeToTraySubtitle ?? 'При нажатии на крестик окно сворачивается в системный трей и продолжает работать в фоне',
+        'title':
+            l10n?.closeActionMinimizeToTray ??
+            'Сворачивать в трей (работать в фоне)',
+        'subtitle':
+            l10n?.closeActionMinimizeToTraySubtitle ??
+            'При нажатии на крестик окно сворачивается в системный трей и продолжает работать в фоне',
         'icon': Icons.system_update_alt_rounded,
       },
       {
         'value': 'minimizeToTaskbar',
-        'title': l10n?.closeActionMinimizeToTaskbar ?? 'Сворачивать на панель задач',
-        'subtitle': l10n?.closeActionMinimizeToTaskbarSubtitle ?? 'При нажатии на крестик окно сворачивается на панель задач',
+        'title':
+            l10n?.closeActionMinimizeToTaskbar ?? 'Сворачивать на панель задач',
+        'subtitle':
+            l10n?.closeActionMinimizeToTaskbarSubtitle ??
+            'При нажатии на крестик окно сворачивается на панель задач',
         'icon': Icons.minimize_rounded,
       },
       {
         'value': 'exitApp',
         'title': l10n?.closeActionExitApp ?? 'Завершать работу приложения',
-        'subtitle': l10n?.closeActionExitAppSubtitle ?? 'При нажатии на крестик приложение полностью завершает работу',
+        'subtitle':
+            l10n?.closeActionExitAppSubtitle ??
+            'При нажатии на крестик приложение полностью завершает работу',
         'icon': Icons.power_settings_new_rounded,
       },
     ];
@@ -699,7 +1138,11 @@ class _XaneoSettingsModalState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _sectionHeader(l10n?.closeActionTitle ?? 'Действие при закрытии окна', isDark, scale),
+        _sectionHeader(
+          l10n?.closeActionTitle ?? 'Действие при закрытии окна',
+          isDark,
+          scale,
+        ),
         SizedBox(height: 16 * scale),
         ...options.map((opt) {
           final isSelected = _windowCloseAction == opt['value'];
@@ -717,13 +1160,21 @@ class _XaneoSettingsModalState
                 padding: EdgeInsets.all(16 * scale),
                 decoration: BoxDecoration(
                   color: isSelected
-                      ? (isDark ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.05))
-                      : (isDark ? Colors.white.withValues(alpha: 0.02) : Colors.black.withValues(alpha: 0.02)),
+                      ? (isDark
+                            ? Colors.white.withValues(alpha: 0.08)
+                            : Colors.black.withValues(alpha: 0.05))
+                      : (isDark
+                            ? Colors.white.withValues(alpha: 0.02)
+                            : Colors.black.withValues(alpha: 0.02)),
                   borderRadius: BorderRadius.circular(16 * scale),
                   border: Border.all(
                     color: isSelected
-                        ? (isDark ? Colors.white.withValues(alpha: 0.2) : Colors.black.withValues(alpha: 0.2))
-                        : (isDark ? Colors.white.withValues(alpha: 0.05) : Colors.black.withValues(alpha: 0.05)),
+                        ? (isDark
+                              ? Colors.white.withValues(alpha: 0.2)
+                              : Colors.black.withValues(alpha: 0.2))
+                        : (isDark
+                              ? Colors.white.withValues(alpha: 0.05)
+                              : Colors.black.withValues(alpha: 0.05)),
                     width: 1,
                   ),
                 ),
@@ -770,7 +1221,9 @@ class _XaneoSettingsModalState
                             style: TextStyle(
                               color: isDark ? Colors.white : Colors.black,
                               fontSize: 14 * scale,
-                              fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                              fontWeight: isSelected
+                                  ? FontWeight.w600
+                                  : FontWeight.w500,
                               fontFamily: 'Inter',
                             ),
                           ),
@@ -801,7 +1254,11 @@ class _XaneoSettingsModalState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _sectionHeader(l10n?.appInfo ?? 'Информация о приложении', isDark, scale),
+        _sectionHeader(
+          l10n?.appInfo ?? 'Информация о приложении',
+          isDark,
+          scale,
+        ),
         SizedBox(height: 16 * scale),
         Container(
           padding: EdgeInsets.all(16 * scale),
@@ -809,7 +1266,9 @@ class _XaneoSettingsModalState
             color: isDark ? const Color(0xFF1E212B) : const Color(0xFFF3F4F6),
             borderRadius: BorderRadius.circular(16 * scale),
             border: Border.all(
-              color: isDark ? Colors.white.withAlpha(20) : Colors.black.withAlpha(15),
+              color: isDark
+                  ? Colors.white.withAlpha(20)
+                  : Colors.black.withAlpha(15),
             ),
           ),
           child: Column(
@@ -817,7 +1276,11 @@ class _XaneoSettingsModalState
             children: [
               Row(
                 children: [
-                  Icon(Icons.desktop_windows_rounded, size: 24 * scale, color: isDark ? Colors.white : Colors.black87),
+                  Icon(
+                    Icons.desktop_windows_rounded,
+                    size: 24 * scale,
+                    color: isDark ? Colors.white : Colors.black87,
+                  ),
                   SizedBox(width: 12 * scale),
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -862,43 +1325,72 @@ class _XaneoSettingsModalState
               Row(
                 children: [
                   ElevatedButton.icon(
-                    onPressed: _isCheckingUpdate ? null : _handleManualUpdateCheck,
+                    onPressed: _isCheckingUpdate
+                        ? null
+                        : _handleManualUpdateCheck,
                     icon: _isCheckingUpdate
                         ? SizedBox(
                             width: 14 * scale,
                             height: 14 * scale,
-                            child: const CircularProgressIndicator(strokeWidth: 2),
+                            child: const CircularProgressIndicator(
+                              strokeWidth: 2,
+                            ),
                           )
                         : Icon(Icons.refresh_rounded, size: 16 * scale),
                     label: Text(
                       _isCheckingUpdate
                           ? (l10n?.checkingUpdates ?? 'Проверка обновлений...')
                           : (l10n?.checkUpdates ?? 'Проверить обновления'),
-                      style: TextStyle(fontSize: 13 * scale, fontFamily: 'Inter'),
+                      style: TextStyle(
+                        fontSize: 13 * scale,
+                        fontFamily: 'Inter',
+                      ),
                     ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: isDark ? Colors.white : Colors.black87,
                       foregroundColor: isDark ? Colors.black : Colors.white,
-                      padding: EdgeInsets.symmetric(horizontal: 16 * scale, vertical: 10 * scale),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10 * scale)),
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 16 * scale,
+                        vertical: 10 * scale,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10 * scale),
+                      ),
                     ),
                   ),
                   if (_foundUpdateInfo != null) ...[
                     SizedBox(width: 10 * scale),
                     OutlinedButton.icon(
                       onPressed: () async {
-                        final uri = Uri.parse(_foundUpdateInfo!.downloadUrl ?? _foundUpdateInfo!.htmlUrl);
+                        final uri = Uri.parse(
+                          _foundUpdateInfo!.downloadUrl ??
+                              _foundUpdateInfo!.htmlUrl,
+                        );
                         if (await canLaunchUrl(uri)) {
-                          await launchUrl(uri, mode: LaunchMode.externalApplication);
+                          await launchUrl(
+                            uri,
+                            mode: LaunchMode.externalApplication,
+                          );
                         }
                       },
                       icon: Icon(Icons.download_rounded, size: 16 * scale),
-                      label: Text('${l10n?.downloadVersion ?? "Скачать"} v${_foundUpdateInfo!.version}', style: TextStyle(fontSize: 13 * scale, fontFamily: 'Inter')),
+                      label: Text(
+                        '${l10n?.downloadVersion ?? "Скачать"} v${_foundUpdateInfo!.version}',
+                        style: TextStyle(
+                          fontSize: 13 * scale,
+                          fontFamily: 'Inter',
+                        ),
+                      ),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: Colors.greenAccent,
                         side: const BorderSide(color: Colors.greenAccent),
-                        padding: EdgeInsets.symmetric(horizontal: 16 * scale, vertical: 10 * scale),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10 * scale)),
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 16 * scale,
+                          vertical: 10 * scale,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10 * scale),
+                        ),
                       ),
                     ),
                   ],
@@ -911,7 +1403,6 @@ class _XaneoSettingsModalState
     );
   }
 
-
   // ── Personal ─────────────────────────────────────────────────────────────────
 
   Widget _buildPersonal(bool isDark, double scale) {
@@ -919,32 +1410,55 @@ class _XaneoSettingsModalState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _sectionHeader(l10n?.basicInfo ?? (AppLocalizations.of(context)?.osnovnayaInformatsiya_6fec ?? 'Fallback'), isDark, scale),
+        _sectionHeader(
+          l10n?.basicInfo ??
+              (AppLocalizations.of(context)?.osnovnayaInformatsiya_6fec ??
+                  'Fallback'),
+          isDark,
+          scale,
+        ),
         SizedBox(height: 10 * scale),
         _inputField(
-          label: l10n?.yourName ?? (AppLocalizations.of(context)?.imya_d38d ?? 'Fallback'),
+          label:
+              l10n?.yourName ??
+              (AppLocalizations.of(context)?.imya_d38d ?? 'Fallback'),
           controller: _firstNameCtrl,
           isDark: isDark,
           scale: scale,
-          hint: l10n?.registerStep0Subtitle ?? (AppLocalizations.of(context)?.vvediteVasheImya_751e ?? 'Fallback'),
+          hint:
+              l10n?.registerStep0Subtitle ??
+              (AppLocalizations.of(context)?.vvediteVasheImya_751e ??
+                  'Fallback'),
         ),
         SizedBox(height: 12 * scale),
         _inputField(
-          label: l10n?.nickname ?? (AppLocalizations.of(context)?.nikneym_3fea ?? 'Fallback'),
+          label:
+              l10n?.nickname ??
+              (AppLocalizations.of(context)?.nikneym_3fea ?? 'Fallback'),
           controller: _usernameCtrl,
           isDark: isDark,
           scale: scale,
           hint: '@username',
           readOnly: true,
-          note: l10n?.nicknameCannotBeChanged ?? (AppLocalizations.of(context)?.nikneymNelzyaIzmenitVPrilozhenii_75d0 ?? 'Fallback'),
+          note:
+              l10n?.nicknameCannotBeChanged ??
+              (AppLocalizations.of(
+                    context,
+                  )?.nikneymNelzyaIzmenitVPrilozhenii_75d0 ??
+                  'Fallback'),
         ),
         SizedBox(height: 12 * scale),
         _textAreaField(
-          label: l10n?.aboutMe ?? (AppLocalizations.of(context)?.oSebe_0b3b ?? 'Fallback'),
+          label:
+              l10n?.aboutMe ??
+              (AppLocalizations.of(context)?.oSebe_0b3b ?? 'Fallback'),
           controller: _bioCtrl,
           isDark: isDark,
           scale: scale,
-          hint: l10n?.aboutMeHint ?? (AppLocalizations.of(context)?.rasskazhiteOSebe_1c37 ?? 'Fallback'),
+          hint:
+              l10n?.aboutMeHint ??
+              (AppLocalizations.of(context)?.rasskazhiteOSebe_1c37 ??
+                  'Fallback'),
         ),
         SizedBox(height: 18 * scale),
         if (_personalError != null)
@@ -953,8 +1467,12 @@ class _XaneoSettingsModalState
           _successBanner(_personalSuccess!, isDark, scale),
         _primaryButton(
           label: _personalSaving
-              ? (l10n?.saving ?? (AppLocalizations.of(context)?.sohranenie_c15f ?? 'Fallback'))
-              : (l10n?.save ?? (AppLocalizations.of(context)?.sohranit_74ea ?? 'Fallback')),
+              ? (l10n?.saving ??
+                    (AppLocalizations.of(context)?.sohranenie_c15f ??
+                        'Fallback'))
+              : (l10n?.save ??
+                    (AppLocalizations.of(context)?.sohranit_74ea ??
+                        'Fallback')),
           isDark: isDark,
           scale: scale,
           onTap: _personalSaving ? null : _savePersonalData,
@@ -988,18 +1506,38 @@ class _XaneoSettingsModalState
 
     final l10n = AppLocalizations.of(context);
     final options = [
-      ('all', l10n?.everyone ?? (AppLocalizations.of(context)?.vse_984b ?? 'Fallback')),
-      ('contacts', l10n?.contactsOnly ?? (AppLocalizations.of(context)?.tolkoKontakty_a559 ?? 'Fallback')),
-      ('nobody', l10n?.nobody ?? (AppLocalizations.of(context)?.nikto_ba19 ?? 'Fallback')),
+      (
+        'all',
+        l10n?.everyone ??
+            (AppLocalizations.of(context)?.vse_984b ?? 'Fallback'),
+      ),
+      (
+        'contacts',
+        l10n?.contactsOnly ??
+            (AppLocalizations.of(context)?.tolkoKontakty_a559 ?? 'Fallback'),
+      ),
+      (
+        'nobody',
+        l10n?.nobody ??
+            (AppLocalizations.of(context)?.nikto_ba19 ?? 'Fallback'),
+      ),
     ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _sectionHeader(l10n?.communications ?? (AppLocalizations.of(context)?.kommunikatsii_1242 ?? 'Fallback'), isDark, scale),
+        _sectionHeader(
+          l10n?.communications ??
+              (AppLocalizations.of(context)?.kommunikatsii_1242 ?? 'Fallback'),
+          isDark,
+          scale,
+        ),
         SizedBox(height: 8 * scale),
         _dropdownRow(
-          label: l10n?.whoCanMessage ?? (AppLocalizations.of(context)?.ktoMozhetPisatSoobscheniya_4645 ?? 'Fallback'),
+          label:
+              l10n?.whoCanMessage ??
+              (AppLocalizations.of(context)?.ktoMozhetPisatSoobscheniya_4645 ??
+                  'Fallback'),
           value: _whoCanMessage,
           options: options,
           isDark: isDark,
@@ -1007,7 +1545,10 @@ class _XaneoSettingsModalState
           onChanged: (v) => setState(() => _whoCanMessage = v),
         ),
         _dropdownRow(
-          label: l10n?.whoCanCall ?? (AppLocalizations.of(context)?.ktoMozhetZvonit_c427 ?? 'Fallback'),
+          label:
+              l10n?.whoCanCall ??
+              (AppLocalizations.of(context)?.ktoMozhetZvonit_c427 ??
+                  'Fallback'),
           value: _whoCanCall,
           options: options,
           isDark: isDark,
@@ -1015,7 +1556,10 @@ class _XaneoSettingsModalState
           onChanged: (v) => setState(() => _whoCanCall = v),
         ),
         _dropdownRow(
-          label: l10n?.whoCanRecordVoice ?? (AppLocalizations.of(context)?.ktoMozhetZapisyvatGolosovye_c69a ?? 'Fallback'),
+          label:
+              l10n?.whoCanRecordVoice ??
+              (AppLocalizations.of(context)?.ktoMozhetZapisyvatGolosovye_c69a ??
+                  'Fallback'),
           value: _whoCanRecordVoice,
           options: options,
           isDark: isDark,
@@ -1023,7 +1567,10 @@ class _XaneoSettingsModalState
           onChanged: (v) => setState(() => _whoCanRecordVoice = v),
         ),
         _dropdownRow(
-          label: l10n?.whoCanSendFiles ?? (AppLocalizations.of(context)?.ktoMozhetOtpravlyatFayly_2e40 ?? 'Fallback'),
+          label:
+              l10n?.whoCanSendFiles ??
+              (AppLocalizations.of(context)?.ktoMozhetOtpravlyatFayly_2e40 ??
+                  'Fallback'),
           value: _whoCanSendFiles,
           options: options,
           isDark: isDark,
@@ -1031,7 +1578,10 @@ class _XaneoSettingsModalState
           onChanged: (v) => setState(() => _whoCanSendFiles = v),
         ),
         _dropdownRow(
-          label: l10n?.whoCanInvite ?? (AppLocalizations.of(context)?.ktoMozhetPriglashatVGruppy_cdc0 ?? 'Fallback'),
+          label:
+              l10n?.whoCanInvite ??
+              (AppLocalizations.of(context)?.ktoMozhetPriglashatVGruppy_cdc0 ??
+                  'Fallback'),
           value: _whoCanInvite,
           options: options,
           isDark: isDark,
@@ -1039,10 +1589,19 @@ class _XaneoSettingsModalState
           onChanged: (v) => setState(() => _whoCanInvite = v),
         ),
         SizedBox(height: 16 * scale),
-        _sectionHeader(l10n?.profileVisibility ?? (AppLocalizations.of(context)?.vidimostProfilya_34bf ?? 'Fallback'), isDark, scale),
+        _sectionHeader(
+          l10n?.profileVisibility ??
+              (AppLocalizations.of(context)?.vidimostProfilya_34bf ??
+                  'Fallback'),
+          isDark,
+          scale,
+        ),
         SizedBox(height: 8 * scale),
         _dropdownRow(
-          label: l10n?.whoSeesNickname ?? (AppLocalizations.of(context)?.ktoViditMoyNikneym_54b8 ?? 'Fallback'),
+          label:
+              l10n?.whoSeesNickname ??
+              (AppLocalizations.of(context)?.ktoViditMoyNikneym_54b8 ??
+                  'Fallback'),
           value: _whoSeesNickname,
           options: options,
           isDark: isDark,
@@ -1096,7 +1655,9 @@ class _XaneoSettingsModalState
     });
     try {
       final res = await ApiService().dio.get('/contacts/list/');
-      final data = res.data is Map<String, dynamic> ? res.data as Map<String, dynamic> : {};
+      final data = res.data is Map<String, dynamic>
+          ? res.data as Map<String, dynamic>
+          : {};
       final list = data['contacts'] is List ? data['contacts'] as List : [];
       if (mounted) {
         setState(() {
@@ -1110,7 +1671,9 @@ class _XaneoSettingsModalState
         setState(() {
           _pcContactsLoading = false;
           _pcContactsLoaded = true;
-          _pcContactsError = (AppLocalizations.of(context)?.neUdalosZagruzitKontakty_02a3 ?? 'Fallback');
+          _pcContactsError =
+              (AppLocalizations.of(context)?.neUdalosZagruzitKontakty_02a3 ??
+              'Fallback');
         });
       }
     }
@@ -1118,13 +1681,16 @@ class _XaneoSettingsModalState
 
   Future<void> _deletePcContact(int contactUserId) async {
     try {
-      await ApiService().dio.post('/contacts/delete/', data: {'user_id': contactUserId});
+      await ApiService().dio.post(
+        '/contacts/delete/',
+        data: {'user_id': contactUserId},
+      );
       _loadPcContacts();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Ошибка удаления контакта: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Ошибка удаления контакта: $e')));
       }
     }
   }
@@ -1137,9 +1703,12 @@ class _XaneoSettingsModalState
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: isDark ? Color(0xFF1E1E22) : Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16 * scale)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16 * scale),
+        ),
         title: Text(
-          l10n?.addContactTitle ?? (AppLocalizations.of(context)?.dobavitKontakt_4278 ?? 'Fallback'),
+          l10n?.addContactTitle ??
+              (AppLocalizations.of(context)?.dobavitKontakt_4278 ?? 'Fallback'),
           style: TextStyle(
             color: isDark ? Colors.white : Colors.black87,
             fontSize: 16 * scale,
@@ -1151,27 +1720,63 @@ class _XaneoSettingsModalState
           children: [
             TextField(
               controller: usernameCtrl,
-              style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 14 * scale),
+              style: TextStyle(
+                color: isDark ? Colors.white : Colors.black87,
+                fontSize: 14 * scale,
+              ),
               decoration: InputDecoration(
-                hintText: l10n?.userNicknameHint ?? (AppLocalizations.of(context)?.nikneymPolzovatelya_5610 ?? 'Fallback'),
-                hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.black38, fontSize: 13 * scale),
+                hintText:
+                    l10n?.userNicknameHint ??
+                    (AppLocalizations.of(context)?.nikneymPolzovatelya_5610 ??
+                        'Fallback'),
+                hintStyle: TextStyle(
+                  color: isDark ? Colors.white38 : Colors.black38,
+                  fontSize: 13 * scale,
+                ),
                 filled: true,
-                fillColor: isDark ? Colors.white.withOpacity(0.06) : Colors.black.withOpacity(0.04),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                fillColor: isDark
+                    ? Colors.white.withOpacity(0.06)
+                    : Colors.black.withOpacity(0.04),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide.none,
+                ),
               ),
             ),
             SizedBox(height: 10 * scale),
             TextField(
               controller: nameCtrl,
-              style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 14 * scale),
+              style: TextStyle(
+                color: isDark ? Colors.white : Colors.black87,
+                fontSize: 14 * scale,
+              ),
               decoration: InputDecoration(
-                hintText: l10n?.displayNameOptional ?? (AppLocalizations.of(context)?.otobrazhaemoeImyaOptsionalno_bbd1 ?? 'Fallback'),
-                hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.black38, fontSize: 13 * scale),
+                hintText:
+                    l10n?.displayNameOptional ??
+                    (AppLocalizations.of(
+                          context,
+                        )?.otobrazhaemoeImyaOptsionalno_bbd1 ??
+                        'Fallback'),
+                hintStyle: TextStyle(
+                  color: isDark ? Colors.white38 : Colors.black38,
+                  fontSize: 13 * scale,
+                ),
                 filled: true,
-                fillColor: isDark ? Colors.white.withOpacity(0.06) : Colors.black.withOpacity(0.04),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                fillColor: isDark
+                    ? Colors.white.withOpacity(0.06)
+                    : Colors.black.withOpacity(0.04),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide.none,
+                ),
               ),
             ),
           ],
@@ -1179,13 +1784,19 @@ class _XaneoSettingsModalState
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: Text(l10n?.cancel ?? (AppLocalizations.of(context)?.otmena_987b ?? 'Fallback'), style: TextStyle(color: isDark ? Colors.white54 : Colors.black54)),
+            child: Text(
+              l10n?.cancel ??
+                  (AppLocalizations.of(context)?.otmena_987b ?? 'Fallback'),
+              style: TextStyle(color: isDark ? Colors.white54 : Colors.black54),
+            ),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
               backgroundColor: isDark ? Colors.white : Colors.black87,
               foregroundColor: isDark ? Colors.black : Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
             ),
             onPressed: () async {
               final un = usernameCtrl.text.trim().replaceAll('@', '');
@@ -1193,21 +1804,29 @@ class _XaneoSettingsModalState
               if (un.isNotEmpty) {
                 Navigator.of(ctx).pop();
                 try {
-                  await ApiService().dio.post('/contacts/create/', data: {
-                    'username': un,
-                    if (cn.isNotEmpty) 'custom_name': cn,
-                  });
+                  await ApiService().dio.post(
+                    '/contacts/create/',
+                    data: {
+                      'username': un,
+                      if (cn.isNotEmpty) 'custom_name': cn,
+                    },
+                  );
                   _loadPcContacts();
                 } catch (e) {
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Не удалось добавить контакт: $e')),
+                      SnackBar(
+                        content: Text('Не удалось добавить контакт: $e'),
+                      ),
                     );
                   }
                 }
               }
             },
-            child: Text(l10n?.addContact ?? (AppLocalizations.of(context)?.dobavit_5eba ?? 'Fallback')),
+            child: Text(
+              l10n?.addContact ??
+                  (AppLocalizations.of(context)?.dobavit_5eba ?? 'Fallback'),
+            ),
           ),
         ],
       ),
@@ -1226,12 +1845,21 @@ class _XaneoSettingsModalState
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            _sectionHeader('${l10n?.contacts ?? (AppLocalizations.of(context)?.kontakty_7576 ?? 'Fallback')} (${_pcContacts.length})', isDark, scale),
+            _sectionHeader(
+              '${l10n?.contacts ?? (AppLocalizations.of(context)?.kontakty_7576 ?? 'Fallback')} (${_pcContacts.length})',
+              isDark,
+              scale,
+            ),
             TextButton.icon(
               onPressed: () => _showAddContactDialog(isDark, scale),
-              icon: Icon(Icons.person_add_rounded, size: 16 * scale, color: isDark ? Colors.white70 : Colors.black87),
+              icon: Icon(
+                Icons.person_add_rounded,
+                size: 16 * scale,
+                color: isDark ? Colors.white70 : Colors.black87,
+              ),
               label: Text(
-                l10n?.addContact ?? (AppLocalizations.of(context)?.dobavit_5eba ?? 'Fallback'),
+                l10n?.addContact ??
+                    (AppLocalizations.of(context)?.dobavit_5eba ?? 'Fallback'),
                 style: TextStyle(
                   fontSize: 13 * scale,
                   fontWeight: FontWeight.w600,
@@ -1266,11 +1894,22 @@ class _XaneoSettingsModalState
             child: Center(
               child: Column(
                 children: [
-                  Icon(Icons.people_outline_rounded, size: 40 * scale, color: isDark ? Colors.white30 : Colors.black26),
+                  Icon(
+                    Icons.people_outline_rounded,
+                    size: 40 * scale,
+                    color: isDark ? Colors.white30 : Colors.black26,
+                  ),
                   SizedBox(height: 8 * scale),
                   Text(
-                    l10n?.noContactsYet ?? (AppLocalizations.of(context)?.uVasPokaNetSohranennyh_b64b ?? 'Fallback'),
-                    style: TextStyle(fontSize: 13 * scale, color: isDark ? Colors.white38 : Colors.black38),
+                    l10n?.noContactsYet ??
+                        (AppLocalizations.of(
+                              context,
+                            )?.uVasPokaNetSohranennyh_b64b ??
+                            'Fallback'),
+                    style: TextStyle(
+                      fontSize: 13 * scale,
+                      color: isDark ? Colors.white38 : Colors.black38,
+                    ),
                   ),
                 ],
               ),
@@ -1286,10 +1925,13 @@ class _XaneoSettingsModalState
               final item = _pcContacts[index];
               final userId = item['contact_user_id'] ?? 0;
               final username = item['contact_user_username']?.toString() ?? '';
-              final firstName = item['contact_user_first_name']?.toString() ?? '';
+              final firstName =
+                  item['contact_user_first_name']?.toString() ?? '';
               final customName = item['custom_name']?.toString();
-              final avatar = item['custom_avatar'] ?? item['contact_user_avatar'];
-              final gradient = item['contact_user_avatar_gradient']?.toString() ?? '';
+              final avatar =
+                  item['custom_avatar'] ?? item['contact_user_avatar'];
+              final gradient =
+                  item['contact_user_avatar_gradient']?.toString() ?? '';
 
               final displayName = (customName != null && customName.isNotEmpty)
                   ? customName
@@ -1298,16 +1940,25 @@ class _XaneoSettingsModalState
               return Container(
                 padding: EdgeInsets.all(10 * scale),
                 decoration: BoxDecoration(
-                  color: isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.04),
+                  color: isDark
+                      ? Colors.white.withOpacity(0.05)
+                      : Colors.black.withOpacity(0.04),
                   borderRadius: BorderRadius.circular(12 * scale),
                   border: Border.all(
-                    color: isDark ? Colors.white.withOpacity(0.06) : Colors.black.withOpacity(0.06),
+                    color: isDark
+                        ? Colors.white.withOpacity(0.06)
+                        : Colors.black.withOpacity(0.06),
                   ),
                 ),
                 child: Row(
                   children: [
                     // Аватар
-                    _buildUserCardAvatar(avatar?.toString(), gradient, displayName, 40 * scale),
+                    _buildUserCardAvatar(
+                      avatar?.toString(),
+                      gradient,
+                      displayName,
+                      40 * scale,
+                    ),
                     SizedBox(width: 12 * scale),
                     // Имя и юзернейм
                     Expanded(
@@ -1366,7 +2017,9 @@ class _XaneoSettingsModalState
                         color: isDark ? Colors.white54 : Colors.black54,
                       ),
                       color: isDark ? const Color(0xFF1E1E22) : Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
                       onSelected: (val) {
                         if (val == 'delete') {
                           _deletePcContact(userId);
@@ -1377,9 +2030,19 @@ class _XaneoSettingsModalState
                           value: 'delete',
                           child: Row(
                             children: [
-                              const Icon(Icons.delete_outline_rounded, size: 16, color: Colors.redAccent),
+                              const Icon(
+                                Icons.delete_outline_rounded,
+                                size: 16,
+                                color: Colors.redAccent,
+                              ),
                               const SizedBox(width: 8),
-                              Text(l10n?.deleteContact ?? 'Удалить контакт', style: const TextStyle(color: Colors.redAccent, fontSize: 13)),
+                              Text(
+                                l10n?.deleteContact ?? 'Удалить контакт',
+                                style: const TextStyle(
+                                  color: Colors.redAccent,
+                                  fontSize: 13,
+                                ),
+                              ),
                             ],
                           ),
                         ),
@@ -1405,7 +2068,9 @@ class _XaneoSettingsModalState
         SizedBox(height: 8 * scale),
         _switchRow(
           label: l10n?.messageAnimations ?? 'Анимации сообщений',
-          description: l10n?.messageAnimationsDesc ?? 'Показывать анимации при отправке и получении',
+          description:
+              l10n?.messageAnimationsDesc ??
+              'Показывать анимации при отправке и получении',
           value: _messageAnimations,
           isDark: isDark,
           scale: scale,
@@ -1439,55 +2104,170 @@ class _XaneoSettingsModalState
 
   Widget _buildSecurity(bool isDark, double scale) {
     final l10n = AppLocalizations.of(context);
+    if (_securityLoading && !_securityLoaded) {
+      return const Center(child: CircularProgressIndicator());
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _sectionHeader(l10n?.activeSessions ?? 'Активные сессии', isDark, scale),
-        SizedBox(height: 8 * scale),
-        _infoTile(
-          icon: Icons.computer_rounded,
-          label: l10n?.thisDevice ?? 'Это устройство',
-          subtitle: l10n?.xaneoPcActiveNow ?? 'Xaneo PC • Активно сейчас',
-          isDark: isDark,
-          scale: scale,
-          trailing: Container(
-            padding: EdgeInsets.symmetric(
-                horizontal: 8 * scale, vertical: 3 * scale),
-            decoration: BoxDecoration(
-              color: const Color(0xFF059669).withOpacity(0.12),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Text(
-              l10n?.activeNow ?? 'Активно',
-              style: TextStyle(
-                fontSize: 10 * scale,
-                color: const Color(0xFF059669),
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
+        _sectionHeader(
+          l10n?.twoFactorAuth ?? _securityText('twoFactorTitle'),
+          isDark,
+          scale,
         ),
-        SizedBox(height: 16 * scale),
-        _sectionHeader(l10n?.twoFactorAuth ?? 'Двухфакторная аутентификация', isDark, scale),
         SizedBox(height: 8 * scale),
         _infoTile(
           icon: Icons.verified_user_rounded,
-          label: '2FA',
-          subtitle: l10n?.twoFactorAuthDesc ?? 'Защита аккаунта одноразовым паролем',
+          label: _tfaEnabled
+              ? _securityText('tfaEnabled')
+              : _securityText('tfaDisabled'),
+          subtitle: l10n?.twoFactorAuthDesc ?? _securityText('twoFactorDesc'),
           isDark: isDark,
           scale: scale,
+          trailing: FilledButton(
+            onPressed: _securityBusy ? null : _requestSecurityTfaCode,
+            style: FilledButton.styleFrom(
+              backgroundColor: _tfaEnabled
+                  ? Colors.redAccent
+                  : const Color(0xFF2563EB),
+              padding: EdgeInsets.symmetric(
+                horizontal: 12 * scale,
+                vertical: 8 * scale,
+              ),
+            ),
+            child: Text(
+              _tfaEnabled ? _securityText('disable') : _securityText('enable'),
+              style: TextStyle(fontSize: 11 * scale),
+            ),
+          ),
         ),
-        SizedBox(height: 16 * scale),
-        _sectionHeader(l10n?.dangerZone ?? 'Опасная зона', isDark, scale),
-        SizedBox(height: 8 * scale),
-        _infoTile(
-          icon: Icons.delete_forever_rounded,
-          label: l10n?.deleteAccount ?? 'Удалить аккаунт',
-          subtitle: l10n?.irreversibleAction ?? 'Необратимое действие',
-          isDark: isDark,
-          scale: scale,
-          color: Colors.red,
+        if (_pendingTfaAction != null) ...[
+          SizedBox(height: 10 * scale),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _securityCodeCtrl,
+                  enabled: !_securityBusy,
+                  maxLength: 6,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    letterSpacing: 7 * scale,
+                    fontSize: 18 * scale,
+                    color: isDark ? Colors.white : Colors.black87,
+                  ),
+                  decoration: InputDecoration(
+                    counterText: '',
+                    hintText: '000000',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(9 * scale),
+                    ),
+                  ),
+                  onSubmitted: (_) => _confirmSecurityTfa(),
+                ),
+              ),
+              SizedBox(width: 8 * scale),
+              IconButton.filled(
+                tooltip: _securityText('confirm'),
+                onPressed: _securityBusy ? null : _confirmSecurityTfa,
+                icon: const Icon(Icons.check_rounded),
+              ),
+            ],
+          ),
+        ],
+        if (_securityError != null || _securitySuccess != null) ...[
+          SizedBox(height: 8 * scale),
+          Text(
+            _securityError ?? _securitySuccess!,
+            style: TextStyle(
+              color: _securityError != null
+                  ? Colors.redAccent
+                  : const Color(0xFF059669),
+              fontSize: 11 * scale,
+            ),
+          ),
+        ],
+        SizedBox(height: 20 * scale),
+        Row(
+          children: [
+            Expanded(
+              child: _sectionHeader(
+                l10n?.activeSessions ?? _securityText('activeSessions'),
+                isDark,
+                scale,
+              ),
+            ),
+            IconButton(
+              tooltip: _securityText('refresh'),
+              onPressed: _securityBusy
+                  ? null
+                  : () => _loadSecurity(force: true),
+              icon: Icon(Icons.refresh_rounded, size: 17 * scale),
+            ),
+          ],
         ),
+        SizedBox(height: 6 * scale),
+        if (_securitySessions.isEmpty)
+          Text(
+            _securityText('noSessions'),
+            style: TextStyle(
+              color: isDark ? Colors.white38 : Colors.black38,
+              fontSize: 12 * scale,
+            ),
+          )
+        else
+          ..._securitySessions.map((session) {
+            final current = session['is_current'] == true;
+            final agent =
+                session['user_agent']?.toString() ??
+                _securityText('unknownDevice');
+            final ip = session['ip_address']?.toString() ?? '—';
+            final id = (session['id'] as num?)?.toInt();
+            return Padding(
+              padding: EdgeInsets.only(bottom: 8 * scale),
+              child: _infoTile(
+                icon: agent.toLowerCase().contains('mobile')
+                    ? Icons.phone_android_rounded
+                    : Icons.computer_rounded,
+                label: current
+                    ? (l10n?.thisDevice ?? _securityText('thisDevice'))
+                    : agent,
+                subtitle: current ? '$agent • $ip' : ip,
+                isDark: isDark,
+                scale: scale,
+                trailing: current
+                    ? Container(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 8 * scale,
+                          vertical: 3 * scale,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF059669).withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          l10n?.activeNow ?? _securityText('active'),
+                          style: TextStyle(
+                            fontSize: 10 * scale,
+                            color: const Color(0xFF059669),
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      )
+                    : IconButton(
+                        tooltip: _securityText('terminate'),
+                        onPressed: _securityBusy || id == null
+                            ? null
+                            : () => _terminateSecuritySession(id),
+                        icon: Icon(
+                          Icons.logout_rounded,
+                          color: Colors.redAccent,
+                          size: 18 * scale,
+                        ),
+                      ),
+              ),
+            );
+          }),
       ],
     );
   }
@@ -1504,7 +2284,9 @@ class _XaneoSettingsModalState
         SizedBox(height: 8 * scale),
         _switchRow(
           label: l10n?.darkTheme ?? 'Тёмная тема',
-          description: l10n?.darkThemeDesc ?? 'Переключить между тёмным и светлым оформлением',
+          description:
+              l10n?.darkThemeDesc ??
+              'Переключить между тёмным и светлым оформлением',
           value: themeProvider.isDarkMode,
           isDark: isDark,
           scale: scale,
@@ -1515,10 +2297,13 @@ class _XaneoSettingsModalState
         SizedBox(height: 8 * scale),
         Row(
           children: [
-            Text('A',
-                style: TextStyle(
-                    fontSize: 12 * scale,
-                    color: isDark ? Colors.white38 : Colors.black38)),
+            Text(
+              'A',
+              style: TextStyle(
+                fontSize: 12 * scale,
+                color: isDark ? Colors.white38 : Colors.black38,
+              ),
+            ),
             Expanded(
               child: Slider(
                 value: _fontSize,
@@ -1533,17 +2318,23 @@ class _XaneoSettingsModalState
                 },
               ),
             ),
-            Text('A',
-                style: TextStyle(
-                    fontSize: 20 * scale,
-                    color: isDark ? Colors.white38 : Colors.black38)),
+            Text(
+              'A',
+              style: TextStyle(
+                fontSize: 20 * scale,
+                color: isDark ? Colors.white38 : Colors.black38,
+              ),
+            ),
           ],
         ),
         Center(
-          child: Text('${_fontSize.round()} px',
-              style: TextStyle(
-                  fontSize: 11 * scale,
-                  color: isDark ? Colors.white38 : Colors.black38)),
+          child: Text(
+            '${_fontSize.round()} px',
+            style: TextStyle(
+              fontSize: 11 * scale,
+              color: isDark ? Colors.white38 : Colors.black38,
+            ),
+          ),
         ),
       ],
     );
@@ -1586,7 +2377,8 @@ class _XaneoSettingsModalState
         SizedBox(height: 12 * scale),
         _switchRow(
           label: l10n?.sound ?? 'Звук',
-          description: l10n?.soundDesc ?? 'Воспроизводить звук при новом сообщении',
+          description:
+              l10n?.soundDesc ?? 'Воспроизводить звук при новом сообщении',
           value: _soundEnabled,
           isDark: isDark,
           scale: scale,
@@ -1606,11 +2398,17 @@ class _XaneoSettingsModalState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _sectionHeader(l10n?.mainSettings ?? 'Основные настройки', isDark, scale),
+        _sectionHeader(
+          l10n?.mainSettings ?? 'Основные настройки',
+          isDark,
+          scale,
+        ),
         SizedBox(height: 8 * scale),
         _switchRow(
           label: l10n?.energySavingMode ?? 'Режим экономии энергии',
-          description: l10n?.energySavingModeDesc ?? 'Оптимизирует работу приложения для экономии заряда',
+          description:
+              l10n?.energySavingModeDesc ??
+              'Оптимизирует работу приложения для экономии заряда',
           value: _lowPowerMode,
           isDark: isDark,
           scale: scale,
@@ -1622,7 +2420,9 @@ class _XaneoSettingsModalState
         SizedBox(height: 12 * scale),
         _switchRow(
           label: l10n?.autoSleep ?? 'Автоматический спящий режим',
-          description: l10n?.autoSleepDesc ?? 'Переводит приложение в спящий режим при неактивности',
+          description:
+              l10n?.autoSleepDesc ??
+              'Переводит приложение в спящий режим при неактивности',
           value: _autoSleep,
           isDark: isDark,
           scale: scale,
@@ -1636,7 +2436,9 @@ class _XaneoSettingsModalState
         SizedBox(height: 8 * scale),
         _switchRow(
           label: l10n?.messageAnimations ?? 'Анимации сообщений',
-          description: l10n?.messageAnimationsDesc ?? 'Показывать анимации при отправке и получении',
+          description:
+              l10n?.messageAnimationsDesc ??
+              'Показывать анимации при отправке и получении',
           value: _messageAnimations,
           isDark: isDark,
           scale: scale,
@@ -1648,7 +2450,9 @@ class _XaneoSettingsModalState
         SizedBox(height: 12 * scale),
         _switchRow(
           label: l10n?.reducedMotion ?? 'Упрощённые анимации',
-          description: l10n?.reducedMotionDesc ?? 'Уменьшает количество анимаций интерфейса',
+          description:
+              l10n?.reducedMotionDesc ??
+              'Уменьшает количество анимаций интерфейса',
           value: _reducedMotion,
           isDark: isDark,
           scale: scale,
@@ -1670,15 +2474,19 @@ class _XaneoSettingsModalState
         padding: EdgeInsets.symmetric(vertical: 32 * scale),
         child: Column(
           children: [
-            Icon(Icons.construction_rounded,
-                size: 32 * scale,
-                color: isDark ? Colors.white24 : Colors.black26),
+            Icon(
+              Icons.construction_rounded,
+              size: 32 * scale,
+              color: isDark ? Colors.white24 : Colors.black26,
+            ),
             SizedBox(height: 12 * scale),
-            Text(l10n?.comingSoon ?? 'Скоро будет доступно',
-                style: TextStyle(
-                  fontSize: 14 * scale,
-                  color: isDark ? Colors.white38 : Colors.black38,
-                )),
+            Text(
+              l10n?.comingSoon ?? 'Скоро будет доступно',
+              style: TextStyle(
+                fontSize: 14 * scale,
+                color: isDark ? Colors.white38 : Colors.black38,
+              ),
+            ),
           ],
         ),
       ),
@@ -1689,18 +2497,21 @@ class _XaneoSettingsModalState
   // ── UI Primitive Blocks ───────────────────────────────────────────────────────
   // ─────────────────────────────────────────────────────────────────────────────
 
-  Widget _buildUserCardAvatar(String? avatar, String gradient, String firstName, double size) {
-    List<Color> gradColors = [
-      const Color(0xFF2563EB),
-      const Color(0xFF7C3AED)
-    ];
+  Widget _buildUserCardAvatar(
+    String? avatar,
+    String gradient,
+    String firstName,
+    double size,
+  ) {
+    List<Color> gradColors = [const Color(0xFF2563EB), const Color(0xFF7C3AED)];
     final hexes = RegExp(r'#([0-9a-fA-F]{6})')
         .allMatches(gradient)
         .map((m) => Color(int.parse('FF${m.group(1)}', radix: 16)))
         .toList();
     if (hexes.length >= 2) gradColors = hexes;
 
-    final hasAvatar = avatar != null &&
+    final hasAvatar =
+        avatar != null &&
         avatar.isNotEmpty &&
         (avatar.startsWith('http') || avatar.startsWith('/'));
 
@@ -1718,19 +2529,23 @@ class _XaneoSettingsModalState
     );
   }
 
-  Widget _buildUserCard(String firstName, String username, String? avatar,
-      String gradient, bool isDark, double scale) {
-    List<Color> gradColors = [
-      const Color(0xFF2563EB),
-      const Color(0xFF7C3AED)
-    ];
+  Widget _buildUserCard(
+    String firstName,
+    String username,
+    String? avatar,
+    String gradient,
+    bool isDark,
+    double scale,
+  ) {
+    List<Color> gradColors = [const Color(0xFF2563EB), const Color(0xFF7C3AED)];
     final hexes = RegExp(r'#([0-9a-fA-F]{6})')
         .allMatches(gradient)
         .map((m) => Color(int.parse('FF${m.group(1)}', radix: 16)))
         .toList();
     if (hexes.length >= 2) gradColors = hexes;
 
-    final hasAvatar = avatar != null &&
+    final hasAvatar =
+        avatar != null &&
         avatar.isNotEmpty &&
         (avatar.startsWith('http') || avatar.startsWith('/'));
 
@@ -1757,18 +2572,22 @@ class _XaneoSettingsModalState
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(firstName,
-                    style: TextStyle(
-                      fontSize: 16 * scale,
-                      fontWeight: FontWeight.w700,
-                      color: isDark ? Colors.white : Colors.black87,
-                    )),
+                Text(
+                  firstName,
+                  style: TextStyle(
+                    fontSize: 16 * scale,
+                    fontWeight: FontWeight.w700,
+                    color: isDark ? Colors.white : Colors.black87,
+                  ),
+                ),
                 if (username.isNotEmpty)
-                  Text('@$username',
-                      style: TextStyle(
-                        fontSize: 12 * scale,
-                        color: isDark ? Colors.white38 : Colors.black38,
-                      )),
+                  Text(
+                    '@$username',
+                    style: TextStyle(
+                      fontSize: 12 * scale,
+                      color: isDark ? Colors.white38 : Colors.black38,
+                    ),
+                  ),
               ],
             ),
           ),
@@ -1790,27 +2609,37 @@ class _XaneoSettingsModalState
               color: isDark ? Color(0xFF1E1E1E) : const Color(0xFFF0F0F0),
             ),
             child: Center(
-              child: Icon(Icons.person_off_rounded,
-                  size: 22 * scale,
-                  color: isDark ? Colors.white38 : Colors.black38),
+              child: Icon(
+                Icons.person_off_rounded,
+                size: 22 * scale,
+                color: isDark ? Colors.white38 : Colors.black38,
+              ),
             ),
           ),
           SizedBox(width: 12 * scale),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text((AppLocalizations.of(context)?.gostevoyRezhim_6d82 ?? 'Fallback'),
-                  style: TextStyle(
-                    fontSize: 15 * scale,
-                    fontWeight: FontWeight.w600,
-                    color: isDark ? Colors.white : Colors.black87,
-                  )),
+              Text(
+                (AppLocalizations.of(context)?.gostevoyRezhim_6d82 ??
+                    'Fallback'),
+                style: TextStyle(
+                  fontSize: 15 * scale,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? Colors.white : Colors.black87,
+                ),
+              ),
               SizedBox(height: 2 * scale),
-              Text((AppLocalizations.of(context)?.voyditeDlyaDostupaKAkkauntu_a5c8 ?? 'Fallback'),
-                  style: TextStyle(
-                    fontSize: 12 * scale,
-                    color: isDark ? Colors.white38 : Colors.black38,
-                  )),
+              Text(
+                (AppLocalizations.of(
+                      context,
+                    )?.voyditeDlyaDostupaKAkkauntu_a5c8 ??
+                    'Fallback'),
+                style: TextStyle(
+                  fontSize: 12 * scale,
+                  color: isDark ? Colors.white38 : Colors.black38,
+                ),
+              ),
             ],
           ),
         ],
@@ -1847,26 +2676,30 @@ class _XaneoSettingsModalState
   Widget _groupLabel(String label, bool isDark, double scale) {
     return Padding(
       padding: EdgeInsets.only(left: 4 * scale, bottom: 4 * scale),
-      child: Text(label,
-          style: TextStyle(
-            fontSize: 10 * scale,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 1.4 * scale,
-            color: isDark ? Colors.white24 : Colors.black26,
-          )),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 10 * scale,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 1.4 * scale,
+          color: isDark ? Colors.white24 : Colors.black26,
+        ),
+      ),
     );
   }
 
   Widget _sectionHeader(String label, bool isDark, double scale) {
     return Padding(
       padding: EdgeInsets.only(bottom: 2 * scale),
-      child: Text(label,
-          style: TextStyle(
-            fontSize: 10 * scale,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 1.2 * scale,
-            color: isDark ? Colors.white30 : Colors.black38,
-          )),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 10 * scale,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 1.2 * scale,
+          color: isDark ? Colors.white30 : Colors.black38,
+        ),
+      ),
     );
   }
 
@@ -1876,12 +2709,15 @@ class _XaneoSettingsModalState
       child: GestureDetector(
         onTap: () {
           setState(() => _activeSection = section.id);
+          if (section.id == 'security') _loadSecurity();
         },
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 120),
           margin: EdgeInsets.symmetric(vertical: 2 * scale),
           padding: EdgeInsets.symmetric(
-              horizontal: 10 * scale, vertical: 10 * scale),
+            horizontal: 10 * scale,
+            vertical: 10 * scale,
+          ),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(10 * scale),
             color: Colors.transparent,
@@ -1915,24 +2751,30 @@ class _XaneoSettingsModalState
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(section.title,
-                        style: TextStyle(
-                          fontSize: 14 * scale,
-                          fontWeight: FontWeight.w600,
-                          color: isDark ? Colors.white : Colors.black87,
-                        )),
+                    Text(
+                      section.title,
+                      style: TextStyle(
+                        fontSize: 14 * scale,
+                        fontWeight: FontWeight.w600,
+                        color: isDark ? Colors.white : Colors.black87,
+                      ),
+                    ),
                     SizedBox(height: 2 * scale),
-                    Text(section.description,
-                        style: TextStyle(
-                          fontSize: 11 * scale,
-                          color: isDark ? Colors.white38 : Colors.black45,
-                        )),
+                    Text(
+                      section.description,
+                      style: TextStyle(
+                        fontSize: 11 * scale,
+                        color: isDark ? Colors.white38 : Colors.black45,
+                      ),
+                    ),
                   ],
                 ),
               ),
-              Icon(Icons.chevron_right_rounded,
-                  size: 18 * scale,
-                  color: isDark ? Colors.white24 : Colors.black26),
+              Icon(
+                Icons.chevron_right_rounded,
+                size: 18 * scale,
+                color: isDark ? Colors.white24 : Colors.black26,
+              ),
             ],
           ),
         ),
@@ -1954,7 +2796,9 @@ class _XaneoSettingsModalState
         child: Container(
           margin: EdgeInsets.symmetric(vertical: 2 * scale),
           padding: EdgeInsets.symmetric(
-              horizontal: 10 * scale, vertical: 10 * scale),
+            horizontal: 10 * scale,
+            vertical: 10 * scale,
+          ),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(10 * scale),
             color: Colors.red.withOpacity(0.06),
@@ -1973,12 +2817,14 @@ class _XaneoSettingsModalState
                 ),
               ),
               SizedBox(width: 13 * scale),
-              Text(label,
-                  style: TextStyle(
-                    fontSize: 14 * scale,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.red,
-                  )),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 14 * scale,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.red,
+                ),
+              ),
             ],
           ),
         ),
@@ -2000,18 +2846,22 @@ class _XaneoSettingsModalState
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(label,
-                  style: TextStyle(
-                    fontSize: 14 * scale,
-                    fontWeight: FontWeight.w600,
-                    color: isDark ? Colors.white : Colors.black87,
-                  )),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 14 * scale,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? Colors.white : Colors.black87,
+                ),
+              ),
               SizedBox(height: 2 * scale),
-              Text(description,
-                  style: TextStyle(
-                    fontSize: 11 * scale,
-                    color: isDark ? Colors.white38 : Colors.black45,
-                  )),
+              Text(
+                description,
+                style: TextStyle(
+                  fontSize: 11 * scale,
+                  color: isDark ? Colors.white38 : Colors.black45,
+                ),
+              ),
             ],
           ),
         ),
@@ -2024,13 +2874,22 @@ class _XaneoSettingsModalState
     );
   }
 
-  Widget _radioRow(String label, String value, String groupValue, bool isDark,
-      double scale, ValueChanged<String?> onChanged) {
+  Widget _radioRow(
+    String label,
+    String value,
+    String groupValue,
+    bool isDark,
+    double scale,
+    ValueChanged<String?> onChanged,
+  ) {
     return RadioListTile<String>(
-      title: Text(label,
-          style: TextStyle(
-              fontSize: 14 * scale,
-              color: isDark ? Colors.white : Colors.black87)),
+      title: Text(
+        label,
+        style: TextStyle(
+          fontSize: 14 * scale,
+          color: isDark ? Colors.white : Colors.black87,
+        ),
+      ),
       value: value,
       groupValue: groupValue,
       activeColor: const Color(0xFF2563EB),
@@ -2084,12 +2943,14 @@ class _XaneoSettingsModalState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label,
-            style: TextStyle(
-              fontSize: 11 * scale,
-              fontWeight: FontWeight.w600,
-              color: isDark ? Colors.white38 : Colors.black45,
-            )),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 11 * scale,
+            fontWeight: FontWeight.w600,
+            color: isDark ? Colors.white38 : Colors.black45,
+          ),
+        ),
         SizedBox(height: 5 * scale),
         TextField(
           controller: controller,
@@ -2107,11 +2968,11 @@ class _XaneoSettingsModalState
             filled: true,
             fillColor: readOnly
                 ? (isDark
-                    ? Colors.white.withOpacity(0.04)
-                    : Colors.black.withOpacity(0.03))
+                      ? Colors.white.withOpacity(0.04)
+                      : Colors.black.withOpacity(0.03))
                 : (isDark
-                    ? Colors.white.withOpacity(0.07)
-                    : Colors.black.withOpacity(0.04)),
+                      ? Colors.white.withOpacity(0.07)
+                      : Colors.black.withOpacity(0.04)),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8 * scale),
               borderSide: BorderSide(
@@ -2136,17 +2997,21 @@ class _XaneoSettingsModalState
               ),
             ),
             contentPadding: EdgeInsets.symmetric(
-                horizontal: 12 * scale, vertical: 10 * scale),
+              horizontal: 12 * scale,
+              vertical: 10 * scale,
+            ),
             isDense: true,
           ),
         ),
         if (note != null) ...[
           SizedBox(height: 4 * scale),
-          Text(note,
-              style: TextStyle(
-                fontSize: 10 * scale,
-                color: isDark ? Colors.white24 : Colors.black26,
-              )),
+          Text(
+            note,
+            style: TextStyle(
+              fontSize: 10 * scale,
+              color: isDark ? Colors.white24 : Colors.black26,
+            ),
+          ),
         ],
       ],
     );
@@ -2162,12 +3027,14 @@ class _XaneoSettingsModalState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label,
-            style: TextStyle(
-              fontSize: 11 * scale,
-              fontWeight: FontWeight.w600,
-              color: isDark ? Colors.white38 : Colors.black45,
-            )),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 11 * scale,
+            fontWeight: FontWeight.w600,
+            color: isDark ? Colors.white38 : Colors.black45,
+          ),
+        ),
         SizedBox(height: 5 * scale),
         TextField(
           controller: controller,
@@ -2210,7 +3077,9 @@ class _XaneoSettingsModalState
               ),
             ),
             contentPadding: EdgeInsets.symmetric(
-                horizontal: 12 * scale, vertical: 10 * scale),
+              horizontal: 12 * scale,
+              vertical: 10 * scale,
+            ),
           ),
         ),
       ],
@@ -2224,8 +3093,9 @@ class _XaneoSettingsModalState
     VoidCallback? onTap,
   }) {
     return MouseRegion(
-      cursor:
-          onTap != null ? SystemMouseCursors.click : SystemMouseCursors.basic,
+      cursor: onTap != null
+          ? SystemMouseCursors.click
+          : SystemMouseCursors.basic,
       child: GestureDetector(
         onTap: onTap,
         child: Container(
@@ -2265,8 +3135,10 @@ class _XaneoSettingsModalState
   }) {
     final c = color ?? (isDark ? Colors.white70 : Colors.black87);
     return Container(
-      padding:
-          EdgeInsets.symmetric(horizontal: 12 * scale, vertical: 10 * scale),
+      padding: EdgeInsets.symmetric(
+        horizontal: 12 * scale,
+        vertical: 10 * scale,
+      ),
       decoration: BoxDecoration(
         color: isDark
             ? Colors.white.withOpacity(0.04)
@@ -2286,16 +3158,22 @@ class _XaneoSettingsModalState
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label,
-                    style: TextStyle(
-                        fontSize: 13 * scale,
-                        fontWeight: FontWeight.w600,
-                        color: c)),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 13 * scale,
+                    fontWeight: FontWeight.w600,
+                    color: c,
+                  ),
+                ),
                 SizedBox(height: 2 * scale),
-                Text(subtitle,
-                    style: TextStyle(
-                        fontSize: 11 * scale,
-                        color: isDark ? Colors.white38 : Colors.black38)),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    fontSize: 11 * scale,
+                    color: isDark ? Colors.white38 : Colors.black38,
+                  ),
+                ),
               ],
             ),
           ),
@@ -2309,16 +3187,19 @@ class _XaneoSettingsModalState
     return Padding(
       padding: EdgeInsets.only(bottom: 10 * scale),
       child: Container(
-        padding:
-            EdgeInsets.symmetric(horizontal: 12 * scale, vertical: 8 * scale),
+        padding: EdgeInsets.symmetric(
+          horizontal: 12 * scale,
+          vertical: 8 * scale,
+        ),
         decoration: BoxDecoration(
           color: Colors.red.withOpacity(0.1),
           borderRadius: BorderRadius.circular(8 * scale),
           border: Border.all(color: Colors.red.withOpacity(0.3)),
         ),
-        child: Text(msg,
-            style: TextStyle(
-                fontSize: 12 * scale, color: Colors.red.shade300)),
+        child: Text(
+          msg,
+          style: TextStyle(fontSize: 12 * scale, color: Colors.red.shade300),
+        ),
       ),
     );
   }
@@ -2327,18 +3208,22 @@ class _XaneoSettingsModalState
     return Padding(
       padding: EdgeInsets.only(bottom: 10 * scale),
       child: Container(
-        padding:
-            EdgeInsets.symmetric(horizontal: 12 * scale, vertical: 8 * scale),
+        padding: EdgeInsets.symmetric(
+          horizontal: 12 * scale,
+          vertical: 8 * scale,
+        ),
         decoration: BoxDecoration(
           color: const Color(0xFF059669).withOpacity(0.1),
           borderRadius: BorderRadius.circular(8 * scale),
-          border:
-              Border.all(color: const Color(0xFF059669).withOpacity(0.3)),
+          border: Border.all(color: const Color(0xFF059669).withOpacity(0.3)),
         ),
-        child: Text(msg,
-            style: TextStyle(
-                fontSize: 12 * scale,
-                color: const Color(0xFF059669))),
+        child: Text(
+          msg,
+          style: TextStyle(
+            fontSize: 12 * scale,
+            color: const Color(0xFF059669),
+          ),
+        ),
       ),
     );
   }
@@ -2468,17 +3353,25 @@ class _XaneoCustomDropdownState extends State<XaneoCustomDropdown> {
             ),
             decoration: BoxDecoration(
               color: _isOpen
-                  ? (isDark ? const Color(0xFF2563EB).withOpacity(0.18) : const Color(0xFF2563EB).withOpacity(0.1))
+                  ? (isDark
+                        ? const Color(0xFF2563EB).withOpacity(0.18)
+                        : const Color(0xFF2563EB).withOpacity(0.1))
                   : _isHovered
-                      ? (isDark ? Colors.white.withOpacity(0.09) : Colors.black.withOpacity(0.06))
-                      : (isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.04)),
+                  ? (isDark
+                        ? Colors.white.withOpacity(0.09)
+                        : Colors.black.withOpacity(0.06))
+                  : (isDark
+                        ? Colors.white.withOpacity(0.05)
+                        : Colors.black.withOpacity(0.04)),
               borderRadius: BorderRadius.circular(8 * scale),
               border: Border.all(
                 color: _isOpen
                     ? const Color(0xFF2563EB)
                     : (_isHovered
-                        ? (isDark ? Colors.white30 : Colors.black38)
-                        : (isDark ? Colors.white.withOpacity(0.1) : Colors.black.withOpacity(0.08))),
+                          ? (isDark ? Colors.white30 : Colors.black38)
+                          : (isDark
+                                ? Colors.white.withOpacity(0.1)
+                                : Colors.black.withOpacity(0.08))),
                 width: _isOpen ? 1.5 : 1.0,
               ),
             ),
@@ -2535,7 +3428,8 @@ class _XaneoDropdownMenuOverlay extends StatefulWidget {
   });
 
   @override
-  State<_XaneoDropdownMenuOverlay> createState() => __XaneoDropdownMenuOverlayState();
+  State<_XaneoDropdownMenuOverlay> createState() =>
+      __XaneoDropdownMenuOverlayState();
 }
 
 class __XaneoDropdownMenuOverlayState extends State<_XaneoDropdownMenuOverlay>
@@ -2570,7 +3464,9 @@ class __XaneoDropdownMenuOverlayState extends State<_XaneoDropdownMenuOverlay>
     final scale = widget.scale;
 
     final bgColor = isDark ? const Color(0xFF141417) : Colors.white;
-    final borderColor = isDark ? const Color(0xFF27272A) : const Color(0xFFE4E4E7);
+    final borderColor = isDark
+        ? const Color(0xFF27272A)
+        : const Color(0xFFE4E4E7);
 
     return FadeTransition(
       opacity: _fadeAnim,
@@ -2653,7 +3549,9 @@ class __XaneoDropdownItemRowState extends State<_XaneoDropdownItemRow> {
             vertical: 9 * scale,
           ),
           color: _isHovered
-              ? (isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.05))
+              ? (isDark
+                    ? Colors.white.withOpacity(0.08)
+                    : Colors.black.withOpacity(0.05))
               : Colors.transparent,
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -2663,7 +3561,9 @@ class __XaneoDropdownItemRowState extends State<_XaneoDropdownItemRow> {
                 widget.label,
                 style: TextStyle(
                   fontSize: 12.5 * scale,
-                  fontWeight: widget.isSelected ? FontWeight.w600 : FontWeight.w400,
+                  fontWeight: widget.isSelected
+                      ? FontWeight.w600
+                      : FontWeight.w400,
                   color: widget.isSelected
                       ? const Color(0xFF2563EB)
                       : (isDark ? Colors.white70 : Colors.black87),

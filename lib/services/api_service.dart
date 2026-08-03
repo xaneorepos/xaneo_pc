@@ -17,138 +17,170 @@ class ApiService {
     'API_BASE_URL',
     defaultValue: 'https://xaneo.ru/api/v1',
   );
-  
+
   // User-Agent для идентификации приложения
   static const String _userAgent = 'XaneoPC/1.0 xaneo-app';
-  
+
   // Ключи для хранения токенов
   static const String _accessTokenKey = 'xaneo_access_token';
   static const String _refreshTokenKey = 'xaneo_refresh_token';
-  
+
   // Future для предотвращения одновременных запросов на обновление токена
   Future<ApiResponse>? _refreshFuture;
-  
+
   // Singleton
   static final ApiService _instance = ApiService._internal();
   factory ApiService() => _instance;
-  
+
   // Dio instance
   late final Dio _dio;
-  
+
   // CookieJar instance
   final CookieJar _cookieJar = CookieJar();
-  
+
   // Геттер для базового URL
   static String get baseUrl => _baseUrl;
-  
+
   /// Публичный доступ к Dio для использования в виджетах
   Dio get dio => _dio;
-  
+
   /// Установить базовый URL (для настройки)
   static void setBaseUrl(String url) {
     _baseUrl = url.replaceAll(RegExp(r'/$'), '');
     _instance._dio.options.baseUrl = _baseUrl;
   }
-  
+
   /// Получить WebSocket URL для чата
   static String getWebSocketUrl(String chatId, String? token) {
     final uri = Uri.parse(_baseUrl);
     final scheme = uri.scheme == 'https' ? 'wss' : 'ws';
     final host = uri.host;
     final port = uri.hasPort ? ':${uri.port}' : '';
-    
+
     var wsUrl = '$scheme://$host$port/ws/chat/$chatId/';
     if (token != null) {
       wsUrl += '?token=${Uri.encodeComponent(token)}';
     }
     return wsUrl;
   }
-  
+
   ApiService._internal() {
-    _dio = Dio(BaseOptions(
-      baseUrl: _baseUrl,
-      connectTimeout: const Duration(seconds: 15),
-      receiveTimeout: const Duration(seconds: 15),
-      validateStatus: (status) => status != null && status < 600,
-    ));
-    
+    _dio = Dio(
+      BaseOptions(
+        baseUrl: _baseUrl,
+        connectTimeout: const Duration(seconds: 15),
+        receiveTimeout: const Duration(seconds: 15),
+        validateStatus: (status) => status != null && status < 600,
+      ),
+    );
+
     _dio.interceptors.add(CookieManager(_cookieJar));
 
     // Автоматическое добавление авторизации и обновление токенов при получении 401
-    _dio.interceptors.add(InterceptorsWrapper(
-      onRequest: (options, handler) async {
-        final path = options.path;
-        if (!options.headers.containsKey('Authorization') &&
-            !path.contains('/auth/token/refresh/') &&
-            !path.contains('/auth/login/') &&
-            !path.contains('/auth/register/')) {
-          final token = await getAccessToken();
-          if (token != null && token.isNotEmpty) {
-            options.headers['Authorization'] = 'Bearer $token';
+    _dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) async {
+          final path = options.path;
+          final isInteractiveAuthRequest =
+              path.contains('/auth/mobile-login/') ||
+              path.contains('/auth/send-tfa-code/') ||
+              path.contains('/auth/verify-tfa-code/');
+          final isAuthFlowRequest = path.contains('/auth/');
+          if (!options.headers.containsKey('Authorization') &&
+              !isInteractiveAuthRequest &&
+              !path.contains('/auth/token/refresh/') &&
+              !path.contains('/auth/login/') &&
+              !path.contains('/auth/register/')) {
+            final token = await getAccessToken();
+            if (token != null && token.isNotEmpty) {
+              options.headers['Authorization'] = 'Bearer $token';
+            }
           }
-        }
-        return handler.next(options);
-      },
-      onResponse: (response, handler) async {
-        if (response.statusCode == 401) {
-          final path = response.requestOptions.path;
-          // Избегаем бесконечных циклов на эндпоинтах авторизации и обновления токена
-          if (path.contains('/auth/token/refresh/') ||
-              path.contains('/auth/login/') ||
-              path.contains('/auth/token/')) {
-            return handler.next(response);
+          if (isAuthFlowRequest) {
+            Logger.info(
+              'AuthTrace',
+              'request path=$path interactive=$isInteractiveAuthRequest '
+                  'jwtAttached=${options.headers['Authorization'] != null}',
+            );
           }
+          return handler.next(options);
+        },
+        onResponse: (response, handler) async {
+          if (response.statusCode == 401) {
+            final path = response.requestOptions.path;
+            final isInteractiveAuthRequest =
+                path.contains('/auth/mobile-login/') ||
+                path.contains('/auth/send-tfa-code/') ||
+                path.contains('/auth/verify-tfa-code/');
+            // Избегаем бесконечных циклов на эндпоинтах авторизации и обновления токена
+            if (isInteractiveAuthRequest ||
+                path.contains('/auth/token/refresh/') ||
+                path.contains('/auth/login/') ||
+                path.contains('/auth/token/')) {
+              return handler.next(response);
+            }
 
-          // Если запрос уже был ретраем — не повторяем, чтобы не зациклиться
-          if (response.requestOptions.extra['_retried'] == true) {
-            return handler.next(response);
-          }
+            // Если запрос уже был ретраем — не повторяем, чтобы не зациклиться
+            if (response.requestOptions.extra['_retried'] == true) {
+              return handler.next(response);
+            }
 
-          final authHeader = response.requestOptions.headers['Authorization'] as String?;
-          if (authHeader != null && authHeader.startsWith('Bearer ')) {
-            final requestToken = authHeader.substring(7);
-            final currentToken = await getAccessToken();
-            
-            if (currentToken != null && requestToken != currentToken) {
-              // Токен запроса отличается от текущего — просто повторяем с новым токеном
+            final authHeader =
+                response.requestOptions.headers['Authorization'] as String?;
+            if (authHeader != null && authHeader.startsWith('Bearer ')) {
+              final requestToken = authHeader.substring(7);
+              final currentToken = await getAccessToken();
+
+              if (currentToken != null && requestToken != currentToken) {
+                // Токен запроса отличается от текущего — просто повторяем с новым токеном
+                final options = response.requestOptions;
+                options.headers['Authorization'] = 'Bearer $currentToken';
+                options.extra['_retried'] = true;
+                try {
+                  final retryResponse = await _dio.fetch(options);
+                  return handler.resolve(retryResponse);
+                } catch (e) {
+                  Logger.warning(
+                    'ApiService',
+                    'Error retrying with refreshed token: $e',
+                  );
+                }
+                return handler.next(response);
+              }
+            }
+
+            // Рефреш токена
+            final refreshRes = await refreshToken();
+            if (!refreshRes.success) {
+              // Рефреш упал (429, сеть и т.д.) — прекращаем, не повторяем запрос
+              Logger.warning(
+                'ApiService',
+                'Token refresh failed, aborting retry: ${refreshRes.error}',
+              );
+              return handler.next(response);
+            }
+
+            final newToken = await getAccessToken();
+            if (newToken != null) {
               final options = response.requestOptions;
-              options.headers['Authorization'] = 'Bearer $currentToken';
+              options.headers['Authorization'] = 'Bearer $newToken';
               options.extra['_retried'] = true;
               try {
                 final retryResponse = await _dio.fetch(options);
                 return handler.resolve(retryResponse);
               } catch (e) {
-                Logger.warning('ApiService', 'Error retrying with refreshed token: $e');
+                Logger.warning(
+                  'ApiService',
+                  'Error retrying request after token refresh: $e',
+                );
               }
-              return handler.next(response);
             }
           }
+          return handler.next(response);
+        },
+      ),
+    );
 
-          // Рефреш токена
-          final refreshRes = await refreshToken();
-          if (!refreshRes.success) {
-            // Рефреш упал (429, сеть и т.д.) — прекращаем, не повторяем запрос
-            Logger.warning('ApiService', 'Token refresh failed, aborting retry: ${refreshRes.error}');
-            return handler.next(response);
-          }
-
-          final newToken = await getAccessToken();
-          if (newToken != null) {
-            final options = response.requestOptions;
-            options.headers['Authorization'] = 'Bearer $newToken';
-            options.extra['_retried'] = true;
-            try {
-              final retryResponse = await _dio.fetch(options);
-              return handler.resolve(retryResponse);
-            } catch (e) {
-              Logger.warning('ApiService', 'Error retrying request after token refresh: $e');
-            }
-          }
-        }
-        return handler.next(response);
-      },
-    ));
-    
     // Настройка Dio для проверки SSL с доверенными доверенными доменами
     _dio.httpClientAdapter = IOHttpClientAdapter(
       createHttpClient: () {
@@ -158,9 +190,12 @@ class ApiService {
       },
     );
   }
-  
+
   /// Получить Options с базовыми заголовками
-  Options _getOptions({String? contentType, Map<String, dynamic>? extraHeaders}) {
+  Options _getOptions({
+    String? contentType,
+    Map<String, dynamic>? extraHeaders,
+  }) {
     final headers = <String, dynamic>{
       'User-Agent': _userAgent,
       'Accept': 'application/json',
@@ -171,7 +206,7 @@ class ApiService {
     }
     return Options(headers: headers);
   }
-  
+
   /// Получить Options с авторизацией
   Future<Options> _getAuthOptions() async {
     final token = await getAccessToken();
@@ -184,9 +219,104 @@ class ApiService {
       extraHeaders: extraHeaders,
     );
   }
-  
+
   // ==================== АВТОРИЗАЦИЯ ====================
-  
+
+  /// Проверяет логин и пароль и сообщает, требуется ли 2FA.
+  Future<ApiResponse> mobileLogin(String username, String password) async {
+    try {
+      Logger.info(
+        'AuthTrace',
+        'mobile-login request baseUrl=$_baseUrl user=$username',
+      );
+      final response = await _dio.post(
+        '$_baseUrl/auth/mobile-login/',
+        options: _getOptions(contentType: 'application/json'),
+        data: {'username': username, 'password': password},
+      );
+      final result = _handleDioResponse(response, isAuthRequest: true);
+      Logger.info(
+        'AuthTrace',
+        'mobile-login response status=${result.statusCode} '
+            'success=${result.success} authSuccess=${result.data?['auth_success']} '
+            'tfaRequired=${result.data?['tfa_required']} '
+            'requires2fa=${result.data?['requires_2fa']} '
+            'responseTfaEnabled=${result.data?['user_info']?['tfa_enabled']} '
+            'hasChallenge=${result.data?['token'] != null || result.data?['temp_token'] != null}',
+      );
+      return result;
+    } catch (e) {
+      Logger.error(
+        'ApiService',
+        'Mobile login preflight failed for $username',
+        e,
+      );
+      return ApiResponse(
+        success: false,
+        error: 'Ошибка подключения к серверу: $e',
+      );
+    }
+  }
+
+  /// Отправляет код 2FA на email, привязанный к временному токену.
+  Future<ApiResponse> sendTfaCode(String token) async {
+    try {
+      final response = await _dio.post(
+        '$_baseUrl/auth/send-tfa-code/',
+        options: _getOptions(contentType: 'application/json'),
+        data: {'token': token},
+      );
+      return _handleDioResponse(response, isAuthRequest: true);
+    } catch (e) {
+      Logger.error('ApiService', 'Failed to send 2FA code', e);
+      return ApiResponse(success: false, error: 'Не удалось отправить код: $e');
+    }
+  }
+
+  /// Проверяет шестизначный код 2FA.
+  Future<ApiResponse> verifyTfaCode(String token, String code) async {
+    try {
+      final response = await _dio.post(
+        '$_baseUrl/auth/verify-tfa-code/',
+        options: _getOptions(contentType: 'application/json'),
+        data: {'token': token, 'code': code},
+      );
+      final result = _handleDioResponse(response, isAuthRequest: true);
+      Logger.info(
+        'AuthTrace',
+        'verify-tfa response status=${result.statusCode} '
+            'success=${result.success} confirmed=${result.data?['success'] == true}',
+      );
+      if (result.success && result.data?['success'] == true) {
+        final nestedTokens = result.data?['tokens'];
+        final tokenData = nestedTokens is Map
+            ? Map<String, dynamic>.from(nestedTokens)
+            : result.data!;
+        final access = tokenData['access'];
+        final refresh = tokenData['refresh'];
+        final jwtIssued = access is String && refresh is String;
+        Logger.info(
+          'AuthTrace',
+          'verify-tfa accepted; jwtIssued=$jwtIssued '
+              'legacyFallbackRequired=${!jwtIssued}',
+        );
+        if (jwtIssued) {
+          await saveAccessToken(access);
+          await saveRefreshToken(refresh);
+        }
+        return ApiResponse(
+          success: true,
+          statusCode: result.statusCode,
+          data: {...result.data!, '_jwt_issued': jwtIssued},
+        );
+      }
+      return result;
+    } catch (e) {
+      Logger.error('ApiService', 'Failed to verify 2FA code', e);
+      return ApiResponse(success: false, error: 'Не удалось проверить код: $e');
+    }
+  }
+
   /// Вход в систему
   /// Возвращает Map с данными пользователя или ошибкой
   Future<ApiResponse> login(String username, String password) async {
@@ -195,26 +325,30 @@ class ApiService {
       final response = await _dio.post(
         '$_baseUrl/auth/login/',
         options: _getOptions(contentType: 'application/json'),
-        data: {
-          'username': username,
-          'password': password,
-        },
+        data: {'username': username, 'password': password},
       );
-      
+
       final result = _handleDioResponse(response, isAuthRequest: true);
-      Logger.info('ApiService', 'Login result for $username: success=${result.success}');
+      Logger.info(
+        'ApiService',
+        'Login result for $username: success=${result.success}',
+      );
       return result;
     } catch (e) {
-      Logger.error('ApiService', 'Login connection error for user: $username', e);
+      Logger.error(
+        'ApiService',
+        'Login connection error for user: $username',
+        e,
+      );
       return ApiResponse(
         success: false,
         error: 'Ошибка подключения к серверу: $e',
       );
     }
   }
-  
+
   // ==================== РЕГИСТРАЦИЯ С ПОДТВЕРЖДЕНИЕМ EMAIL ====================
-  
+
   /// Проверить доступность имени пользователя (username)
   Future<ApiResponse> checkUsername(String username) async {
     try {
@@ -231,7 +365,7 @@ class ApiService {
       );
     }
   }
-  
+
   /// Проверить доступность email
   Future<ApiResponse> checkEmail(String email) async {
     try {
@@ -242,13 +376,10 @@ class ApiService {
       );
       return _handleDioResponse(response);
     } catch (e) {
-      return ApiResponse(
-        success: false,
-        error: 'Ошибка проверки email: $e',
-      );
+      return ApiResponse(success: false, error: 'Ошибка проверки email: $e');
     }
   }
-  
+
   /// Отправить код подтверждения на email
   /// Возвращает ApiResponse с success: true если код отправлен
   Future<ApiResponse> sendVerificationCode({
@@ -257,40 +388,30 @@ class ApiService {
   }) async {
     try {
       final urlStr = '$_baseUrl/auth/send-verification-code/';
-      final data = {
-        'email': email,
-        'username': username,
-      };
+      final data = {'email': email, 'username': username};
       final options = _getOptions(contentType: 'application/json');
-      
+
       print('DEBUG API: POST to $urlStr');
       print('DEBUG API: Request Body: $data');
       print('DEBUG API: Request Headers: ${options.headers}');
       final cookiesBefore = await _cookieJar.loadForRequest(Uri.parse(urlStr));
       print('DEBUG API: Cookies before request: $cookiesBefore');
-      
-      final response = await _dio.post(
-        urlStr,
-        options: options,
-        data: data,
-      );
-      
+
+      final response = await _dio.post(urlStr, options: options, data: data);
+
       print('DEBUG API: Response Code: ${response.statusCode}');
       print('DEBUG API: Response Headers: ${response.headers}');
       print('DEBUG API: Response Body: ${response.data}');
       final cookiesAfter = await _cookieJar.loadForRequest(Uri.parse(urlStr));
       print('DEBUG API: Cookies after request: $cookiesAfter');
-      
+
       return _handleDioResponse(response);
     } catch (e) {
       print('DEBUG API: Error in sendVerificationCode: $e');
-      return ApiResponse(
-        success: false,
-        error: 'Ошибка отправки кода: $e',
-      );
+      return ApiResponse(success: false, error: 'Ошибка отправки кода: $e');
     }
   }
-  
+
   /// Проверить код подтверждения email
   /// Возвращает ApiResponse с success: true если код верный
   Future<ApiResponse> verifyEmailCode({
@@ -299,40 +420,30 @@ class ApiService {
   }) async {
     try {
       final urlStr = '$_baseUrl/auth/verify-email-code/';
-      final data = {
-        'email': email,
-        'code': code,
-      };
+      final data = {'email': email, 'code': code};
       final options = _getOptions(contentType: 'application/json');
-      
+
       print('DEBUG API: POST to $urlStr');
       print('DEBUG API: Request Body: $data');
       print('DEBUG API: Request Headers: ${options.headers}');
       final cookiesBefore = await _cookieJar.loadForRequest(Uri.parse(urlStr));
       print('DEBUG API: Cookies before request: $cookiesBefore');
-      
-      final response = await _dio.post(
-        urlStr,
-        options: options,
-        data: data,
-      );
-      
+
+      final response = await _dio.post(urlStr, options: options, data: data);
+
       print('DEBUG API: Response Code: ${response.statusCode}');
       print('DEBUG API: Response Headers: ${response.headers}');
       print('DEBUG API: Response Body: ${response.data}');
       final cookiesAfter = await _cookieJar.loadForRequest(Uri.parse(urlStr));
       print('DEBUG API: Cookies after request: $cookiesAfter');
-      
+
       return _handleDioResponse(response);
     } catch (e) {
       print('DEBUG API: Error in verifyEmailCode: $e');
-      return ApiResponse(
-        success: false,
-        error: 'Ошибка проверки кода: $e',
-      );
+      return ApiResponse(success: false, error: 'Ошибка проверки кода: $e');
     }
   }
-  
+
   /// Регистрация нового пользователя (после подтверждения email)
   /// Требует, что email был подтверждён через verifyEmailCode
   Future<ApiResponse> register({
@@ -377,25 +488,21 @@ class ApiService {
         };
         options = _getOptions(contentType: 'application/json');
       }
-      
+
       print('DEBUG API: POST to $urlStr');
       print('DEBUG API: Request Headers: ${options.headers}');
       final cookiesBefore = await _cookieJar.loadForRequest(Uri.parse(urlStr));
       print('DEBUG API: Cookies before request: $cookiesBefore');
-      
-      final response = await _dio.post(
-        urlStr,
-        options: options,
-        data: data,
-      );
-      
+
+      final response = await _dio.post(urlStr, options: options, data: data);
+
       print('DEBUG API: Response Code: ${response.statusCode}');
       print('DEBUG API: Response Body: ${response.data}');
       final cookiesAfter = await _cookieJar.loadForRequest(Uri.parse(urlStr));
       print('DEBUG API: Cookies after request: $cookiesAfter');
-      
+
       final result = _handleDioResponse(response, isAuthRequest: true);
-      
+
       // Сохраняем токены при успешной регистрации
       if (result.success && result.data != null) {
         if (result.data!['access'] != null) {
@@ -405,14 +512,11 @@ class ApiService {
           await saveRefreshToken(result.data!['refresh'] as String);
         }
       }
-      
+
       return result;
     } catch (e) {
       print('DEBUG API: Error in register: $e');
-      return ApiResponse(
-        success: false,
-        error: 'Ошибка регистрации: $e',
-      );
+      return ApiResponse(success: false, error: 'Ошибка регистрации: $e');
     }
   }
 
@@ -424,10 +528,7 @@ class ApiService {
 
       final fileName = file.path.split('/').last;
       final formData = FormData.fromMap({
-        'avatar': await MultipartFile.fromFile(
-          file.path,
-          filename: fileName,
-        ),
+        'avatar': await MultipartFile.fromFile(file.path, filename: fileName),
       });
 
       final response = await _dio.post(
@@ -438,28 +539,27 @@ class ApiService {
 
       return _handleDioResponse(response);
     } catch (e) {
-      return ApiResponse(
-        success: false,
-        error: 'Ошибка загрузки аватара: $e',
-      );
+      return ApiResponse(success: false, error: 'Ошибка загрузки аватара: $e');
     }
   }
-  
+
   /// Получение JWT токена
   Future<ApiResponse> obtainToken(String username, String password) async {
     Logger.info('ApiService', 'obtainToken called for user: $username');
+    Logger.warning(
+      'AuthTrace',
+      'JWT password endpoint requested for user=$username; '
+          'this must only happen after non-2FA preflight or verified legacy 2FA',
+    );
     try {
       final response = await _dio.post(
         '$_baseUrl/auth/token/',
         options: _getOptions(contentType: 'application/json'),
-        data: {
-          'username': username,
-          'password': password,
-        },
+        data: {'username': username, 'password': password},
       );
-      
+
       final result = _handleDioResponse(response);
-      
+
       // Сохраняем токены
       if (result.success && result.data != null) {
         Logger.info('ApiService', 'obtainToken succeeded. Saving tokens.');
@@ -472,22 +572,26 @@ class ApiService {
       } else {
         Logger.warning('ApiService', 'obtainToken failed: ${result.error}');
       }
-      
+
       return result;
     } catch (e) {
-      Logger.error('ApiService', 'obtainToken connection error for user: $username', e);
-      return ApiResponse(
-        success: false,
-        error: 'Ошибка получения токена: $e',
+      Logger.error(
+        'ApiService',
+        'obtainToken connection error for user: $username',
+        e,
       );
+      return ApiResponse(success: false, error: 'Ошибка получения токена: $e');
     }
   }
-  
+
   /// Обновление access токена
   Future<ApiResponse> refreshToken() async {
     Logger.info('ApiService', 'Starting token refresh process...');
     if (_refreshFuture != null) {
-      Logger.info('ApiService', 'Token refresh already in progress, sharing future.');
+      Logger.info(
+        'ApiService',
+        'Token refresh already in progress, sharing future.',
+      );
       return _refreshFuture!;
     }
 
@@ -497,7 +601,10 @@ class ApiService {
     try {
       final refreshToken = await getRefreshToken();
       if (refreshToken == null) {
-        Logger.warning('ApiService', 'Refresh token not found in local storage.');
+        Logger.warning(
+          'ApiService',
+          'Refresh token not found in local storage.',
+        );
         final res = ApiResponse(
           success: false,
           error: 'Refresh токен не найден',
@@ -505,34 +612,42 @@ class ApiService {
         completer.complete(res);
         return res;
       }
-      
+
       final response = await _dio.post(
         '$_baseUrl/auth/token/refresh/',
         options: _getOptions(contentType: 'application/json'),
-        data: {
-          'refresh': refreshToken,
-        },
+        data: {'refresh': refreshToken},
       );
-      
+
       final result = _handleDioResponse(response);
-      
+
       if (result.success && result.data != null) {
         final newAccess = result.data!['access'] as String?;
         final newRefresh = result.data!['refresh'] as String?;
-        
-        Logger.info('ApiService', 'Token refreshed successfully. Updating tokens locally.');
+
+        Logger.info(
+          'ApiService',
+          'Token refreshed successfully. Updating tokens locally.',
+        );
         if (newAccess != null) {
           await saveAccessToken(newAccess);
           if (newRefresh != null) {
             await saveRefreshToken(newRefresh);
           }
           // Синхронизируем новые токены в списке сохраненных аккаунтов
-          await AccountService().updateAccessToken(refreshToken, newAccess, newRefresh);
+          await AccountService().updateAccessToken(
+            refreshToken,
+            newAccess,
+            newRefresh,
+          );
         }
       } else {
-        Logger.error('ApiService', 'Token refresh failed on server: ${result.error}');
+        Logger.error(
+          'ApiService',
+          'Token refresh failed on server: ${result.error}',
+        );
       }
-      
+
       completer.complete(result);
       return result;
     } catch (e) {
@@ -547,35 +662,29 @@ class ApiService {
       _refreshFuture = null;
     }
   }
-  
+
   /// Проверка валидности токена
   Future<ApiResponse> verifyToken() async {
     try {
       final token = await getAccessToken();
       if (token == null) {
-        return ApiResponse(
-          success: false,
-          error: 'Токен не найден',
-        );
+        return ApiResponse(success: false, error: 'Токен не найден');
       }
-      
+
       final response = await _dio.post(
         '$_baseUrl/auth/token/verify/',
         options: _getOptions(contentType: 'application/json'),
         data: {'token': token},
       );
-      
+
       return _handleDioResponse(response);
     } catch (e) {
-      return ApiResponse(
-        success: false,
-        error: 'Ошибка проверки токена: $e',
-      );
+      return ApiResponse(success: false, error: 'Ошибка проверки токена: $e');
     }
   }
-  
+
   // ==================== XSEC-2 CRYPTO ENDPOINTS ====================
-  
+
   /// Загрузить публичные ключи и зашифрованный blob на сервер
   Future<ApiResponse> uploadKeys({
     required String x25519PublicKey,
@@ -680,10 +789,7 @@ class ApiService {
   Future<ApiResponse> getChats() async {
     try {
       final options = await _getAuthOptions();
-      final response = await _dio.get(
-        '$_baseUrl/chats/',
-        options: options,
-      );
+      final response = await _dio.get('$_baseUrl/chats/', options: options);
       return _handleDioResponse(response);
     } catch (e) {
       return ApiResponse(
@@ -700,22 +806,78 @@ class ApiService {
       final response = await _dio.post(
         '$_baseUrl/chats/archive/',
         options: options,
-        data: {
-          'chat_id': chatId,
-          'is_archived': isArchived,
-        },
+        data: {'chat_id': chatId, 'is_archived': isArchived},
       );
       return _handleDioResponse(response);
     } catch (e) {
-      return ApiResponse(
-        success: false,
-        error: 'Ошибка архивации чата: $e',
+      return ApiResponse(success: false, error: 'Ошибка архивации чата: $e');
+    }
+  }
+
+  Future<ApiResponse> pinChat(String chatId, bool isPinned) async {
+    try {
+      final options = await _getAuthOptions();
+      final response = await _dio.post(
+        '$_baseUrl/chats/pin/',
+        options: options,
+        data: {'chat_id': chatId, 'is_pinned': isPinned},
       );
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(success: false, error: 'Ошибка закрепления чата: $e');
+    }
+  }
+
+  Future<ApiResponse> muteChat(String chatId, bool isMuted) async {
+    try {
+      final options = await _getAuthOptions();
+      final response = await _dio.post(
+        '$_baseUrl/chats/mute/',
+        options: options,
+        data: {'chat_id': chatId, 'is_muted': isMuted},
+      );
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(success: false, error: 'Ошибка уведомлений чата: $e');
+    }
+  }
+
+  Future<ApiResponse> clearChatHistory(String chatId, String chatType) async {
+    try {
+      final options = await _getAuthOptions();
+      final legacyBaseUrl = _baseUrl.replaceFirst(RegExp(r'/v1$'), '');
+      final response = await _dio.post(
+        '$legacyBaseUrl/clear-chat-history/',
+        options: options,
+        data: {'chat_id': chatId, 'chat_type': chatType},
+      );
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(success: false, error: 'Ошибка очистки истории: $e');
+    }
+  }
+
+  Future<ApiResponse> deleteChat(String chatId) async {
+    try {
+      final options = await _getAuthOptions();
+      final legacyBaseUrl = _baseUrl.replaceFirst(RegExp(r'/v1$'), '');
+      final response = await _dio.post(
+        '$legacyBaseUrl/delete-chat/',
+        options: options,
+        data: {'chat_id': chatId},
+      );
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(success: false, error: 'Ошибка удаления чата: $e');
     }
   }
 
   /// Получить список сообщений в чате
-  Future<ApiResponse> getMessages(String chatId, {int? limit, int? offset}) async {
+  Future<ApiResponse> getMessages(
+    String chatId, {
+    int? limit,
+    int? offset,
+  }) async {
     try {
       final options = await _getAuthOptions();
       final queryParams = {
@@ -744,10 +906,7 @@ class ApiService {
       final response = await _dio.post(
         '$_baseUrl/encrypted-messages/',
         options: options,
-        data: {
-          'chat_id': chatId,
-          'encrypted_text': encryptedText,
-        },
+        data: {'chat_id': chatId, 'encrypted_text': encryptedText},
       );
       return _handleDioResponse(response);
     } catch (e) {
@@ -776,16 +935,21 @@ class ApiService {
   }
 
   /// Загрузить файл на сервер
-  Future<ApiResponse> uploadFile(File file, String fileType, String chatId, {String? description}) async {
+  Future<ApiResponse> uploadFile(
+    File file,
+    String fileType,
+    String chatId, {
+    String? description,
+  }) async {
     try {
       final options = await _getAuthOptions();
       options.contentType = 'multipart/form-data';
-      
+
       String fileName = file.path.split('/').last;
       if (Platform.isWindows) {
         fileName = file.path.split('\\').last;
       }
-      
+
       FormData formData = FormData.fromMap({
         'file_type': fileType,
         'chat_id': chatId,
@@ -800,10 +964,7 @@ class ApiService {
       );
       return _handleDioResponse(response);
     } catch (e) {
-      return ApiResponse(
-        success: false,
-        error: 'Ошибка загрузки файла: $e',
-      );
+      return ApiResponse(success: false, error: 'Ошибка загрузки файла: $e');
     }
   }
 
@@ -818,10 +979,7 @@ class ApiService {
       );
       return _handleDioResponse(response);
     } catch (e) {
-      return ApiResponse(
-        success: false,
-        error: 'Ошибка поиска: $e',
-      );
+      return ApiResponse(success: false, error: 'Ошибка поиска: $e');
     }
   }
 
@@ -837,9 +995,9 @@ class ApiService {
     await prefs.remove(_refreshTokenKey);
     await clearCookies();
   }
-  
+
   // ==================== ПРОФИЛЬ ====================
-  
+
   /// Получить профиль пользователя
   Future<ApiResponse> getProfile() async {
     try {
@@ -851,10 +1009,61 @@ class ApiService {
 
       return _handleDioResponse(response);
     } catch (e) {
+      return ApiResponse(success: false, error: 'Ошибка получения профиля: $e');
+    }
+  }
+
+  Future<ApiResponse> getSecurityOverview() async {
+    try {
+      final options = await _getAuthOptions();
+      final response = await _dio.get('$_baseUrl/security/', options: options);
+      return _handleDioResponse(response);
+    } catch (e) {
       return ApiResponse(
         success: false,
-        error: 'Ошибка получения профиля: $e',
+        error: 'Ошибка загрузки настроек безопасности: $e',
       );
+    }
+  }
+
+  Future<ApiResponse> requestTfaSettingsCode(String action) async {
+    try {
+      final options = await _getAuthOptions();
+      final response = await _dio.post(
+        '$_baseUrl/security/tfa/send-code/',
+        data: {'action': action},
+        options: options,
+      );
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(success: false, error: 'Ошибка отправки кода: $e');
+    }
+  }
+
+  Future<ApiResponse> confirmTfaSettings(String action, String code) async {
+    try {
+      final options = await _getAuthOptions();
+      final response = await _dio.post(
+        '$_baseUrl/security/tfa/confirm/',
+        data: {'action': action, 'code': code},
+        options: options,
+      );
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(success: false, error: 'Ошибка проверки кода: $e');
+    }
+  }
+
+  Future<ApiResponse> terminateSession(int sessionId) async {
+    try {
+      final options = await _getAuthOptions();
+      final response = await _dio.delete(
+        '$_baseUrl/security/sessions/$sessionId/',
+        options: options,
+      );
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(success: false, error: 'Ошибка завершения сессии: $e');
     }
   }
 
@@ -877,49 +1086,53 @@ class ApiService {
       );
     }
   }
-  
+
   // ==================== ХРАНЕНИЕ ТОКЕНОВ ====================
-  
+
   /// Сохранить access токен
   Future<void> saveAccessToken(String token) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_accessTokenKey, token);
   }
-  
+
   /// Получить access токен
   Future<String?> getAccessToken() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString(_accessTokenKey);
   }
-  
+
   /// Сохранить refresh токен
   Future<void> saveRefreshToken(String token) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_refreshTokenKey, token);
   }
-  
+
   /// Получить refresh токен
   Future<String?> getRefreshToken() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString(_refreshTokenKey);
   }
-  
+
   /// Проверить, авторизован ли пользователь
   Future<bool> isAuthenticated() async {
     final token = await getAccessToken();
     return token != null;
   }
-  
+
   /// Обработка ответа сервера
-  ApiResponse _handleDioResponse(Response response, {bool isAuthRequest = false}) {
+  ApiResponse _handleDioResponse(
+    Response response, {
+    bool isAuthRequest = false,
+  }) {
     final statusCode = response.statusCode ?? 500;
-    
+
     // Пытаемся получить данные
     Map<String, dynamic>? data;
     if (response.data != null) {
       if (response.data is Map) {
         data = Map<String, dynamic>.from(response.data as Map);
-      } else if (response.data is String && (response.data as String).isNotEmpty) {
+      } else if (response.data is String &&
+          (response.data as String).isNotEmpty) {
         try {
           data = jsonDecode(response.data as String) as Map<String, dynamic>;
         } catch (_) {
@@ -927,19 +1140,15 @@ class ApiService {
         }
       }
     }
-    
+
     // Успешные статусы
     if (statusCode >= 200 && statusCode < 300) {
-      return ApiResponse(
-        success: true,
-        data: data,
-        statusCode: statusCode,
-      );
+      return ApiResponse(success: true, data: data, statusCode: statusCode);
     }
-    
+
     // Обработка ошибок
     String errorMessage = 'Неизвестная ошибка';
-    
+
     if (data != null) {
       // Стандартные ошибки Django REST Framework
       if (data['detail'] != null) {
@@ -965,7 +1174,7 @@ class ApiService {
         }
       }
     }
-    
+
     // Специфичные ошибки по статусам
     switch (statusCode) {
       case 401:
@@ -985,9 +1194,12 @@ class ApiService {
         errorMessage = 'Ошибка сервера';
         break;
     }
-    
-    Logger.warning('ApiService', 'API request failed: ${response.requestOptions.method} ${response.requestOptions.path} -> status $statusCode, error: $errorMessage');
-    
+
+    Logger.warning(
+      'ApiService',
+      'API request failed: ${response.requestOptions.method} ${response.requestOptions.path} -> status $statusCode, error: $errorMessage',
+    );
+
     return ApiResponse(
       success: false,
       error: errorMessage,
@@ -995,15 +1207,14 @@ class ApiService {
       statusCode: statusCode,
     );
   }
-  
+
   /// Проверка доступности сервера
   Future<bool> checkServerAvailability() async {
     try {
-      final response = await _dio.get(
-        '$_baseUrl/system/info/',
-        options: _getOptions(),
-      ).timeout(const Duration(seconds: 5));
-      
+      final response = await _dio
+          .get('$_baseUrl/system/info/', options: _getOptions())
+          .timeout(const Duration(seconds: 5));
+
       final available = response.statusCode == 200;
       Logger.info('ApiService', 'Server availability check result: $available');
       return available;
@@ -1020,9 +1231,7 @@ class ApiService {
       final response = await _dio.post(
         '$_baseUrl/messages/mark-read/',
         options: options,
-        data: {
-          'chat_id': chatId,
-        },
+        data: {'chat_id': chatId},
       );
       return _handleDioResponse(response);
     } catch (e) {
@@ -1047,7 +1256,8 @@ class ApiService {
       final Map<String, dynamic> mapData = {
         'name': name,
         'privacy': privacy,
-        if (description != null && description.isNotEmpty) 'description': description,
+        if (description != null && description.isNotEmpty)
+          'description': description,
         if (!isPrivate && username != null && username.isNotEmpty)
           'username': username.replaceAll('@', '').trim(),
       };
@@ -1072,10 +1282,7 @@ class ApiService {
       );
       return _handleDioResponse(response);
     } catch (e) {
-      return ApiResponse(
-        success: false,
-        error: 'Ошибка создания канала: $e',
-      );
+      return ApiResponse(success: false, error: 'Ошибка создания канала: $e');
     }
   }
 
@@ -1093,7 +1300,8 @@ class ApiService {
       final Map<String, dynamic> mapData = {
         'name': name,
         'privacy': privacy,
-        if (description != null && description.isNotEmpty) 'description': description,
+        if (description != null && description.isNotEmpty)
+          'description': description,
         if (!isPrivate && username != null && username.isNotEmpty)
           'username': username.replaceAll('@', '').trim(),
       };
@@ -1118,10 +1326,7 @@ class ApiService {
       );
       return _handleDioResponse(response);
     } catch (e) {
-      return ApiResponse(
-        success: false,
-        error: 'Ошибка создания группы: $e',
-      );
+      return ApiResponse(success: false, error: 'Ошибка создания группы: $e');
     }
   }
 
@@ -1131,7 +1336,7 @@ class ApiService {
       final options = await _getAuthOptions();
       final idStr = channelId.toString().replaceFirst('channel_', '');
       final id = int.tryParse(idStr) ?? idStr;
-      
+
       try {
         final response = await _dio.get(
           '$_baseUrl/channels/$id/',
@@ -1166,10 +1371,7 @@ class ApiService {
         response = await _dio.post(
           '$_baseUrl/channels/subscribe/',
           options: options,
-          data: {
-            'channel_id': channelId,
-            'action': 'subscribe',
-          },
+          data: {'channel_id': channelId, 'action': 'subscribe'},
         );
       } else if (chatId.startsWith('group_')) {
         final groupId = chatId.replaceFirst('group_', '');
@@ -1204,10 +1406,7 @@ class ApiService {
         response = await _dio.post(
           '$_baseUrl/channels/subscribe/',
           options: options,
-          data: {
-            'channel_id': channelId,
-            'action': 'unsubscribe',
-          },
+          data: {'channel_id': channelId, 'action': 'unsubscribe'},
         );
       } else if (chatId.startsWith('group_')) {
         final groupId = chatId.replaceFirst('group_', '');
@@ -1238,14 +1437,9 @@ class ApiResponse {
   final Map<String, dynamic>? data;
   final String? error;
   final int? statusCode;
-  
-  ApiResponse({
-    required this.success,
-    this.data,
-    this.error,
-    this.statusCode,
-  });
-  
+
+  ApiResponse({required this.success, this.data, this.error, this.statusCode});
+
   @override
   String toString() {
     if (success) {

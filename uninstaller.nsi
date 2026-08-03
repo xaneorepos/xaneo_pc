@@ -3,8 +3,15 @@
 
 Name "Xaneo Uninstall"
 OutFile "installer_app\build\windows\x64\runner\Release\xaneo_uninstaller.exe"
+Icon "installer_app\windows\runner\resources\app_icon.ico"
 SilentInstall silent
 RequestExecutionLevel user
+
+VIProductVersion "1.0.0.0"
+VIAddVersionKey "ProductName" "Xaneo Uninstaller"
+VIAddVersionKey "CompanyName" "net.xaneo"
+VIAddVersionKey "LegalCopyright" "Copyright © 2026 net.xaneo"
+VIAddVersionKey "FileDescription" "Xaneo Uninstaller"
 
 Section
   InitPluginsDir
@@ -15,7 +22,7 @@ Section
   
   # Run the custom Flutter uninstaller and wait for it to exit
   # We pass --uninstall so it launches in uninstall mode
-  ExecWait '"$PLUGINSDIR\installer_app.exe" --uninstall' $0
+  ExecWait '"$PLUGINSDIR\xaneo_installer.exe" --uninstall' $0
   
   # If the exit code is 0 (user confirmed), proceed with native deletion
   IntCmp $0 0 perform_delete

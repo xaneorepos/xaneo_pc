@@ -20,9 +20,13 @@ class SystemTrayService with TrayListener {
 
     trayManager.addListener(this);
 
-    if (!kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+    if (!kIsWeb &&
+        (Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
       try {
-        await trayManager.setIcon('assets/logo.png');
+        final iconPath = Platform.isWindows
+            ? 'assets/tray_icon.ico'
+            : 'assets/logo.png';
+        await trayManager.setIcon(iconPath);
         await trayManager.setToolTip('Xaneo PC');
       } catch (e) {
         debugPrint('Failed to set system tray icon: $e');
@@ -35,7 +39,10 @@ class SystemTrayService with TrayListener {
   }
 
   Future<void> updateContextMenu(BuildContext context) async {
-    if (!kIsWeb && !(Platform.isWindows || Platform.isLinux || Platform.isMacOS)) return;
+    if (!kIsWeb &&
+        !(Platform.isWindows || Platform.isLinux || Platform.isMacOS)) {
+      return;
+    }
 
     final l10n = AppLocalizations.of(context);
     final menu = Menu(
@@ -44,15 +51,9 @@ class SystemTrayService with TrayListener {
           key: 'show_window',
           label: l10n?.showWindow ?? 'Показать Xaneo',
         ),
-        MenuItem(
-          key: 'settings',
-          label: l10n?.settings ?? 'Настройки',
-        ),
+        MenuItem(key: 'settings', label: l10n?.settings ?? 'Настройки'),
         MenuItem.separator(),
-        MenuItem(
-          key: 'exit_app',
-          label: l10n?.exitApp ?? 'Выйти из Xaneo',
-        ),
+        MenuItem(key: 'exit_app', label: l10n?.exitApp ?? 'Выйти из Xaneo'),
       ],
     );
     await trayManager.setContextMenu(menu);

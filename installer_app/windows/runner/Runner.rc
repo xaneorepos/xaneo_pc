@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "net.xaneo" "\0"
-            VALUE "FileDescription", "installer_app" "\0"
+            VALUE "FileDescription", "Xaneo Installer" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "installer_app" "\0"
+            VALUE "InternalName", "xaneo_installer" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 net.xaneo. All rights reserved." "\0"
-            VALUE "OriginalFilename", "installer_app.exe" "\0"
-            VALUE "ProductName", "installer_app" "\0"
+            VALUE "OriginalFilename", "xaneo_installer.exe" "\0"
+            VALUE "ProductName", "Xaneo Installer" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

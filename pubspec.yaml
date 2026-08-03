@@ -89,6 +89,7 @@ flutter:
   assets:
     - assets/animations/
     - assets/logo.png
+    - assets/tray_icon.ico
     - assets/sounds/
 
   fonts:

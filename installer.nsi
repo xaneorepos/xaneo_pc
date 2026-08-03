@@ -11,14 +11,15 @@
 
 Name "Xaneo Setup"
 OutFile "dist\xaneo-${DISPLAY_VERSION}-windows-setup.exe"
+Icon "installer_app\windows\runner\resources\app_icon.ico"
 SilentInstall silent
 RequestExecutionLevel user
 
 # Version Information for Windows File Explorer / Properties
 VIProductVersion "${VERSION}"
 VIAddVersionKey "ProductName" "Xaneo Setup"
-VIAddVersionKey "CompanyName" "Xaneo"
-VIAddVersionKey "LegalCopyright" "Copyright © Xaneo"
+VIAddVersionKey "CompanyName" "net.xaneo"
+VIAddVersionKey "LegalCopyright" "Copyright © 2026 net.xaneo"
 VIAddVersionKey "FileDescription" "Xaneo Setup"
 VIAddVersionKey "FileVersion" "${VERSION}"
 VIAddVersionKey "ProductVersion" "${DISPLAY_VERSION}"
@@ -36,8 +37,8 @@ Section
   ${GetParameters} $Parameters
   
   # Run the custom Flutter installer and wait for it to exit
-  ExecWait '"$PLUGINSDIR\installer_app.exe" $Parameters' $0
+  ExecWait '"$PLUGINSDIR\xaneo_installer.exe" $Parameters' $0
   
-  # Return the exit code of installer_app.exe to caller
+  # Return the exit code of xaneo_installer.exe to caller
   SetErrorLevel $0
 SectionEnd

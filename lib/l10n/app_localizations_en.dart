@@ -2213,4 +2213,55 @@ class AppLocalizationsEn extends AppLocalizations {
   String get downloadingLabel => 'Downloading';
   @override
   String get downloadErrorLabel => 'Download error';
+
+  @override
+  String get qrLoginTitle => 'Log in with QR Code';
+
+  @override
+  String get qrLoginSubtitle => 'Scan the QR code using the Xaneo mobile app for fast and secure login';
+
+  @override
+  String get qrScanInstructionTitle => 'HOW TO LOG IN:';
+
+  @override
+  String get qrStep1 => '1. Open the Xaneo mobile app on your phone';
+
+  @override
+  String get qrStep2 => '2. Go to Settings → Devices → Scan QR';
+
+  @override
+  String get qrStep3 => '3. Point your camera at the QR code';
+
+  @override
+  String get qrCodeLoginBtn => 'Log in with code';
+
+  @override
+  String get codeLoginTitle => 'Log in with Code';
+
+  @override
+  String get codeLoginSubtitle => 'Enter your username or Email to receive a 6-digit code';
+
+  @override
+  String get sixDigitCodeLabel => '6-digit code';
+
+  @override
+  String get codeInstructionTitle => 'WHERE TO FIND THE CODE:';
+
+  @override
+  String get codeInstructionText => 'The 6-digit verification code will be sent to the Xaneo Notifications bot in XC, or to your Email (if you cannot receive the code in XC).';
+
+  @override
+  String get getCodeBtn => 'Get code';
+
+  @override
+  String get backToQrBtn => 'Log in with QR Code';
+
+  @override
+  String get qrTimerLabel => 'QR code updates in:';
+
+  @override
+  String get refreshQrBtn => 'Refresh QR code';
+
+  @override
+  String get registrationDisabled => 'Registration is disabled in this mode';
 }

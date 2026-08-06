@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
@@ -17,6 +18,7 @@ import '../widgets/settings_modal.dart';
 import '../widgets/custom_toast.dart';
 import '../widgets/tfa_verification_dialog.dart';
 import 'register_screen.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 /// Экран входа в систему с продвинутыми 3D эффектами
 class LoginScreen extends StatefulWidget {
@@ -34,7 +36,12 @@ class _LoginScreenState extends State<LoginScreen>
 
   bool _isLoading = false;
   bool _hasAccounts = false;
-  int _currentStep = 0; // 0: login/username, 1: password
+  int _currentStep = 0; // 0: login/username, 1: password or code
+  bool _isQrMode = true; // used when ApiService.isAuthV2 == true
+  
+  Timer? _qrTimer;
+  int _qrRemainingSeconds = 300;
+  int _qrTimestamp = DateTime.now().millisecondsSinceEpoch;
 
   late AnimationController _fadeController;
   late AnimationController _slideController;
@@ -83,6 +90,63 @@ class _LoginScreenState extends State<LoginScreen>
 
     _fadeController.forward();
     _slideController.forward();
+    
+    if (ApiService.isAuthV2) {
+      _startQrTimer();
+    }
+  }
+
+  void _startQrTimer() {
+    _fetchQrStatus();
+    _qrTimer?.cancel();
+    _qrTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      setState(() {
+        _qrRemainingSeconds--;
+        if (_qrRemainingSeconds <= 0) {
+          _refreshQrCode();
+        }
+      });
+    });
+  }
+
+  void _refreshQrCode() {
+    setState(() {
+      _qrTimestamp = DateTime.now().millisecondsSinceEpoch;
+    });
+    _fetchQrStatus();
+  }
+
+  Future<void> _fetchQrStatus() async {
+    final res = await ApiService().getQrStatus();
+    if (res.success && res.data != null && res.data is Map<String, dynamic>) {
+      final data = res.data as Map<String, dynamic>;
+      if (data['expires_in'] != null) {
+        if (mounted) {
+          setState(() {
+            _qrRemainingSeconds = data['expires_in'] is int 
+              ? data['expires_in'] 
+              : int.tryParse(data['expires_in'].toString()) ?? 300;
+          });
+        }
+        return;
+      }
+    }
+    
+    if (mounted) {
+      setState(() {
+        _qrRemainingSeconds = 300;
+      });
+    }
+  }
+
+  String get _qrTimeString {
+    final m = _qrRemainingSeconds ~/ 60;
+    final s = _qrRemainingSeconds % 60;
+    return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
   }
 
   @override
@@ -95,6 +159,7 @@ class _LoginScreenState extends State<LoginScreen>
     _passwordController.dispose();
     _loginFocus.dispose();
     _passwordFocus.dispose();
+    _qrTimer?.cancel();
     super.dispose();
   }
 
@@ -546,7 +611,9 @@ class _LoginScreenState extends State<LoginScreen>
                                 opacity: _fadeAnimation,
                                 child: SlideTransition(
                                   position: _slideAnimation,
-                                  child: _buildLoginForm(
+                                  child: ApiService.isAuthV2 
+                                    ? _buildAuthV2LeftContent(l10n!, isDark, showRightPanel) 
+                                    : _buildLoginForm(
                                     l10n!,
                                     isDark,
                                     showRightPanel,
@@ -566,7 +633,7 @@ class _LoginScreenState extends State<LoginScreen>
               if (showRightPanel)
                 Expanded(
                   flex: 6,
-                  child: Container(
+                  child: ApiService.isAuthV2 ? _buildAuthV2RightContent(l10n!, isDark) : Container(
                     decoration: BoxDecoration(
                       color: isDark
                           ? const Color(0xFF050505)
@@ -972,6 +1039,402 @@ class _LoginScreenState extends State<LoginScreen>
               fontFamily: 'Inter',
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAuthV2LeftContent(AppLocalizations l10n, bool isDark, bool showRightPanel) {
+    return Form(
+      key: _formKey,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Image.asset(
+            'assets/logo.png',
+            width: 44,
+            height: 44,
+            color: isDark ? Colors.white : Colors.black,
+            fit: BoxFit.contain,
+          ),
+          const SizedBox(height: 32),
+
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 300),
+            child: KeyedSubtree(
+              key: ValueKey<bool>(_isQrMode),
+              child: _isQrMode
+                  ? _buildQrModeInstructions(l10n, isDark, showRightPanel)
+                  : _buildCodeModeForm(l10n, isDark),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQrModeInstructions(AppLocalizations l10n, bool isDark, bool showRightPanel) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          l10n.qrLoginTitle,
+          style: TextStyle(
+            fontSize: 28,
+            fontWeight: FontWeight.w700,
+            color: isDark ? Colors.white : Colors.black,
+            fontFamily: 'Inter',
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          l10n.qrLoginSubtitle,
+          style: TextStyle(
+            fontSize: 14,
+            color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+            height: 1.5,
+            fontFamily: 'Inter',
+          ),
+        ),
+        const SizedBox(height: 24),
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.03),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isDark ? Colors.white.withOpacity(0.1) : Colors.black.withOpacity(0.05),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                l10n.qrScanInstructionTitle,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.2,
+                  color: isDark ? Colors.grey.shade500 : Colors.grey.shade600,
+                  fontFamily: 'Inter',
+                ),
+              ),
+              const SizedBox(height: 12),
+              _buildInstructionStep(l10n.qrStep1, isDark),
+              const SizedBox(height: 8),
+              _buildInstructionStep(l10n.qrStep2, isDark),
+              const SizedBox(height: 8),
+              _buildInstructionStep(l10n.qrStep3, isDark),
+            ],
+          ),
+        ),
+        const SizedBox(height: 32),
+        // If on mobile (no right panel), show QR code inline
+        if (!showRightPanel) ...[
+          Center(
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Image.network(
+                '${ApiService.baseUrl.replaceAll('/api/v1', '')}/api/auth/qr-code/?t=$_qrTimestamp',
+                width: 200.0,
+                height: 200.0,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => Container(
+                  width: 200.0,
+                  height: 200.0,
+                  color: Colors.grey.shade200,
+                  child: const Center(child: Icon(Icons.qr_code, size: 64, color: Colors.grey)),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+        ],
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: () {
+              setState(() {
+                _isQrMode = false;
+                _currentStep = 0;
+              });
+            },
+            icon: Icon(Icons.password, color: isDark ? Colors.black : Colors.white),
+            label: Text(
+              l10n.qrCodeLoginBtn,
+              style: TextStyle(
+                color: isDark ? Colors.black : Colors.white,
+                fontWeight: FontWeight.w600,
+                fontFamily: 'Inter',
+              ),
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: isDark ? Colors.white : Colors.black,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildInstructionStep(String text, bool isDark) {
+    return Text(
+      text,
+      style: TextStyle(
+        fontSize: 14,
+        color: isDark ? Colors.grey.shade300 : Colors.grey.shade800,
+        height: 1.5,
+        fontFamily: 'Inter',
+      ),
+    );
+  }
+
+  Widget _buildCodeModeForm(AppLocalizations l10n, bool isDark) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          l10n.codeLoginTitle,
+          style: TextStyle(
+            fontSize: 28,
+            fontWeight: FontWeight.w700,
+            color: isDark ? Colors.white : Colors.black,
+            fontFamily: 'Inter',
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          l10n.codeLoginSubtitle,
+          style: TextStyle(
+            fontSize: 14,
+            color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+            fontFamily: 'Inter',
+          ),
+        ),
+        const SizedBox(height: 24),
+        
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 300),
+          child: KeyedSubtree(
+            key: ValueKey<int>(_currentStep),
+            child: _currentStep == 0 ? _buildLoginField(l10n, isDark) : CustomTextFormField(
+              controller: _passwordController,
+              focusNode: _passwordFocus,
+              labelText: l10n.sixDigitCodeLabel,
+              icon: FontAwesomeIcons.key,
+              validator: (value) {
+                if (value == null || value.isEmpty) return l10n.fillAllFields;
+                return null;
+              },
+            ),
+          ),
+        ),
+        
+        const SizedBox(height: 24),
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.03),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isDark ? Colors.white.withOpacity(0.1) : Colors.black.withOpacity(0.05),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                l10n.codeInstructionTitle,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.2,
+                  color: isDark ? Colors.grey.shade500 : Colors.grey.shade600,
+                  fontFamily: 'Inter',
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                l10n.codeInstructionText,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: isDark ? Colors.grey.shade300 : Colors.grey.shade800,
+                  height: 1.5,
+                  fontFamily: 'Inter',
+                ),
+              ),
+            ],
+          ),
+        ),
+        
+        const SizedBox(height: 32),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton(
+            onPressed: _currentStep == 0 ? _nextStep : _handleLogin,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: isDark ? Colors.white : Colors.black,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: Text(
+              _currentStep == 0 ? l10n.getCodeBtn : l10n.loginButton,
+              style: TextStyle(
+                color: isDark ? Colors.black : Colors.white,
+                fontWeight: FontWeight.w600,
+                fontFamily: 'Inter',
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            onPressed: () {
+              setState(() {
+                _isQrMode = true;
+                _currentStep = 0;
+              });
+            },
+            icon: Icon(Icons.qr_code, color: isDark ? Colors.white : Colors.black),
+            label: Text(
+              l10n.backToQrBtn,
+              style: TextStyle(
+                color: isDark ? Colors.white : Colors.black,
+                fontWeight: FontWeight.w600,
+                fontFamily: 'Inter',
+              ),
+            ),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              side: BorderSide(color: isDark ? Colors.white.withOpacity(0.2) : Colors.black.withOpacity(0.2)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+          ),
+        ),
+        
+        if (_currentStep > 0)
+          Padding(
+            padding: const EdgeInsets.only(top: 24),
+            child: Center(
+              child: MouseRegion(
+                cursor: SystemMouseCursors.click,
+                child: GestureDetector(
+                  onTap: () {
+                    setState(() { _currentStep = 0; });
+                  },
+                  child: Text(
+                    l10n.back,
+                    style: TextStyle(
+                      color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                      fontSize: 13,
+                      decoration: TextDecoration.underline,
+                      fontFamily: 'Inter',
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildAuthV2RightContent(AppLocalizations l10n, bool isDark) {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF0C0C0C), // Always dark like the web version
+        border: Border(
+          left: BorderSide(
+            color: isDark ? Colors.white.withOpacity(0.04) : Colors.black.withOpacity(0.04),
+            width: 1,
+          ),
+        ),
+      ),
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(24),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.2),
+                    blurRadius: 24,
+                    spreadRadius: 0,
+                  ),
+                ],
+              ),
+              child: Image.network(
+                '${ApiService.baseUrl.replaceAll('/api/v1', '')}/api/auth/qr-code/?t=$_qrTimestamp',
+                width: 280.0,
+                height: 280.0,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => Container(
+                  width: 280.0,
+                  height: 280.0,
+                  color: Colors.grey.shade200,
+                  child: const Center(child: Icon(Icons.qr_code, size: 64, color: Colors.grey)),
+                ),
+              ),
+            ),
+            const SizedBox(height: 48),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.05),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.white.withOpacity(0.1)),
+              ),
+              child: Column(
+                children: [
+                  Text(
+                    l10n.qrTimerLabel,
+                    style: TextStyle(
+                      color: Colors.grey.shade400,
+                      fontSize: 14,
+                      fontFamily: 'Inter',
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    _qrTimeString,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'JetBrains Mono',
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextButton.icon(
+                    onPressed: _refreshQrCode,
+                    icon: const Icon(Icons.refresh, color: Colors.white, size: 18),
+                    label: Text(
+                      l10n.refreshQrBtn,
+                      style: const TextStyle(color: Colors.white, fontFamily: 'Inter'),
+                    ),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      backgroundColor: Colors.white.withOpacity(0.1),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );

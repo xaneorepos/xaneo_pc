@@ -2203,4 +2203,55 @@ class AppLocalizationsJa extends AppLocalizations {
   String get downloadingLabel => 'ダウンロード中';
   @override
   String get downloadErrorLabel => 'ダウンロードエラー';
+
+  @override
+  String get qrLoginTitle => 'QRコードでログイン';
+
+  @override
+  String get qrLoginSubtitle => 'XaneoモバイルアプリでQRコードをスキャンして、迅速かつ安全にログイン';
+
+  @override
+  String get qrScanInstructionTitle => 'ログイン手順：';
+
+  @override
+  String get qrStep1 => '1. スマートフォンでXaneoアプリを開きます';
+
+  @override
+  String get qrStep2 => '2. 設定 → 端末 → QRコードをスキャン に移動します';
+
+  @override
+  String get qrStep3 => '3. カメラをQRコードに向けます';
+
+  @override
+  String get qrCodeLoginBtn => 'コードでログイン';
+
+  @override
+  String get codeLoginTitle => 'コードでログイン';
+
+  @override
+  String get codeLoginSubtitle => 'ユーザー名またはメールアドレスを入力して6桁のコードを受信します';
+
+  @override
+  String get sixDigitCodeLabel => '6桁のコード';
+
+  @override
+  String get codeInstructionTitle => 'コードの確認場所：';
+
+  @override
+  String get codeInstructionText => '6桁の認証コードはXCの「Xaneo Notifications」ボット、またはXCでコードを受信できない場合はメールに送信されます。';
+
+  @override
+  String get getCodeBtn => 'コードを取得';
+
+  @override
+  String get backToQrBtn => 'QRコードでログイン';
+
+  @override
+  String get qrTimerLabel => 'QRコード更新まで:';
+
+  @override
+  String get refreshQrBtn => 'QRコードを更新';
+
+  @override
+  String get registrationDisabled => 'このモードでは新規登録が無効になっています';
 }

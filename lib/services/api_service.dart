@@ -18,6 +18,13 @@ class ApiService {
     defaultValue: 'https://xaneo.ru/api/v1',
   );
 
+  static bool get isAuthV2 {
+    const bool authV2Bool = bool.fromEnvironment('AUTH_V2', defaultValue: false);
+    const String authV2Str = String.fromEnvironment('AUTH_V2', defaultValue: 'false');
+    final bool authV2Flag = authV2Bool || authV2Str.toLowerCase() == 'true';
+    return authV2Flag || _baseUrl.contains('192.168.1.113/api/v1');
+  }
+
   // User-Agent для идентификации приложения
   static const String _userAgent = 'XaneoPC/1.0 xaneo-app';
 
@@ -221,6 +228,28 @@ class ApiService {
   }
 
   // ==================== АВТОРИЗАЦИЯ ====================
+
+  /// Получает статус QR кода
+  Future<ApiResponse> getQrStatus() async {
+    try {
+      final base = _baseUrl.replaceAll('/api/v1', '');
+      final response = await _dio.get(
+        '$base/api/auth/qr-status/',
+        options: Options(headers: {'User-Agent': _userAgent}),
+      );
+      if (response.statusCode == 200) {
+        return ApiResponse(success: true, data: response.data);
+      }
+      return ApiResponse(
+        success: false,
+        error: 'Error: ${response.statusCode}',
+        statusCode: response.statusCode,
+      );
+    } catch (e) {
+      Logger.error('ApiService', 'getQrStatus error: $e');
+      return ApiResponse(success: false, error: e.toString());
+    }
+  }
 
   /// Проверяет логин и пароль и сообщает, требуется ли 2FA.
   Future<ApiResponse> mobileLogin(String username, String password) async {

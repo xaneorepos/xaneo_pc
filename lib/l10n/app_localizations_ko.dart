@@ -2202,4 +2202,55 @@ class AppLocalizationsKo extends AppLocalizations {
   String get downloadingLabel => '다운로드 중';
   @override
   String get downloadErrorLabel => '다운로드 오류';
+
+  @override
+  String get qrLoginTitle => 'QR 코드로 로그인';
+
+  @override
+  String get qrLoginSubtitle => 'Xaneo 모바일 앱으로 QR 코드를 스캔하여 빠르고 안전하게 로그인하세요';
+
+  @override
+  String get qrScanInstructionTitle => '로그인 방법:';
+
+  @override
+  String get qrStep1 => '1. 휴대전화에서 Xaneo 앱을 엽니다';
+
+  @override
+  String get qrStep2 => '2. 설정 → 기기 → QR 스캔으로 이동합니다';
+
+  @override
+  String get qrStep3 => '3. 카메라를 QR 코드로 향하게 합니다';
+
+  @override
+  String get qrCodeLoginBtn => '코드로 로그인';
+
+  @override
+  String get codeLoginTitle => '코드로 로그인';
+
+  @override
+  String get codeLoginSubtitle => '6자리 코드를 받으려면 사용자 이름 또는 이메일을 입력하세요';
+
+  @override
+  String get sixDigitCodeLabel => '6자리 코드';
+
+  @override
+  String get codeInstructionTitle => '코드 확인 위치:';
+
+  @override
+  String get codeInstructionText => '6자리 인증 코드는 XC의 \'Xaneo 알림\' 봇으로 전송되며, XC에서 코드를 받을 수 없는 경우 이메일로 전송됩니다.';
+
+  @override
+  String get getCodeBtn => '코드 받기';
+
+  @override
+  String get backToQrBtn => 'QR 코드로 로그인';
+
+  @override
+  String get qrTimerLabel => 'QR 코드 갱신까지:';
+
+  @override
+  String get refreshQrBtn => 'QR 코드 새로고침';
+
+  @override
+  String get registrationDisabled => '이 모드에서는 회원가입이 비활성화되어 있습니다';
 }

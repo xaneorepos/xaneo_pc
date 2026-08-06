@@ -1504,6 +1504,54 @@ class _MessengerScreenState extends State<MessengerScreen> {
       if (pollMsgId != null && optionId != null) {
         _updatePollLocalVote(pollMsgId, optionId, removeVote, userId ?? '');
       }
+    } else if (type == 'reaction_update') {
+      final msgIdRaw = data['message_id'];
+      final msgId =
+          msgIdRaw is int ? msgIdRaw : int.tryParse(msgIdRaw?.toString() ?? '');
+      final action = data['action']?.toString();
+      final emoji = data['emoji']?.toString();
+      final userIdRaw = data['user_id'];
+      final userId = userIdRaw is int
+          ? userIdRaw
+          : int.tryParse(userIdRaw?.toString() ?? '');
+
+      if (msgId != null && emoji != null && userId != null) {
+        setState(() {
+          final index = _messages.indexWhere((m) {
+            final dRaw = m['id'];
+            final dId = dRaw is int ? dRaw : int.tryParse(dRaw.toString());
+            return dId == msgId;
+          });
+          if (index != -1) {
+            final msg = Map<String, dynamic>.from(_messages[index]);
+            List<dynamic> reactions = List<dynamic>.from(msg['reactions'] ?? []);
+
+            reactions.removeWhere((r) {
+              final rUserIdRaw = r['user_id'];
+              final rUserId = rUserIdRaw is int
+                  ? rUserIdRaw
+                  : int.tryParse(rUserIdRaw?.toString() ?? '');
+              return rUserId == userId &&
+                  (action == 'remove' ? r['emoji'] == emoji : true);
+            });
+
+            if (action == 'add') {
+              reactions.add({
+                'user_id': userId,
+                'user_username': data['user_username'] ?? '',
+                'user_first_name': data['user_first_name'] ?? '',
+                'user_avatar': data['user_avatar'] ?? '',
+                'user_avatar_gradient': data['user_avatar_gradient'] ?? '',
+                'emoji': emoji,
+                'created_at':
+                    data['timestamp'] ?? DateTime.now().toIso8601String(),
+              });
+            }
+            msg['reactions'] = reactions;
+            _messages[index] = msg;
+          }
+        });
+      }
     } else if (type == 'chat_list_update' || type == 'new_chat') {
       _loadChats(silent: true);
     } else if (type == 'typing') {
@@ -7761,6 +7809,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
         isReplyFieldValid(msg['reply_to']) ||
         isReplyFieldValid(msg['reply_text']);
     final mediaItems = _getMediaItemsFromMsg(msg, customPayload);
+    final bool isPureAudio = customPayload != null &&
+        (customPayload['type'] == 'audio' || _isAudioFile(customPayload)) &&
+        (decryptedText.trim().isEmpty || decryptedText.trim().startsWith('{'));
 
     final bubbleContent = GestureDetector(
       onTap: () {
@@ -7768,47 +7819,54 @@ class _MessengerScreenState extends State<MessengerScreen> {
           _replyingToMessage = msg;
         });
       },
+      onSecondaryTapDown: (details) =>
+          _showMessageContextMenu(msg, details.globalPosition, scale, isDark),
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        padding: isPureAudio
+            ? EdgeInsets.zero
+            : const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         constraints: BoxConstraints(
           maxWidth: MediaQuery.of(context).size.width * 0.6,
         ),
-        decoration: BoxDecoration(
-          gradient: (isMe && !isChannel)
-              ? LinearGradient(
-                  colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                )
-              : LinearGradient(
-                  colors: isDark
-                      ? [
-                          Colors.white.withOpacity(0.08),
-                          Colors.white.withOpacity(0.12),
-                        ]
-                      : [
-                          Colors.black.withOpacity(0.03),
-                          Colors.black.withOpacity(0.06),
-                        ],
+        decoration: isPureAudio
+            ? null
+            : BoxDecoration(
+                gradient: (isMe && !isChannel)
+                    ? const LinearGradient(
+                        colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      )
+                    : LinearGradient(
+                        colors: isDark
+                            ? [
+                                Colors.white.withOpacity(0.08),
+                                Colors.white.withOpacity(0.12),
+                              ]
+                            : [
+                                Colors.black.withOpacity(0.03),
+                                Colors.black.withOpacity(0.06),
+                              ],
+                      ),
+                borderRadius: BorderRadius.only(
+                  topLeft: const Radius.circular(16),
+                  topRight: const Radius.circular(16),
+                  bottomLeft: Radius.circular((isMe && !isChannel) ? 16 : 2),
+                  bottomRight: Radius.circular((isMe && !isChannel) ? 2 : 16),
                 ),
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(16),
-            topRight: const Radius.circular(16),
-            bottomLeft: Radius.circular((isMe && !isChannel) ? 16 : 2),
-            bottomRight: Radius.circular((isMe && !isChannel) ? 2 : 16),
-          ),
-          border: Border.all(
-            color: (isMe && !isChannel)
-                ? Colors.transparent
-                : (isDark
-                      ? Colors.white.withOpacity(0.1)
-                      : Colors.black.withOpacity(0.05)),
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+                border: Border.all(
+                  color: (isMe && !isChannel)
+                      ? Colors.transparent
+                      : (isDark
+                            ? Colors.white.withOpacity(0.1)
+                            : Colors.black.withOpacity(0.05)),
+                ),
+              ),
+        child: IntrinsicWidth(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
             // Sender name (channel name for channels, author name for groups if not me)
             if (isChannel || (!isMe && isGroup))
               Padding(
@@ -7997,57 +8055,82 @@ class _MessengerScreenState extends State<MessengerScreen> {
               ),
 
             const SizedBox(height: 4),
-            const SizedBox(height: 4),
-            // Timestamp and Status / Lock icon
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  timeStr,
-                  style: TextStyle(
-                    color: (isMe && !isChannel) ? Colors.white60 : Colors.grey,
-                    fontSize: 10,
-                  ),
-                ),
-                if (isMe && !isChannel && customPayload?['type'] != 'call') ...[
-                  const SizedBox(width: 4),
-                  Builder(
-                    builder: (context) {
-                      final isPending =
-                          msg['is_pending'] == true ||
-                          msg['id'].toString().startsWith('temp_');
-                      final isRead =
-                          msg['is_read'] == true ||
-                          msg['is_read_by_recipient'] == true;
-                      return FaIcon(
-                        isPending
-                            ? FontAwesomeIcons.clock
-                            : (isRead
-                                  ? FontAwesomeIcons.checkDouble
-                                  : FontAwesomeIcons.check),
-                        size: 10 * scale,
-                        color: isPending
-                            ? (isDark ? Colors.white38 : Colors.black38)
-                            : (isRead
-                                  ? const Color(0xFF4ADE80)
-                                  : (isDark ? Colors.white60 : Colors.black54)),
-                      );
-                    },
-                  ),
-                ] else if (customPayload?['type'] != 'call') ...[
-                  const SizedBox(width: 4),
-                  FaIcon(
-                    FontAwesomeIcons.lock,
-                    size: 9 * scale,
-                    color: isMe ? Colors.white60 : Colors.grey,
-                  ),
-                ],
-              ],
+            // Reactions and Timestamp/Status
+            Builder(
+              builder: (context) {
+                final hasReactions = msg['reactions'] != null &&
+                    (msg['reactions'] as List).isNotEmpty;
+                final timestampWidget = Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      timeStr,
+                      style: TextStyle(
+                        color: (isMe && !isChannel) ? Colors.white60 : Colors.grey,
+                        fontSize: 10,
+                      ),
+                    ),
+                    if (isMe && !isChannel && customPayload?['type'] != 'call') ...[
+                      const SizedBox(width: 4),
+                      Builder(
+                        builder: (context) {
+                          final isPending =
+                              msg['is_pending'] == true ||
+                              msg['id'].toString().startsWith('temp_');
+                          final isRead =
+                              msg['is_read'] == true ||
+                              msg['is_read_by_recipient'] == true;
+                          return FaIcon(
+                            isPending
+                                ? FontAwesomeIcons.clock
+                                : (isRead
+                                      ? FontAwesomeIcons.checkDouble
+                                      : FontAwesomeIcons.check),
+                            size: 10 * scale,
+                            color: isPending
+                                ? (isDark ? Colors.white38 : Colors.black38)
+                                : (isRead
+                                      ? const Color(0xFF4ADE80)
+                                      : (isDark ? Colors.white60 : Colors.black54)),
+                          );
+                        },
+                      ),
+                    ] else if (customPayload?['type'] != 'call') ...[
+                      const SizedBox(width: 4),
+                      FaIcon(
+                        FontAwesomeIcons.lock,
+                        size: 9 * scale,
+                        color: isMe ? Colors.white60 : Colors.grey,
+                      ),
+                    ],
+                  ],
+                );
+
+                if (hasReactions) {
+                  return Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Flexible(
+                        child: _buildReactionsRow(msg, isMe, isDark, scale),
+                      ),
+                      const SizedBox(width: 8),
+                      timestampWidget,
+                    ],
+                  );
+                }
+
+                return Align(
+                  alignment: Alignment.centerRight,
+                  child: timestampWidget,
+                );
+              },
             ),
           ],
         ),
       ),
-    );
+    ),
+  );
 
     if (isChannel) {
       return Align(
@@ -8088,6 +8171,594 @@ class _MessengerScreenState extends State<MessengerScreen> {
         padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 8),
         child: bubbleContent,
       ),
+    );
+  }
+
+  void _toggleReaction(Map<String, dynamic> msg, String emoji) {
+    final rawMsgId = msg['id'];
+    final msgId =
+        rawMsgId is int ? rawMsgId : int.tryParse(rawMsgId.toString());
+    if (msgId == null || _myId == null) return;
+
+    final reactions = List<dynamic>.from(msg['reactions'] ?? []);
+    final existingIndex = reactions.indexWhere((r) {
+      final rUserId = r['user_id'] is int
+          ? r['user_id']
+          : int.tryParse(r['user_id']?.toString() ?? '');
+      return rUserId == _myId && r['emoji'] == emoji;
+    });
+
+    if (existingIndex != -1) {
+      // Удаляем реакцию
+      if (_webSocketService != null && _webSocketService!.isConnected) {
+        _webSocketService!.sendMessage({
+          'type': 'remove_reaction',
+          'message_id': msgId,
+        });
+      }
+    } else {
+      // Добавляем / меняем реакцию
+      if (_webSocketService != null && _webSocketService!.isConnected) {
+        _webSocketService!.sendMessage({
+          'type': 'add_reaction',
+          'message_id': msgId,
+          'emoji': emoji,
+        });
+      }
+    }
+  }
+
+  Widget _buildReactionUserAvatar(
+    String? avatarUrl,
+    String? avatarGradient,
+    String name,
+    double size,
+    double scale,
+    bool isDark,
+  ) {
+    final initials =
+        name.trim().isNotEmpty ? name.trim()[0].toUpperCase() : 'U';
+
+    if (avatarUrl != null && avatarUrl.isNotEmpty) {
+      if (avatarUrl.startsWith('data:image/svg+xml;base64,')) {
+        try {
+          final b64 = avatarUrl.split(',')[1];
+          final svgString = utf8.decode(base64.decode(b64));
+
+          if (svgString.contains('<text') && svgString.contains('</text>')) {
+            final stopColors = <String>[];
+            final matches = RegExp(
+              r'stop-color:(#[A-Fa-f0-9]{6})|stop-color="(#[A-Fa-f0-9]{6})"',
+            ).allMatches(svgString);
+            for (var m in matches) {
+              final c = m.group(1) ?? m.group(2);
+              if (c != null && !stopColors.contains(c)) {
+                stopColors.add(c);
+              }
+            }
+
+            String? gradientToUse;
+            if (stopColors.length >= 2) {
+              gradientToUse = '${stopColors[0]}|${stopColors[1]}';
+            } else if (stopColors.length == 1) {
+              gradientToUse = '${stopColors[0]}|${stopColors[0]}';
+            } else {
+              gradientToUse = avatarGradient;
+            }
+
+            return _buildInitialsAvatar(
+              initials,
+              size / 2,
+              scale,
+              isDark,
+              avatarGradient: gradientToUse,
+            );
+          }
+
+          return ClipOval(
+            child: SizedBox(
+              width: size,
+              height: size,
+              child: SvgPicture.string(
+                svgString,
+                width: size,
+                height: size,
+                fit: BoxFit.cover,
+              ),
+            ),
+          );
+        } catch (_) {}
+      } else {
+        String fullUrl = avatarUrl;
+        if (fullUrl.startsWith('/')) {
+          final base = ApiService.baseUrl.endsWith('/')
+              ? ApiService.baseUrl.substring(0, ApiService.baseUrl.length - 1)
+              : ApiService.baseUrl;
+          fullUrl = '$base$fullUrl';
+        }
+
+        return ClipOval(
+          child: SizedBox(
+            width: size,
+            height: size,
+            child: Image.network(
+              fullUrl,
+              width: size,
+              height: size,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => _buildInitialsAvatar(
+                initials,
+                size / 2,
+                scale,
+                isDark,
+                avatarGradient: avatarGradient,
+              ),
+            ),
+          ),
+        );
+      }
+    }
+
+    return _buildInitialsAvatar(
+      initials,
+      size / 2,
+      scale,
+      isDark,
+      avatarGradient: avatarGradient,
+    );
+  }
+
+  Widget _buildReactionsRow(
+    Map<String, dynamic> msg,
+    bool isMe,
+    bool isDark,
+    double scale,
+  ) {
+    final reactionsList = (msg['reactions'] as List? ?? []);
+    if (reactionsList.isEmpty) return const SizedBox.shrink();
+
+    final Map<String, List<Map<String, dynamic>>> grouped = {};
+    for (var r in reactionsList) {
+      if (r is Map<String, dynamic>) {
+        final emoji = r['emoji']?.toString() ?? '👍';
+        grouped.putIfAbsent(emoji, () => []).add(r);
+      }
+    }
+
+    return Wrap(
+      spacing: 4 * scale,
+      runSpacing: 4 * scale,
+      children: grouped.entries.map((entry) {
+        final emoji = entry.key;
+        final users = entry.value;
+        final count = users.length;
+
+        final hasMyReaction = users.any((u) {
+          final uId = u['user_id'] is int
+              ? u['user_id']
+              : int.tryParse(u['user_id']?.toString() ?? '');
+          return uId == _myId;
+        });
+
+        final String userNames = users.map((u) {
+          final name = u['user_first_name']?.toString();
+          return (name != null && name.isNotEmpty)
+              ? name
+              : (u['user_username']?.toString() ?? '');
+        }).join(', ');
+
+        return Tooltip(
+          message: userNames,
+          child: InkWell(
+            onTap: () => _toggleReaction(msg, emoji),
+            borderRadius: BorderRadius.circular(12 * scale),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              padding: EdgeInsets.symmetric(
+                horizontal: 8 * scale,
+                vertical: 3 * scale,
+              ),
+              decoration: BoxDecoration(
+                color: hasMyReaction
+                    ? Colors.white
+                    : const Color(0x99000000),
+                borderRadius: BorderRadius.circular(12 * scale),
+                border: Border.all(
+                  color: hasMyReaction
+                      ? const Color(0x66C8C8C8)
+                      : const Color(0xB3000000),
+                  width: 1 * scale,
+                ),
+                boxShadow: hasMyReaction
+                    ? [
+                        BoxShadow(
+                          color: Colors.white.withOpacity(0.3),
+                          blurRadius: 6,
+                          spreadRadius: 1,
+                        )
+                      ]
+                    : null,
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (users.isNotEmpty) ...[
+                    SizedBox(
+                      height: 16 * scale,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: users.take(3).toList().asMap().entries.map((e) {
+                          final idx = e.key;
+                          final u = e.value;
+                          final avatarUrl = u['user_avatar']?.toString();
+                          final avatarGradient =
+                              u['user_avatar_gradient']?.toString();
+                          final name = u['user_first_name']?.toString() ??
+                              u['user_username']?.toString() ??
+                              'U';
+                          return Transform.translate(
+                            offset: Offset(-4.0 * idx * scale, 0),
+                            child: Container(
+                              width: 16 * scale,
+                              height: 16 * scale,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: hasMyReaction
+                                      ? Colors.black.withOpacity(0.2)
+                                      : Colors.white.withOpacity(0.4),
+                                  width: 1,
+                                ),
+                              ),
+                              child: _buildReactionUserAvatar(
+                                avatarUrl,
+                                avatarGradient,
+                                name,
+                                16 * scale,
+                                scale,
+                                isDark,
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                    SizedBox(
+                        width: (4 - (users.take(3).length - 1) * 4) * scale),
+                  ],
+                  Text(
+                    emoji,
+                    style: TextStyle(fontSize: 13 * scale),
+                  ),
+                  if (count > 1) ...[
+                    SizedBox(width: 4 * scale),
+                    Text(
+                      count.toString(),
+                      style: TextStyle(
+                        fontSize: 11 * scale,
+                        fontWeight: FontWeight.bold,
+                        color: hasMyReaction ? Colors.black : Colors.white,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  void _showMessageContextMenu(
+    Map<String, dynamic> msg,
+    Offset position,
+    double scale,
+    bool isDark,
+  ) {
+    final List<String> popularEmojis = [
+      '👍', '❤️', '🔥', '😂', '😮', '😢', '🤡', '👏', '🎉', '💩'
+    ];
+
+    showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        position.dx,
+        position.dy,
+        position.dx + 1,
+        position.dy + 1,
+      ),
+      color: isDark ? const Color(0xFF1E293B) : Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      items: [
+        PopupMenuItem<String>(
+          enabled: false,
+          child: SizedBox(
+            width: 290 * scale,
+            child: Wrap(
+              spacing: 6 * scale,
+              runSpacing: 6 * scale,
+              children: [
+                ...popularEmojis.map((emoji) {
+                  final reactions = List<dynamic>.from(msg['reactions'] ?? []);
+                  final hasMyReaction = reactions.any((r) {
+                    final uId = r['user_id'] is int
+                        ? r['user_id']
+                        : int.tryParse(r['user_id']?.toString() ?? '');
+                    return uId == _myId && r['emoji'] == emoji;
+                  });
+                  return InkWell(
+                    onTap: () {
+                      Navigator.pop(context);
+                      _toggleReaction(msg, emoji);
+                    },
+                    borderRadius: BorderRadius.circular(20),
+                    child: Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: hasMyReaction
+                            ? const Color(0xFF2563EB).withOpacity(0.2)
+                            : Colors.transparent,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Text(
+                        emoji,
+                        style: TextStyle(fontSize: 20 * scale),
+                      ),
+                    ),
+                  );
+                }),
+                InkWell(
+                  onTap: () {
+                    Navigator.pop(context);
+                    _showFullEmojiPicker(msg, scale, isDark);
+                  },
+                  borderRadius: BorderRadius.circular(20),
+                  child: Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? Colors.white.withOpacity(0.1)
+                          : Colors.black.withOpacity(0.06),
+                      shape: BoxShape.circle,
+                    ),
+                    child: FaIcon(
+                      FontAwesomeIcons.circlePlus,
+                      size: 20 * scale,
+                      color: const Color(0xFF2563EB),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const PopupMenuDivider(),
+        PopupMenuItem<String>(
+          value: 'reply',
+          onTap: () {
+            setState(() {
+              _replyingToMessage = msg;
+            });
+          },
+          child: Row(
+            children: [
+              FaIcon(
+                FontAwesomeIcons.reply,
+                size: 14 * scale,
+                color: isDark ? Colors.white70 : Colors.black87,
+              ),
+              SizedBox(width: 10 * scale),
+              Text(
+                'Ответить',
+                style: TextStyle(
+                  fontSize: 14 * scale,
+                  color: isDark ? Colors.white : Colors.black87,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _showFullEmojiPicker(
+    Map<String, dynamic> msg,
+    double scale,
+    bool isDark,
+  ) {
+    final Map<String, List<String>> emojiCategories = {
+      'Эмоции': [
+        '😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '🙃', '😉', '😊', '😇',
+        '🥰', '😍', '🤩', '😘', '😗', '😚', '😋', '😛', '😜', '🤪', '😝', '🤑', '🤗',
+        '🤭', '🤫', '🤔', '🤐', '🤨', '😐', '😑', '😶', '😏', '😒', '🙄', '😬', '🤥',
+        '😌', '😔', '😪', '🤤', '😴', '😷', '🤒', '🤕', '🤢', '🤮', '🤧', '🥵', '🥶',
+        '🥴', '😵', '🤯', '🤠', '🥳', '😎', '🤓', '🧐', '😕', '😟', '🙁', '😮', '😯',
+        '😲', '😳', '🥺', '😦', '😧', '😨', '😰', '😥', '😢', '😭', '😱', '😖', '😣',
+        '😞', '😓', '😩', '😫', '🥱', '😤', '😡', '😠', '🤬', '😈', '👿', '💀', '☠️',
+        '💩', '🤡', '👹', '👺', '👻', '👽', '👾', '🤖'
+      ],
+      'Жесты и тело': [
+        '👋', '🤚', '🖐️', '✋', '🖖', '👌', '🤏', '✌️', '🤞', '🤟', '🤘', '🤙', '👈',
+        '👉', '👆', '🖕', '👇', '☝️', '👍', '👎', '✊', '👊', '🤛', '🤜', '👏', '🙌',
+        '👐', '🤲', '🤝', '🙏', '✍️', '💅', '🤳', '💪', '🦾', '🦿', '🦵', '🦶', '👂',
+        '🦻', '👃', '🧠', '🫀', '🫁', '🦷', '🦴', '👀', '👁️', '👅', '👄'
+      ],
+      'Сердца и символы': [
+        '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔', '❣️', '💕', '💞',
+        '💓', '💗', '💖', '💘', '💝', '💟', '☮️', '✝️', '☪️', '🕉️', '☸️', '✡️', '🔯',
+        '🕎', '☯️', '☦️', '🛐', '⛎', '♈', '♉', '♊', '♋', '♌', '♍', '♎', '♏', '♐',
+        '♑', '♒', '♓', '🎯', '💯', '🔥', '💥', '✨', '⚡', '🌟', '💫', '⭐️'
+      ],
+      'Еда и предметы': [
+        '🍏', '🍎', '🍐', '🍊', '🍋', '🍌', '🍉', '🍇', '🍓', '🫐', '🍈', '🍒', '🍑',
+        '🥭', '🍍', '🥥', '🥝', '🍅', '🍆', '🥑', '🥦', '🥬', '🥒', '🌶️', '🫑', '🌽',
+        '🥕', '🫒', '🧄', '🧅', '🥔', '🍠', '🥐', '🥯', '🍞', '🥖', '🥨', '🧀', '🍳',
+        '🥞', '🧇', '🥓', '🥩', '🍗', '🍖', '🌭', '🍔', '🍟', '🍕', '🥪', '🥙', '🧆',
+        '🌮', '🌯', '🥗', '🥘', '🍝', '🍜', '🍲', '🍛', '🍣', '🍱', '🥟', '🍤', '🍙',
+        '🍧', '🍨', '🍦', '🥧', '🧁', '🍰', '🎂', '🍮', '🍭', '🍬', '🍫', '🍿', '🍩'
+      ],
+    };
+
+    String searchQuery = '';
+
+    showDialog(
+      context: context,
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            final List<dynamic> currentReactions = List<dynamic>.from(msg['reactions'] ?? []);
+
+            return Dialog(
+              backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              child: Container(
+                width: 420 * scale,
+                height: 480 * scale,
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Все реакции',
+                          style: TextStyle(
+                            fontSize: 17 * scale,
+                            fontWeight: FontWeight.bold,
+                            color: isDark ? Colors.white : Colors.black87,
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => Navigator.pop(dialogCtx),
+                          icon: FaIcon(
+                            FontAwesomeIcons.xmark,
+                            size: 16 * scale,
+                            color: isDark ? Colors.white54 : Colors.black54,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      onChanged: (val) {
+                        setModalState(() {
+                          searchQuery = val.trim();
+                        });
+                      },
+                      style: TextStyle(
+                        fontSize: 14 * scale,
+                        color: isDark ? Colors.white : Colors.black87,
+                      ),
+                      decoration: InputDecoration(
+                        hintText: 'Поиск эмодзи...',
+                        hintStyle: TextStyle(
+                          color: isDark ? Colors.white38 : Colors.black38,
+                          fontSize: 14 * scale,
+                        ),
+                        prefixIcon: Icon(
+                          Icons.search,
+                          size: 18 * scale,
+                          color: isDark ? Colors.white54 : Colors.black54,
+                        ),
+                        filled: true,
+                        fillColor: isDark
+                            ? Colors.white.withOpacity(0.06)
+                            : Colors.black.withOpacity(0.04),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Expanded(
+                      child: ListView(
+                        children: emojiCategories.entries.map((cat) {
+                          final categoryTitle = cat.key;
+                          final emojis = cat.value
+                              .where((e) =>
+                                  searchQuery.isEmpty || e.contains(searchQuery))
+                              .toList();
+
+                          if (emojis.isEmpty) return const SizedBox.shrink();
+
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 6),
+                                child: Text(
+                                  categoryTitle,
+                                  style: TextStyle(
+                                    fontSize: 12 * scale,
+                                    fontWeight: FontWeight.bold,
+                                    color:
+                                        isDark ? Colors.white54 : Colors.black54,
+                                  ),
+                                ),
+                              ),
+                              Wrap(
+                                spacing: 8 * scale,
+                                runSpacing: 8 * scale,
+                                children: emojis.map((emoji) {
+                                  final hasMyReaction = currentReactions.any((r) {
+                                    final uId = r['user_id'] is int
+                                        ? r['user_id']
+                                        : int.tryParse(
+                                            r['user_id']?.toString() ?? '');
+                                    return uId == _myId && r['emoji'] == emoji;
+                                  });
+
+                                  return InkWell(
+                                    onTap: () {
+                                      Navigator.pop(dialogCtx);
+                                      _toggleReaction(msg, emoji);
+                                    },
+                                    borderRadius: BorderRadius.circular(24),
+                                    child: Container(
+                                      padding: const EdgeInsets.all(8),
+                                      decoration: BoxDecoration(
+                                        color: hasMyReaction
+                                            ? const Color(0xFF2563EB)
+                                                .withOpacity(0.25)
+                                            : (isDark
+                                                ? Colors.white.withOpacity(0.06)
+                                                : Colors.black.withOpacity(0.04)),
+                                        shape: BoxShape.circle,
+                                        border: hasMyReaction
+                                            ? Border.all(
+                                                color: const Color(0xFF2563EB),
+                                                width: 1.5)
+                                            : null,
+                                      ),
+                                      child: Text(
+                                        emoji,
+                                        style: TextStyle(fontSize: 22 * scale),
+                                      ),
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
+                              const SizedBox(height: 12),
+                            ],
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -13015,8 +13686,15 @@ class _MusicMessageBubblePlayerState extends State<_MusicMessageBubblePlayer> {
           width: 290 * scale,
           padding: EdgeInsets.all(10 * scale),
           decoration: BoxDecoration(
+            gradient: isMe
+                ? const LinearGradient(
+                    colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  )
+                : null,
             color: isMe
-                ? Colors.white.withOpacity(0.12)
+                ? null
                 : (isDark
                       ? Colors.white.withOpacity(0.04)
                       : Colors.black.withOpacity(0.03)),

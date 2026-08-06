@@ -391,5 +391,73 @@
   "exitApp": "Exit Xaneo",
   "@exitApp": {
     "description": "Tray menu item to exit app"
+  },
+  "qrLoginTitle": "Log in with QR Code",
+  "@qrLoginTitle": {
+    "description": "Title for QR code login"
+  },
+  "qrLoginSubtitle": "Scan the QR code using the Xaneo mobile app for fast and secure login",
+  "@qrLoginSubtitle": {
+    "description": "Subtitle for QR code login"
+  },
+  "qrScanInstructionTitle": "HOW TO LOG IN:",
+  "@qrScanInstructionTitle": {
+    "description": "Title for QR scan instruction step"
+  },
+  "qrStep1": "1. Open the Xaneo mobile app on your phone",
+  "@qrStep1": {
+    "description": "QR step 1"
+  },
+  "qrStep2": "2. Go to Settings → Devices → Scan QR",
+  "@qrStep2": {
+    "description": "QR step 2"
+  },
+  "qrStep3": "3. Point your camera at the QR code",
+  "@qrStep3": {
+    "description": "QR step 3"
+  },
+  "qrCodeLoginBtn": "Log in with code",
+  "@qrCodeLoginBtn": {
+    "description": "Button to switch to code login"
+  },
+  "codeLoginTitle": "Log in with Code",
+  "@codeLoginTitle": {
+    "description": "Title for code login"
+  },
+  "codeLoginSubtitle": "Enter your username or Email to receive a 6-digit code",
+  "@codeLoginSubtitle": {
+    "description": "Subtitle for code login"
+  },
+  "sixDigitCodeLabel": "6-digit code",
+  "@sixDigitCodeLabel": {
+    "description": "Label for 6 digit code field"
+  },
+  "codeInstructionTitle": "WHERE TO FIND THE CODE:",
+  "@codeInstructionTitle": {
+    "description": "Title for code instruction step"
+  },
+  "codeInstructionText": "The 6-digit verification code will be sent to the Xaneo Notifications bot in XC, or to your Email (if you cannot receive the code in XC).",
+  "@codeInstructionText": {
+    "description": "Instruction text where to find code"
+  },
+  "getCodeBtn": "Get code",
+  "@getCodeBtn": {
+    "description": "Get code button"
+  },
+  "backToQrBtn": "Log in with QR Code",
+  "@backToQrBtn": {
+    "description": "Back to QR code login button"
+  },
+  "qrTimerLabel": "QR code updates in:",
+  "@qrTimerLabel": {
+    "description": "Label for QR countdown timer"
+  },
+  "refreshQrBtn": "Refresh QR code",
+  "@refreshQrBtn": {
+    "description": "Button to refresh QR code"
+  },
+  "registrationDisabled": "Registration is disabled in this mode",
+  "@registrationDisabled": {
+    "description": "Notice when registration is disabled"
   }
 }

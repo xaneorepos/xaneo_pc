@@ -391,5 +391,73 @@
   "exitApp": "Выйти из Xaneo",
   "@exitApp": {
     "description": "Пункт меню трея для выхода из приложения"
+  },
+  "qrLoginTitle": "Войдите по QR-коду",
+  "@qrLoginTitle": {
+    "description": "Заголовок для входа по QR-коду"
+  },
+  "qrLoginSubtitle": "Отсканируйте QR-код из мобильного приложения Xaneo для быстрого и безопасного входа",
+  "@qrLoginSubtitle": {
+    "description": "Подзаголовок для входа по QR-коду"
+  },
+  "qrScanInstructionTitle": "КАК ВОЙТИ В АККАУНТ:",
+  "@qrScanInstructionTitle": {
+    "description": "Заголовок инструкции к QR"
+  },
+  "qrStep1": "1. Откройте мобильное приложение Xaneo на телефоне",
+  "@qrStep1": {
+    "description": "Шаг 1 входа по QR"
+  },
+  "qrStep2": "2. Перейдите в раздел Настройки → Устройства → Сканировать QR",
+  "@qrStep2": {
+    "description": "Шаг 2 входа по QR"
+  },
+  "qrStep3": "3. Наведите камеру телефона на QR-код",
+  "@qrStep3": {
+    "description": "Шаг 3 входа по QR"
+  },
+  "qrCodeLoginBtn": "Войти по коду",
+  "@qrCodeLoginBtn": {
+    "description": "Кнопка переключения на вход по коду"
+  },
+  "codeLoginTitle": "Войдите по коду",
+  "@codeLoginTitle": {
+    "description": "Заголовок для входа по коду"
+  },
+  "codeLoginSubtitle": "Введите ваш никнейм или Email для получения 6-значного кода",
+  "@codeLoginSubtitle": {
+    "description": "Подзаголовок для входа по коду"
+  },
+  "sixDigitCodeLabel": "Шестизначный код",
+  "@sixDigitCodeLabel": {
+    "description": "Метка для 6-значного кода"
+  },
+  "codeInstructionTitle": "ГДЕ НАЙТИ КОД:",
+  "@codeInstructionTitle": {
+    "description": "Заголовок инструкции для получения кода"
+  },
+  "codeInstructionText": "Шестизначный код подтверждения придёт в бот «Уведомления Xaneo» в XC, либо на вашу электронную почту (если вы не можете получить код в XC).",
+  "@codeInstructionText": {
+    "description": "Текст инструкции получения кода"
+  },
+  "getCodeBtn": "Получить код",
+  "@getCodeBtn": {
+    "description": "Кнопка получения кода"
+  },
+  "backToQrBtn": "Войти по QR-коду",
+  "@backToQrBtn": {
+    "description": "Кнопка возврата к входу по QR"
+  },
+  "qrTimerLabel": "QR-код обновится через:",
+  "@qrTimerLabel": {
+    "description": "Метка таймера обновления QR"
+  },
+  "refreshQrBtn": "Обновить QR-код",
+  "@refreshQrBtn": {
+    "description": "Кнопка обновления QR-кода"
+  },
+  "registrationDisabled": "Регистрация отключена в данном режиме",
+  "@registrationDisabled": {
+    "description": "Сообщение об отключении регистрации"
   }
 }

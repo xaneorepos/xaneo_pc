@@ -2203,4 +2203,55 @@ class AppLocalizationsZh extends AppLocalizations {
   String get downloadingLabel => '正在下载';
   @override
   String get downloadErrorLabel => '下载错误';
+
+  @override
+  String get qrLoginTitle => '通过 QR 码登录';
+
+  @override
+  String get qrLoginSubtitle => '使用 Xaneo 移动应用扫描二维码以快速安全登录';
+
+  @override
+  String get qrScanInstructionTitle => '登录步骤：';
+
+  @override
+  String get qrStep1 => '1. 在手机上打开 Xaneo 应用程序';
+
+  @override
+  String get qrStep2 => '2. 前往 设置 → 设备 → 扫描二维码';
+
+  @override
+  String get qrStep3 => '3. 将摄像头对准二维码';
+
+  @override
+  String get qrCodeLoginBtn => '使用验证码登录';
+
+  @override
+  String get codeLoginTitle => '验证码登录';
+
+  @override
+  String get codeLoginSubtitle => '请输入您的用户名或电子邮箱以接收 6 位验证码';
+
+  @override
+  String get sixDigitCodeLabel => '6 位验证码';
+
+  @override
+  String get codeInstructionTitle => '在何处获取验证码：';
+
+  @override
+  String get codeInstructionText => '6位验证码将发送至 XC 中的“Xaneo 通知”机器人，若您无法在 XC 中接收验证码，则会发送至您的电子邮箱。';
+
+  @override
+  String get getCodeBtn => '获取验证码';
+
+  @override
+  String get backToQrBtn => '通过 QR 码登录';
+
+  @override
+  String get qrTimerLabel => '二维码刷新倒计时：';
+
+  @override
+  String get refreshQrBtn => '刷新二维码';
+
+  @override
+  String get registrationDisabled => '该模式下禁用注册';
 }

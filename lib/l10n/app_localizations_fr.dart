@@ -2199,4 +2199,55 @@ class AppLocalizationsFr extends AppLocalizations {
   String get downloadingLabel => 'Téléchargement';
   @override
   String get downloadErrorLabel => 'Erreur de téléchargement';
+
+  @override
+  String get qrLoginTitle => 'Connexion par Code QR';
+
+  @override
+  String get qrLoginSubtitle => 'Scannez le code QR depuis l\'application mobile Xaneo pour un accès rapide et sécurisé';
+
+  @override
+  String get qrScanInstructionTitle => 'Comment se connecter :';
+
+  @override
+  String get qrStep1 => '1. Ouvrez l\'application mobile Xaneo sur votre téléphone';
+
+  @override
+  String get qrStep2 => '2. Allez dans Paramètres → Appareils → Scanner le QR';
+
+  @override
+  String get qrStep3 => '3. Pointez la caméra sur le code QR';
+
+  @override
+  String get qrCodeLoginBtn => 'Se connecter avec un code';
+
+  @override
+  String get codeLoginTitle => 'Connexion par code';
+
+  @override
+  String get codeLoginSubtitle => 'Saisissez votre nom d\'utilisateur ou e-mail pour recevoir un code à 6 chiffres';
+
+  @override
+  String get sixDigitCodeLabel => 'Code à 6 chiffres';
+
+  @override
+  String get codeInstructionTitle => 'Où trouver le code :';
+
+  @override
+  String get codeInstructionText => 'Le code de vérification à 6 chiffres sera envoyé dans le bot Notifications Xaneo sur XC, ou par e-mail (si vous ne pouvez pas recevoir le code dans XC).';
+
+  @override
+  String get getCodeBtn => 'Obtenir le code';
+
+  @override
+  String get backToQrBtn => 'Connexion par QR Code';
+
+  @override
+  String get qrTimerLabel => 'Mise à jour du QR code dans :';
+
+  @override
+  String get refreshQrBtn => 'Actualiser le code QR';
+
+  @override
+  String get registrationDisabled => 'L\'inscription est désactivée dans ce mode';
 }

@@ -1540,6 +1540,24 @@ abstract class AppLocalizations {
   String get markAsRead;
   String membersCount(int count);
   String subscribersCount(int count);
+
+  String get qrLoginTitle;
+  String get qrLoginSubtitle;
+  String get qrScanInstructionTitle;
+  String get qrStep1;
+  String get qrStep2;
+  String get qrStep3;
+  String get qrCodeLoginBtn;
+  String get codeLoginTitle;
+  String get codeLoginSubtitle;
+  String get sixDigitCodeLabel;
+  String get codeInstructionTitle;
+  String get codeInstructionText;
+  String get getCodeBtn;
+  String get backToQrBtn;
+  String get qrTimerLabel;
+  String get refreshQrBtn;
+  String get registrationDisabled;
 }
 
 class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {

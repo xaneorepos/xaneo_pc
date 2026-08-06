@@ -2202,4 +2202,55 @@ class AppLocalizationsAr extends AppLocalizations {
   String get downloadingLabel => 'جاري التنزيل';
   @override
   String get downloadErrorLabel => 'خطأ في التنزيل';
+
+  @override
+  String get qrLoginTitle => 'تسجيل الدخول عبر رمز QR';
+
+  @override
+  String get qrLoginSubtitle => 'امسح رمز QR ضوئيًا من تطبيق Xaneo للهاتف المحمول لتسجيل الدخول السريع والآمن';
+
+  @override
+  String get qrScanInstructionTitle => 'تعليمات الدخول:';
+
+  @override
+  String get qrStep1 => '١. افتح تطبيق Xaneo على هاتفك المحمول';
+
+  @override
+  String get qrStep2 => '٢. انتقل إلى الإعدادات ← الأجهزة ← مسح رمز QR';
+
+  @override
+  String get qrStep3 => '٣. وجّه كاميرا هاتفك نحو رمز QR';
+
+  @override
+  String get qrCodeLoginBtn => 'تسجيل الدخول بالرمز';
+
+  @override
+  String get codeLoginTitle => 'تسجيل الدخول بالرمز';
+
+  @override
+  String get codeLoginSubtitle => 'أدخل اسم المستخدم أو البريد الإلكتروني لتلقي رمز من 6 أرقام';
+
+  @override
+  String get sixDigitCodeLabel => 'رمز مكون من 6 أرقام';
+
+  @override
+  String get codeInstructionTitle => 'أين تجد الرمز:';
+
+  @override
+  String get codeInstructionText => 'سيصل رمز التحقق المكون من 6 أرقام إلى بوت إشعارات Xaneo في XC، أو عبر البريد الإلكتروني (إذا كنت لا تستطيع تلقي الرمز في XC).';
+
+  @override
+  String get getCodeBtn => 'الحصول على الرمز';
+
+  @override
+  String get backToQrBtn => 'تسجيل الدخول عبر QR';
+
+  @override
+  String get qrTimerLabel => 'يتجدد رمز QR خلال:';
+
+  @override
+  String get refreshQrBtn => 'تحديث رمز QR';
+
+  @override
+  String get registrationDisabled => 'التسجيل معطل في هذا الوضع';
 }

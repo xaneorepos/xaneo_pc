@@ -2221,4 +2221,55 @@ class AppLocalizationsRu extends AppLocalizations {
   String get downloadingLabel => 'Загрузка';
   @override
   String get downloadErrorLabel => 'Ошибка загрузки';
+
+  @override
+  String get qrLoginTitle => 'Войдите по QR-коду';
+
+  @override
+  String get qrLoginSubtitle => 'Отсканируйте QR-код из мобильного приложения Xaneo для быстрого и безопасного входа';
+
+  @override
+  String get qrScanInstructionTitle => 'КАК ВОЙТИ В АККАУНТ:';
+
+  @override
+  String get qrStep1 => '1. Откройте мобильное приложение Xaneo на телефоне';
+
+  @override
+  String get qrStep2 => '2. Перейдите в раздел Настройки → Устройства → Сканировать QR';
+
+  @override
+  String get qrStep3 => '3. Наведите камеру телефона на QR-код';
+
+  @override
+  String get qrCodeLoginBtn => 'Войти по коду';
+
+  @override
+  String get codeLoginTitle => 'Войдите по коду';
+
+  @override
+  String get codeLoginSubtitle => 'Введите ваш никнейм или Email для получения 6-значного кода';
+
+  @override
+  String get sixDigitCodeLabel => 'Шестизначный код';
+
+  @override
+  String get codeInstructionTitle => 'ГДЕ НАЙТИ КОД:';
+
+  @override
+  String get codeInstructionText => 'Шестизначный код подтверждения придёт в бот «Уведомления Xaneo» в XC, либо на вашу электронную почту (если вы не можете получить код в XC).';
+
+  @override
+  String get getCodeBtn => 'Получить код';
+
+  @override
+  String get backToQrBtn => 'Войти по QR-коду';
+
+  @override
+  String get qrTimerLabel => 'QR-код обновится через:';
+
+  @override
+  String get refreshQrBtn => 'Обновить QR-код';
+
+  @override
+  String get registrationDisabled => 'Регистрация отключена в данном режиме';
 }

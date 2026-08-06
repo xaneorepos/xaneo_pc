@@ -528,6 +528,32 @@ class _RegisterScreenState extends State<RegisterScreen>
   
   @override
   Widget build(BuildContext context) {
+    if (ApiService.isAuthV2) {
+      final isDark = Provider.of<ThemeProvider>(context).isDarkMode;
+      return Scaffold(
+        backgroundColor: isDark ? const Color(0xFF070707) : const Color(0xFFFAF9FB),
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                AppLocalizations.of(context)?.registrationDisabled ?? 'Регистрация отключена в данном режиме',
+                style: TextStyle(
+                  color: isDark ? Colors.white : Colors.black,
+                  fontSize: 18,
+                  fontFamily: 'Inter',
+                ),
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: Text(AppLocalizations.of(context)?.back ?? 'Назад'),
+              )
+            ],
+          ),
+        ),
+      );
+    }
     final themeProvider = Provider.of<ThemeProvider>(context);
     final scaleProvider = Provider.of<ScaleProvider>(context);
     final isDark = themeProvider.isDarkMode;

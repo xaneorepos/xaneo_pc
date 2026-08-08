@@ -275,16 +275,21 @@ jobs:
           MPV_LIB=$(find /usr/lib -name "libmpv.so*" 2>/dev/null | head -1)
           if [ -n "$MPV_LIB" ]; then
             cp -d "$MPV_LIB"* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
-            for lib in $(ldd "$MPV_LIB" 2>/dev/null | awk '{print $3}' | grep '^/'); do
-              case "$(basename "$lib")" in
-                libc.so*|libm.so*|libpthread.so*|libdl.so*|librt.so*|libgcc_s.so*|libstdc++.so*|ld-linux*|libX11.so*|libxcb.so*|libglib-2.0.so*|libgobject-2.0.so*|libgtk-3.so*|libgdk-3.so*)
-                  ;;
-                *)
-                  cp -d "$lib"* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
-                  ;;
-              esac
-            done
           fi
+          # Сканируем ldd для Всех бинарников и плагинов в пакете
+          for pass in 1 2; do
+            for bin in $(find "$BUILDROOT/opt/xaneo-pc/" -type f \( -name "xaneo" -o -name "*.so*" \)); do
+              for lib in $(ldd "$bin" 2>/dev/null | awk '{print $3}' | grep '^/'); do
+                case "$(basename "$lib")" in
+                  libc.so*|libm.so*|libpthread.so*|libdl.so*|librt.so*|libgcc_s.so*|libstdc++.so*|ld-linux*|libX11.so*|libxcb.so*|libglib-2.0.so*|libgobject-2.0.so*|libgtk-3.so*|libgdk-3.so*)
+                    ;;
+                  *)
+                    cp -d "$lib"* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+                    ;;
+                esac
+              done
+            done
+          done
 
           chmod -R 755 "$BUILDROOT/opt/xaneo-pc"
 

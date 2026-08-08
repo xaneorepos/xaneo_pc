@@ -132,21 +132,25 @@ create_appdir() {
     # Копируем содержимое bundle в AppDir
     cp -r "$bundle_dir"/* "$appdir"/
     
-    # Динамически определяем и копируем ВСЕ зависимости libmpv в AppDir/lib
+    # Динамически определяем и копируем ВСЕ зависимости всех бинарников и плагинов в AppDir/lib
     mkdir -p "$appdir/lib"
     local mpv_lib=$(find /usr/lib /usr/lib64 /usr/lib/x86_64-linux-gnu -name "libmpv.so*" 2>/dev/null | head -1)
     if [ -n "$mpv_lib" ]; then
         cp -d "$mpv_lib"* "$appdir/lib/" 2>/dev/null || true
-        for lib in $(ldd "$mpv_lib" 2>/dev/null | awk '{print $3}' | grep '^/'); do
-            case "$(basename "$lib")" in
-                libc.so*|libm.so*|libpthread.so*|libdl.so*|librt.so*|libgcc_s.so*|libstdc++.so*|ld-linux*|libX11.so*|libxcb.so*|libglib-2.0.so*|libgobject-2.0.so*|libgtk-3.so*|libgdk-3.so*)
-                    ;;
-                *)
-                    cp -d "$lib"* "$appdir/lib/" 2>/dev/null || true
-                    ;;
-            esac
-        done
     fi
+    for pass in 1 2; do
+        for bin in $(find "$appdir/" -type f \( -name "xaneo" -o -name "*.so*" \)); do
+            for lib in $(ldd "$bin" 2>/dev/null | awk '{print $3}' | grep '^/'); do
+                case "$(basename "$lib")" in
+                    libc.so*|libm.so*|libpthread.so*|libdl.so*|librt.so*|libgcc_s.so*|libstdc++.so*|ld-linux*|libX11.so*|libxcb.so*|libglib-2.0.so*|libgobject-2.0.so*|libgtk-3.so*|libgdk-3.so*)
+                        ;;
+                    *)
+                        cp -d "$lib"* "$appdir/lib/" 2>/dev/null || true
+                        ;;
+                esac
+            done
+        done
+    done
     
     # Создаём AppRun если его нет
     if [ ! -f "$appdir/AppRun" ]; then

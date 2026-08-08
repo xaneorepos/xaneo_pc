@@ -337,9 +337,8 @@ jobs:
           Summary:        Xaneo PC - Desktop application with onboarding
           License:        Proprietary
           URL:            https://xaneo.com
-          BuildArch:      x86_64
-
-          %global __requires_exclude ^(libmpv|libavcodec|libavdevice|libavfilter|libavformat|libavutil|libswscale|libswresample|libplacebo|libbluray|libjpeg|liblua|librubberband|libmujs|libwebrtc|libflutter).*$
+          AutoReq:        no
+          %global __find_requires %{{nil}}
           %global __brp_check_rpaths %{{nil}}
           %global debug_package %{{nil}}
 
@@ -516,7 +515,7 @@ jobs:
           name: "Xaneo PC ${{ github.ref_name }}"
           draft: false
           prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
-          generate_release_notes: true
+          generate_release_notes: false
           body_path: release_body.md
           files: |
             release_dist/*

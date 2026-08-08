@@ -332,9 +332,8 @@ Release:        $release%{?dist}
 Summary:        Xaneo PC - Desktop application with onboarding
 License:        Proprietary
 URL:            https://xaneo.com
-Source0:        %{name}-%{version}.tar.gz
-
-%global __requires_exclude ^(libmpv|libavcodec|libavdevice|libavfilter|libavformat|libavutil|libswscale|libswresample|libplacebo|libbluray|libjpeg|liblua|librubberband|libmujs|libwebrtc|libflutter).*$
+AutoReq:        no
+%global __find_requires %{nil}
 %global __brp_check_rpaths %{nil}
 %global debug_package %{nil}
 

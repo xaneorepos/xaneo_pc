@@ -66,6 +66,37 @@ def upload_to_virustotal(filepath, api_key):
         print(f"VirusTotal API upload error for {filename}: {e}")
         return None
 
+def get_git_info():
+    info = {}
+    try:
+        import subprocess
+        sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+        short_sha = sha[:7]
+        info['sha'] = sha
+        info['short_sha'] = short_sha
+
+        subject = subprocess.check_output(['git', 'log', '-1', '--pretty=format:%s'], text=True).strip()
+        body = subprocess.check_output(['git', 'log', '-1', '--pretty=format:%b'], text=True).strip()
+        author = subprocess.check_output(['git', 'log', '-1', '--pretty=format:%an <%ae>'], text=True).strip()
+        date = subprocess.check_output(['git', 'log', '-1', '--pretty=format:%cd', '--date=short'], text=True).strip()
+
+        info['subject'] = subject
+        info['body'] = body
+        info['author'] = author
+        info['date'] = date
+
+        try:
+            prev_tag = subprocess.check_output(['git', 'describe', '--tags', '--abbrev=0', 'HEAD^'], text=True, stderr=subprocess.DEVNULL).strip()
+            log_range = f"{prev_tag}..HEAD"
+        except Exception:
+            log_range = "-10"
+
+        changelog_lines = subprocess.check_output(['git', 'log', log_range, '--oneline', '--no-merges'], text=True).strip().splitlines()
+        info['changelog'] = [line.strip() for line in changelog_lines if line.strip()]
+    except Exception as e:
+        print(f"Could not retrieve git info: {e}")
+    return info
+
 def main():
     artifacts_dir = sys.argv[1] if len(sys.argv) > 1 else 'artifacts'
     dist_dir = sys.argv[2] if len(sys.argv) > 2 else 'release_dist'
@@ -107,8 +138,34 @@ def main():
             'vt_url': vt_url
         })
 
-    # Generate Markdown table for GitHub release body
+    # Generate Markdown content for GitHub release body
     md_content = []
+
+    git_info = get_git_info()
+    if git_info and 'sha' in git_info:
+        server_repo = os.environ.get('GITHUB_REPOSITORY', '')
+        commit_link = f"`{git_info['short_sha']}`"
+        if server_repo:
+            commit_link = f"[`{git_info['short_sha']}`](https://github.com/{server_repo}/commit/{git_info['sha']})"
+
+        md_content.append("## 📌 Release Commit & Details\n")
+        md_content.append(f"- **Commit:** {commit_link}")
+        md_content.append(f"- **Author:** `{git_info.get('author', 'CI/CD')}`")
+        md_content.append(f"- **Date:** `{git_info.get('date', '')}`\n")
+
+        if git_info.get('subject'):
+            md_content.append(f"### 💡 Commit Message:\n> **{git_info['subject']}**")
+            if git_info.get('body'):
+                body_quoted = "\n> ".join(git_info['body'].splitlines())
+                md_content.append(f">\n> {body_quoted}")
+            md_content.append("")
+
+        if git_info.get('changelog'):
+            md_content.append("### 📜 Included Commits:\n")
+            for c in git_info['changelog']:
+                md_content.append(f"- {c}")
+            md_content.append("")
+
     md_content.append("## 🛡️ Security Scans & File Integrity\n")
     md_content.append("All binaries are scanned for malware and verified. You can review the VirusTotal scan reports and SHA-256 checksums below:\n")
     md_content.append("| Release File | SHA-256 Checksum | VirusTotal Scan |")

@@ -132,6 +132,14 @@ create_appdir() {
     # Копируем содержимое bundle в AppDir
     cp -r "$bundle_dir"/* "$appdir"/
     
+    # Копируем локальные библиотеки libmpv в AppDir/lib
+    mkdir -p "$appdir/lib"
+    if [ -f /usr/lib64/libmpv.so ]; then
+        cp -d /usr/lib64/libmpv.so* "$appdir/lib/" 2>/dev/null || true
+    elif [ -f /usr/lib/x86_64-linux-gnu/libmpv.so.1 ]; then
+        cp -d /usr/lib/x86_64-linux-gnu/libmpv.so* "$appdir/lib/" 2>/dev/null || true
+    fi
+    
     # Создаём AppRun если его нет
     if [ ! -f "$appdir/AppRun" ]; then
         cat > "$appdir/AppRun" << 'EOF'
@@ -150,12 +158,16 @@ EOF
     if [ ! -f "$appdir/xaneo.desktop" ]; then
         cat > "$appdir/xaneo.desktop" << 'EOF'
 [Desktop Entry]
+Version=1.0
 Type=Application
 Name=Xaneo PC
+GenericName=Xaneo Messenger
 Comment=Desktop application with onboarding
-Exec=xaneo
+Exec=xaneo-pc
 Icon=xaneo
-Categories=Utility;
+Terminal=false
+Categories=Utility;Network;InstantMessaging;
+Keywords=Xaneo;xaneo;pc;chat;messenger;
 EOF
     fi
     
@@ -308,6 +320,10 @@ License:        Proprietary
 URL:            https://xaneo.com
 Source0:        %{name}-%{version}.tar.gz
 
+%global __requires_exclude ^libmpv\\.so.*$
+%global __brp_check_rpaths %{nil}
+%global debug_package %{nil}
+
 Requires:       gtk3, glib2
 
 %description
@@ -330,6 +346,7 @@ cp -r * \$RPM_BUILD_ROOT/opt/xaneo-pc/
 cp xaneo.desktop \$RPM_BUILD_ROOT/usr/share/applications/
 cp xaneo.png \$RPM_BUILD_ROOT/usr/share/icons/hicolor/256x256/apps/
 ln -sf /opt/xaneo-pc/xaneo \$RPM_BUILD_ROOT/usr/bin/xaneo-pc
+ln -sf /opt/xaneo-pc/xaneo \$RPM_BUILD_ROOT/usr/bin/xaneo
 
 %post
 update-desktop-database /usr/share/applications || true
@@ -345,6 +362,7 @@ gtk-update-icon-cache -f -t /usr/share/icons/hicolor || true
 /usr/share/applications/xaneo.desktop
 /usr/share/icons/hicolor/256x256/apps/xaneo.png
 /usr/bin/xaneo-pc
+/usr/bin/xaneo
 
 %changelog
 * $(LC_ALL=C date +'%a %b %d %Y') Xaneo <info@xaneo.com> - $version-$release
@@ -352,13 +370,13 @@ gtk-update-icon-cache -f -t /usr/share/icons/hicolor || true
 EOF
     
     # Собираем пакет
-    rpmbuild -ba "$rpmbuild_dir/SPECS/xaneo-pc.spec"
+    QA_RPATHS=0x003f rpmbuild -ba "$rpmbuild_dir/SPECS/xaneo-pc.spec"
     
     # Копируем результат в dist
-    cp "$rpmbuild_dir/RPMS/x86_64/xaneo-pc-${version}-${release}.x86_64.rpm" "$dist_dir/"
-    
-    if [ -f "$dist_dir/xaneo-pc-${version}-${release}.x86_64.rpm" ]; then
-        log_success "RPM пакет создан: $dist_dir/xaneo-pc-${version}-${release}.x86_64.rpm"
+    cp "$rpmbuild_dir"/RPMS/x86_64/xaneo-pc-*.rpm "$dist_dir/" 2>/dev/null || true
+    local created_rpm=$(ls "$dist_dir"/xaneo-pc-*.rpm 2>/dev/null | head -1)
+    if [ -n "$created_rpm" ] && [ -f "$created_rpm" ]; then
+        log_success "RPM пакет создан: $created_rpm"
     fi
 }
 

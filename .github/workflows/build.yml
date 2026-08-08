@@ -274,8 +274,22 @@ jobs:
           mkdir -p "$BUILDROOT/opt/xaneo-pc/lib"
           if [ -d /usr/lib/x86_64-linux-gnu ]; then
             cp -d /usr/lib/x86_64-linux-gnu/libmpv.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib/x86_64-linux-gnu/libav*.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib/x86_64-linux-gnu/libsw*.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib/x86_64-linux-gnu/libplacebo.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib/x86_64-linux-gnu/librubberband.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib/x86_64-linux-gnu/libbluray.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib/x86_64-linux-gnu/liblua*.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib/x86_64-linux-gnu/libmujs.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
           elif [ -d /usr/lib64 ]; then
             cp -d /usr/lib64/libmpv.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib64/libav*.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib64/libsw*.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib64/libplacebo.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib64/librubberband.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib64/libbluray.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib64/liblua*.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib64/libmujs.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
           fi
 
           chmod -R 755 "$BUILDROOT/opt/xaneo-pc"
@@ -325,7 +339,7 @@ jobs:
           URL:            https://xaneo.com
           BuildArch:      x86_64
 
-          %global __requires_exclude ^libmpv\\\\.so.*$
+          %global __requires_exclude ^(libmpv|libavcodec|libavdevice|libavfilter|libavformat|libavutil|libswscale|libswresample|libplacebo|libbluray|libjpeg|liblua|librubberband|libmujs|libwebrtc|libflutter).*$
           %global __brp_check_rpaths %{{nil}}
           %global debug_package %{{nil}}
 

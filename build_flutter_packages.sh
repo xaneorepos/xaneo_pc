@@ -132,12 +132,26 @@ create_appdir() {
     # Копируем содержимое bundle в AppDir
     cp -r "$bundle_dir"/* "$appdir"/
     
-    # Копируем локальные библиотеки libmpv в AppDir/lib
+    # Копируем локальные библиотеки libmpv и декодеры в AppDir/lib
     mkdir -p "$appdir/lib"
-    if [ -f /usr/lib64/libmpv.so ]; then
+    if [ -d /usr/lib64 ]; then
         cp -d /usr/lib64/libmpv.so* "$appdir/lib/" 2>/dev/null || true
-    elif [ -f /usr/lib/x86_64-linux-gnu/libmpv.so.1 ]; then
+        cp -d /usr/lib64/libav*.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib64/libsw*.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib64/libplacebo.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib64/librubberband.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib64/libbluray.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib64/liblua*.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib64/libmujs.so* "$appdir/lib/" 2>/dev/null || true
+    elif [ -d /usr/lib/x86_64-linux-gnu ]; then
         cp -d /usr/lib/x86_64-linux-gnu/libmpv.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib/x86_64-linux-gnu/libav*.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib/x86_64-linux-gnu/libsw*.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib/x86_64-linux-gnu/libplacebo.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib/x86_64-linux-gnu/librubberband.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib/x86_64-linux-gnu/libbluray.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib/x86_64-linux-gnu/liblua*.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib/x86_64-linux-gnu/libmujs.so* "$appdir/lib/" 2>/dev/null || true
     fi
     
     # Создаём AppRun если его нет
@@ -320,7 +334,7 @@ License:        Proprietary
 URL:            https://xaneo.com
 Source0:        %{name}-%{version}.tar.gz
 
-%global __requires_exclude ^libmpv\\.so.*$
+%global __requires_exclude ^(libmpv|libavcodec|libavdevice|libavfilter|libavformat|libavutil|libswscale|libswresample|libplacebo|libbluray|libjpeg|liblua|librubberband|libmujs|libwebrtc|libflutter).*$
 %global __brp_check_rpaths %{nil}
 %global debug_package %{nil}
 

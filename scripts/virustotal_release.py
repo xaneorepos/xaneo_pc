@@ -86,10 +86,13 @@ def get_git_info():
         info['date'] = date
 
         try:
-            prev_tag = subprocess.check_output(['git', 'describe', '--tags', '--abbrev=0', 'HEAD^'], text=True, stderr=subprocess.DEVNULL).strip()
-            log_range = f"{prev_tag}..HEAD"
+            current_tag = os.environ.get('GITHUB_REF_NAME', '')
+            tags_list = subprocess.check_output(['git', 'tag', '--sort=-creatordate'], text=True).strip().splitlines()
+            prev_tags = [t.strip() for t in tags_list if t.strip() and t.strip() != current_tag]
+            prev_tag = prev_tags[0] if prev_tags else ''
+            log_range = f"{prev_tag}..HEAD" if prev_tag else "-5"
         except Exception:
-            log_range = "-10"
+            log_range = "-5"
 
         changelog_lines = subprocess.check_output(['git', 'log', log_range, '--oneline', '--no-merges'], text=True).strip().splitlines()
         info['changelog'] = [line.strip() for line in changelog_lines if line.strip()]

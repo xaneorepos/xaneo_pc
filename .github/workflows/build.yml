@@ -408,33 +408,76 @@ jobs:
           mkdir -p "$APPDIR/usr/share/icons/hicolor/512x512/apps"
 
           cp macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_256.png "$APPDIR/usr/share/icons/hicolor/256x256/apps/xaneo.png"
-          cp macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_512.png "$APPDIR/usr/share/icons/hicolor/512x512/apps/xaneo.png"
-          cp macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_512.png "$APPDIR/xaneo.png"
-          cp macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_512.png "$APPDIR/.DirIcon"
 
-          # Чистый AppRun без запихивания конфликтных системных GTK библиотек
-          chmod +x "$APPDIR/usr/bin/xaneo"
-          printf '%s\n' \
-            '#!/bin/sh' \
-            'HERE="$(dirname "$(readlink -f "$0")")"' \
-            'export LD_LIBRARY_PATH="$HERE/usr/bin/lib:$LD_LIBRARY_PATH"' \
-            'exec "$HERE/usr/bin/xaneo" "$@"' \
-            > "$APPDIR/AppRun"
-          chmod +x "$APPDIR/AppRun"
+          # Скачиваем и запускаем linuxdeploy напрямую
+          wget -q -O linuxdeploy https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          chmod +x linuxdeploy
 
-          # Используем официальный appimagetool (без linuxdeploy ABI-конфликтов)
-          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
-          chmod +x appimagetool-x86_64.AppImage
+          # Вызываем linuxdeploy без фуззи-плагинов
+          ./linuxdeploy --appdir "$APPDIR" \
+            --desktop-file "$APPDIR/usr/share/applications/xaneo.desktop" \
+            --icon-file "$APPDIR/usr/share/icons/hicolor/256x256/apps/xaneo.png" \
+            --output appimage
 
-          ARCH=x86_64 ./appimagetool-x86_64.AppImage --appimage-extract-and-run "$APPDIR" "dist/xaneo-${{ github.ref_name }}-x86_64.AppImage"
+          # Перемещаем результат
+          mv Xaneo_PC-*.AppImage "dist/xaneo-${VERSION}-x86_64.AppImage"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: linux-x64
+          name: linux-binaries
           path: |
-            dist/*.AppImage
             dist/*.deb
-            dist/*.rpm
+            dist/*.AppImage
+          retention-days: 7
+
+
+# ==========================================================
+#  FEDORA RPM — нативная сборка пакета внутри Fedora
+# ==========================================================
+  build-fedora-rpm:
+    name: Fedora RPM
+    runs-on: ubuntu-latest
+    container: fedora:40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Fedora Build Dependencies
+        run: |
+          dnf install -y \
+            git curl wget tar xz unzip \
+            clang cmake ninja-build pkgconf-pkg-config \
+            gtk3-devel glib2-devel libnotify-devel \
+            libayatana-appindicator-gtk3-devel \
+            mpv-devel rpm-build fontconfig
+
+      - name: Set up Flutter SDK
+        run: |
+          git clone https://github.com/flutter/flutter.git -b stable /root/flutter
+          echo "/root/flutter/bin" >> $GITHUB_PATH
+
+      - name: Set App Version in pubspec.yaml
+        run: |
+          VER="${{ github.event.inputs.version }}"
+          if [ -z "$VER" ]; then VER="${{ github.ref_name }}"; fi
+          VER="${VER#v}"
+          if [[ "$VER" =~ ^[0-9]+\.[0-9]+ ]]; then
+            echo "Setting app version in pubspec.yaml to: ${VER}+${{ github.run_number }}"
+            sed -i "s/^version: .*/version: ${VER}+${{ github.run_number }}/" pubspec.yaml
+          fi
+
+      - name: Build Linux Release & RPM Package
+        run: |
+          export PATH="/root/flutter/bin:$PATH"
+          flutter config --enable-linux-desktop
+          flutter pub get
+          flutter build linux --release
+          ./build_flutter_packages.sh appdir
+          ./build_flutter_packages.sh rpm
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fedora-rpm
+          path: dist/*.rpm
           retention-days: 7
 
 
@@ -488,7 +531,7 @@ jobs:
 # ==========================================================
   release:
     name: GitHub Release
-    needs: [build-windows, build-linux, build-macos]
+    needs: [build-windows, build-linux, build-fedora-rpm, build-macos]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     steps:

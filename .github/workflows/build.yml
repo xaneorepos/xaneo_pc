@@ -255,133 +255,11 @@ jobs:
 
           fakeroot dpkg-deb --root-owner-group --build "$PKG" "dist/xaneo_${VERSION}_amd64.deb"
 
-      - name: Build rpm
+      - name: Build AppImage
         run: |
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#v}"
-          if ! [[ "$VERSION" =~ ^[0-9] ]]; then VERSION="0.0.0_${VERSION}"; fi
-          VERSION="${VERSION//-/_}"
-          BUNDLE="build/linux/x64/release/bundle"
-          RPM_ROOT="$HOME/rpmbuild"
-
-          mkdir -p "$RPM_ROOT"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
-
-          BUILDROOT="$RPM_ROOT/BUILDROOT/xaneo-pc-${VERSION}-1.x86_64"
-          mkdir -p "$BUILDROOT/opt/xaneo-pc"
-          mkdir -p "$BUILDROOT/usr/share/applications"
-          mkdir -p "$BUILDROOT/usr/bin"
-          mkdir -p "$BUILDROOT/usr/share/icons/hicolor/256x256/apps"
-          mkdir -p "$BUILDROOT/usr/share/icons/hicolor/512x512/apps"
-          mkdir -p "$BUILDROOT/usr/share/pixmaps"
-
-          cp -r "$BUNDLE"/. "$BUILDROOT/opt/xaneo-pc/"
-
-          mkdir -p "$BUILDROOT/opt/xaneo-pc/lib"
-          MPV_LIB=$(find /usr/lib -name "libmpv.so*" 2>/dev/null | head -1)
-          if [ -n "$MPV_LIB" ]; then
-            cp -d "$MPV_LIB"* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
-          fi
-          # Сканируем ldd для Всех бинарников и плагинов в пакете
-          for pass in 1 2; do
-            for bin in $(find "$BUILDROOT/opt/xaneo-pc/" -type f \( -name "xaneo" -o -name "*.so*" \)); do
-              for lib in $(ldd "$bin" 2>/dev/null | awk '{print $3}' | grep '^/'); do
-                case "$(basename "$lib")" in
-                  libc.so*|libm.so*|libpthread.so*|libdl.so*|librt.so*|libgcc_s.so*|libstdc++.so*|ld-linux*|libX11.so*|libxcb.so*|libglib-2.0.so*|libgobject-2.0.so*|libgtk-3.so*|libgdk-3.so*)
-                    ;;
-                  *)
-                    cp -d "$lib"* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
-                    ;;
-                esac
-              done
-            done
-          done
-
-          chmod -R 755 "$BUILDROOT/opt/xaneo-pc"
-
-          printf '%s\n' \
-            '#!/bin/sh' \
-            'export LD_LIBRARY_PATH="/opt/xaneo-pc/lib:$LD_LIBRARY_PATH"' \
-            'exec /opt/xaneo-pc/xaneo "$@"' \
-            > "$BUILDROOT/opt/xaneo-pc/xaneo-launcher.sh"
-          chmod 755 "$BUILDROOT/opt/xaneo-pc/xaneo-launcher.sh"
-
-          printf '%s\n' \
-            '[Desktop Entry]' \
-            'Version=1.0' \
-            'Type=Application' \
-            'Name=Xaneo PC' \
-            'GenericName=Xaneo Messenger' \
-            'Comment=Desktop application with onboarding' \
-            'Exec=/opt/xaneo-pc/xaneo-launcher.sh' \
-            'Icon=xaneo' \
-            'StartupWMClass=net.xaneo.pc' \
-            'Terminal=false' \
-            'Categories=Utility;Network;InstantMessaging;' \
-            'Keywords=Xaneo;xaneo;pc;chat;messenger;' \
-            > "$BUILDROOT/usr/share/applications/xaneo.desktop"
-
-          cp macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_256.png "$BUILDROOT/usr/share/icons/hicolor/256x256/apps/xaneo.png"
-          cp macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_512.png "$BUILDROOT/usr/share/icons/hicolor/512x512/apps/xaneo.png"
-          cp macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_512.png "$BUILDROOT/usr/share/pixmaps/xaneo.png"
-
-          ln -sf /opt/xaneo-pc/xaneo-launcher.sh "$BUILDROOT/usr/bin/xaneo-pc"
-          ln -sf /opt/xaneo-pc/xaneo-launcher.sh "$BUILDROOT/usr/bin/xaneo"
-
-          DATE=$(date +'%a %b %d %Y')
-
-          python3 - <<PYEOF
-          import os
-          version   = '$VERSION'
-          date      = '$DATE'
-          rpm_root  = '$RPM_ROOT'
-          buildroot = '$BUILDROOT'
-          spec = f"""Name:           xaneo-pc
-          Version:        {version}
-          Release:        1%{{?dist}}
-          Summary:        Xaneo PC - Desktop application with onboarding
-          License:        Proprietary
-          URL:            https://xaneo.ru
-          AutoReq:        no
-          %global __find_requires %{{nil}}
-          %global __brp_check_rpaths %{{nil}}
-          %global debug_package %{{nil}}
-
-          Requires:       gtk3, glib2
-
-          %description
-          Xaneo PC is a desktop application with onboarding features.
-
-          %files
-          /opt/xaneo-pc/
-          /usr/share/applications/xaneo.desktop
-          /usr/bin/xaneo-pc
-          /usr/bin/xaneo
-          /usr/share/icons/hicolor/256x256/apps/xaneo.png
-          /usr/share/icons/hicolor/512x512/apps/xaneo.png
-          /usr/share/pixmaps/xaneo.png
-
-          %post
-          update-desktop-database /usr/share/applications || true
-          touch --no-create /usr/share/icons/hicolor || true
-          gtk-update-icon-cache /usr/share/icons/hicolor || true
-
-          %changelog
-          * {date} CI Build <ci@xaneo.ru> - {version}-1
-          - Automated build
-          """
-          open(f"{rpm_root}/SPECS/xaneo-pc.spec", "w").write(spec)
-          PYEOF
-
-          QA_RPATHS=0x003f rpmbuild -bb \
-            --define "_topdir $RPM_ROOT" \
-            --buildroot "$BUILDROOT" \
-            "$RPM_ROOT/SPECS/xaneo-pc.spec"
-
-          RPM_FILE=$(find "$RPM_ROOT/RPMS/x86_64" -name "*.rpm" | head -1)
-          cp "$RPM_FILE" "dist/xaneo-${VERSION}-1.x86_64.rpm"
-
-      - name: Build AppImage
-        run: |
+          if ! [[ "$VERSION" =~ ^[0-9] ]]; then VERSION="0.0.0-${VERSION}"; fi
           BUNDLE="build/linux/x64/release/bundle"
           APPDIR="AppImageBuild/xaneo.AppDir"
 
@@ -423,8 +301,9 @@ jobs:
             --icon-file "$APPDIR/usr/share/icons/hicolor/256x256/apps/xaneo.png" \
             --output appimage
 
-          # Перемещаем результат
-          mv Xaneo_PC-*.AppImage "dist/xaneo-${VERSION}-x86_64.AppImage"
+          # Перемещаем результат с чётким именем
+          rm -f dist/*.AppImage 2>/dev/null || true
+          mv Xaneo_PC-*.AppImage "dist/xaneo-v${VERSION}-x86_64.AppImage"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -471,11 +350,15 @@ jobs:
 
       - name: Build Linux Release & RPM Package
         run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          if ! [[ "$VERSION" =~ ^[0-9] ]]; then VERSION="0.0.0-${VERSION}"; fi
+          export VERSION
           export PATH="/root/flutter/bin:$PATH"
           flutter config --enable-linux-desktop
           flutter pub get
           flutter build linux --release
-          ./build_flutter_packages.sh rpm
+          ./build_flutter_packages.sh --version "$VERSION" rpm
 
       - uses: actions/upload-artifact@v4
         with:

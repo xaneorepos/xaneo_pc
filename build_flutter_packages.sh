@@ -142,7 +142,7 @@ create_appdir() {
         for bin in $(find "$appdir/" -type f \( -name "xaneo" -o -name "*.so*" \)); do
             for lib in $(ldd "$bin" 2>/dev/null | awk '{print $3}' | grep '^/'); do
                 case "$(basename "$lib")" in
-                    libc.so*|libm.so*|libpthread.so*|libdl.so*|librt.so*|libgcc_s.so*|libstdc++.so*|ld-linux*|libX11.so*|libxcb.so*|libglib-2.0.so*|libgobject-2.0.so*|libgtk-3.so*|libgdk-3.so*)
+                    libc.so*|libm.so*|libpthread.so*|libdl.so*|librt.so*|libgcc_s.so*|libstdc++.so*|ld-linux*|libX11.so*|libxcb.so*|libglib-2.0.so*|libgobject-2.0.so*|libgtk-3.so*|libgdk-3.so*|libpango*|libcairo*|libharfbuzz*|libfontconfig*|libfreetype*|libgio*|libgmodule*|libatk*|libepoxy*|libwayland*|libdbus*)
                         ;;
                     *)
                         cp -d "$lib"* "$appdir/lib/" 2>/dev/null || true
@@ -151,6 +151,7 @@ create_appdir() {
             done
         done
     done
+    rm -f "$appdir/lib"/libpango* "$appdir/lib"/libcairo* "$appdir/lib"/libharfbuzz* "$appdir/lib"/libfontconfig* "$appdir/lib"/libfreetype* "$appdir/lib"/libgio* "$appdir/lib"/libgmodule* "$appdir/lib"/libatk* "$appdir/lib"/libepoxy* "$appdir/lib"/libwayland* "$appdir/lib"/libdbus* 2>/dev/null || true
     
     # Создаём AppRun если его нет
     if [ ! -f "$appdir/AppRun" ]; then
@@ -385,7 +386,7 @@ EOF
     QA_RPATHS=0x003f rpmbuild -ba "$rpmbuild_dir/SPECS/xaneo-pc.spec"
     
     # Копируем результат в dist
-    cp "$rpmbuild_dir"/RPMS/x86_64/xaneo-pc-*.rpm "$dist_dir/" 2>/dev/null || true
+    cp "$rpmbuild_dir"/RPMS/x86_64/xaneo-pc-*.rpm "$dist_dir/xaneo-pc-${version}-1.fc40.x86_64.rpm" 2>/dev/null || cp "$rpmbuild_dir"/RPMS/x86_64/xaneo-pc-*.rpm "$dist_dir/" 2>/dev/null || true
     local created_rpm=$(ls "$dist_dir"/xaneo-pc-*.rpm 2>/dev/null | head -1)
     if [ -n "$created_rpm" ] && [ -f "$created_rpm" ]; then
         log_success "RPM пакет создан: $created_rpm"
@@ -816,6 +817,14 @@ main() {
     local create_checksums_flag=false
     local create_archive_flag=false
     local version="1.0.0"
+    if [ -n "$VERSION" ]; then
+        version="${VERSION#v}"
+    elif [ -f "pubspec.yaml" ]; then
+        local pubspec_ver=$(grep '^version:' pubspec.yaml | head -1 | awk '{print $2}' | cut -d'+' -f1 | tr -d ' \r\n')
+        if [ -n "$pubspec_ver" ]; then
+            version="$pubspec_ver"
+        fi
+    fi
     
     while [[ $# -gt 0 ]]; do
         case $1 in

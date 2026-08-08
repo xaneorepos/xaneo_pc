@@ -132,54 +132,20 @@ create_appdir() {
     # Копируем содержимое bundle в AppDir
     cp -r "$bundle_dir"/* "$appdir"/
     
-    # Копируем локальные библиотеки libmpv и декодеры в AppDir/lib
+    # Динамически определяем и копируем ВСЕ зависимости libmpv в AppDir/lib
     mkdir -p "$appdir/lib"
-    if [ -d /usr/lib64 ]; then
-        cp -d /usr/lib64/libmpv.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib64/libav*.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib64/libsw*.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib64/libpostproc.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib64/libplacebo.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib64/librubberband.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib64/libbluray.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib64/liblua*.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib64/libmujs.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib64/libjpeg.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib64/libdav1d.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib64/libvpx.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib64/libx264.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib64/libx265.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib64/libbz2.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib64/libcodec2.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib64/libsndio.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib64/libsphinx*.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib64/libsrt*.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib64/libssh*.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib64/libudfread.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib64/libvidstab.so* "$appdir/lib/" 2>/dev/null || true
-    elif [ -d /usr/lib/x86_64-linux-gnu ]; then
-        cp -d /usr/lib/x86_64-linux-gnu/libmpv.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib/x86_64-linux-gnu/libav*.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib/x86_64-linux-gnu/libsw*.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib/x86_64-linux-gnu/libpostproc.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib/x86_64-linux-gnu/libplacebo.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib/x86_64-linux-gnu/librubberband.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib/x86_64-linux-gnu/libbluray.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib/x86_64-linux-gnu/liblua*.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib/x86_64-linux-gnu/libmujs.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib/x86_64-linux-gnu/libjpeg.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib/x86_64-linux-gnu/libdav1d.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib/x86_64-linux-gnu/libvpx.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib/x86_64-linux-gnu/libx264.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib/x86_64-linux-gnu/libx265.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib/x86_64-linux-gnu/libbz2.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib/x86_64-linux-gnu/libcodec2.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib/x86_64-linux-gnu/libsndio.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib/x86_64-linux-gnu/libsphinx*.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib/x86_64-linux-gnu/libsrt*.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib/x86_64-linux-gnu/libssh*.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib/x86_64-linux-gnu/libudfread.so* "$appdir/lib/" 2>/dev/null || true
-        cp -d /usr/lib/x86_64-linux-gnu/libvidstab.so* "$appdir/lib/" 2>/dev/null || true
+    local mpv_lib=$(find /usr/lib /usr/lib64 /usr/lib/x86_64-linux-gnu -name "libmpv.so*" 2>/dev/null | head -1)
+    if [ -n "$mpv_lib" ]; then
+        cp -d "$mpv_lib"* "$appdir/lib/" 2>/dev/null || true
+        for lib in $(ldd "$mpv_lib" 2>/dev/null | awk '{print $3}' | grep '^/'); do
+            case "$(basename "$lib")" in
+                libc.so*|libm.so*|libpthread.so*|libdl.so*|librt.so*|libgcc_s.so*|libstdc++.so*|ld-linux*|libX11.so*|libxcb.so*|libglib-2.0.so*|libgobject-2.0.so*|libgtk-3.so*|libgdk-3.so*)
+                    ;;
+                *)
+                    cp -d "$lib"* "$appdir/lib/" 2>/dev/null || true
+                    ;;
+            esac
+        done
     fi
     
     # Создаём AppRun если его нет

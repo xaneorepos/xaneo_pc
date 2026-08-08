@@ -444,7 +444,7 @@ jobs:
       - name: Install Fedora Build Dependencies
         run: |
           dnf install -y \
-            git curl wget tar xz unzip \
+            git curl wget tar xz unzip which \
             clang cmake ninja-build pkgconf-pkg-config \
             gtk3-devel glib2-devel libnotify-devel \
             libayatana-appindicator-gtk3-devel \

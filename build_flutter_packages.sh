@@ -138,20 +138,48 @@ create_appdir() {
         cp -d /usr/lib64/libmpv.so* "$appdir/lib/" 2>/dev/null || true
         cp -d /usr/lib64/libav*.so* "$appdir/lib/" 2>/dev/null || true
         cp -d /usr/lib64/libsw*.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib64/libpostproc.so* "$appdir/lib/" 2>/dev/null || true
         cp -d /usr/lib64/libplacebo.so* "$appdir/lib/" 2>/dev/null || true
         cp -d /usr/lib64/librubberband.so* "$appdir/lib/" 2>/dev/null || true
         cp -d /usr/lib64/libbluray.so* "$appdir/lib/" 2>/dev/null || true
         cp -d /usr/lib64/liblua*.so* "$appdir/lib/" 2>/dev/null || true
         cp -d /usr/lib64/libmujs.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib64/libjpeg.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib64/libdav1d.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib64/libvpx.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib64/libx264.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib64/libx265.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib64/libbz2.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib64/libcodec2.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib64/libsndio.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib64/libsphinx*.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib64/libsrt*.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib64/libssh*.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib64/libudfread.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib64/libvidstab.so* "$appdir/lib/" 2>/dev/null || true
     elif [ -d /usr/lib/x86_64-linux-gnu ]; then
         cp -d /usr/lib/x86_64-linux-gnu/libmpv.so* "$appdir/lib/" 2>/dev/null || true
         cp -d /usr/lib/x86_64-linux-gnu/libav*.so* "$appdir/lib/" 2>/dev/null || true
         cp -d /usr/lib/x86_64-linux-gnu/libsw*.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib/x86_64-linux-gnu/libpostproc.so* "$appdir/lib/" 2>/dev/null || true
         cp -d /usr/lib/x86_64-linux-gnu/libplacebo.so* "$appdir/lib/" 2>/dev/null || true
         cp -d /usr/lib/x86_64-linux-gnu/librubberband.so* "$appdir/lib/" 2>/dev/null || true
         cp -d /usr/lib/x86_64-linux-gnu/libbluray.so* "$appdir/lib/" 2>/dev/null || true
         cp -d /usr/lib/x86_64-linux-gnu/liblua*.so* "$appdir/lib/" 2>/dev/null || true
         cp -d /usr/lib/x86_64-linux-gnu/libmujs.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib/x86_64-linux-gnu/libjpeg.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib/x86_64-linux-gnu/libdav1d.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib/x86_64-linux-gnu/libvpx.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib/x86_64-linux-gnu/libx264.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib/x86_64-linux-gnu/libx265.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib/x86_64-linux-gnu/libbz2.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib/x86_64-linux-gnu/libcodec2.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib/x86_64-linux-gnu/libsndio.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib/x86_64-linux-gnu/libsphinx*.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib/x86_64-linux-gnu/libsrt*.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib/x86_64-linux-gnu/libssh*.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib/x86_64-linux-gnu/libudfread.so* "$appdir/lib/" 2>/dev/null || true
+        cp -d /usr/lib/x86_64-linux-gnu/libvidstab.so* "$appdir/lib/" 2>/dev/null || true
     fi
     
     # Создаём AppRun если его нет

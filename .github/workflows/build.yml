@@ -276,20 +276,48 @@ jobs:
             cp -d /usr/lib/x86_64-linux-gnu/libmpv.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
             cp -d /usr/lib/x86_64-linux-gnu/libav*.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
             cp -d /usr/lib/x86_64-linux-gnu/libsw*.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib/x86_64-linux-gnu/libpostproc.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
             cp -d /usr/lib/x86_64-linux-gnu/libplacebo.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
             cp -d /usr/lib/x86_64-linux-gnu/librubberband.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
             cp -d /usr/lib/x86_64-linux-gnu/libbluray.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
             cp -d /usr/lib/x86_64-linux-gnu/liblua*.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
             cp -d /usr/lib/x86_64-linux-gnu/libmujs.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib/x86_64-linux-gnu/libjpeg.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib/x86_64-linux-gnu/libdav1d.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib/x86_64-linux-gnu/libvpx.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib/x86_64-linux-gnu/libx264.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib/x86_64-linux-gnu/libx265.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib/x86_64-linux-gnu/libbz2.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib/x86_64-linux-gnu/libcodec2.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib/x86_64-linux-gnu/libsndio.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib/x86_64-linux-gnu/libsphinx*.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib/x86_64-linux-gnu/libsrt*.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib/x86_64-linux-gnu/libssh*.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib/x86_64-linux-gnu/libudfread.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib/x86_64-linux-gnu/libvidstab.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
           elif [ -d /usr/lib64 ]; then
             cp -d /usr/lib64/libmpv.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
             cp -d /usr/lib64/libav*.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
             cp -d /usr/lib64/libsw*.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib64/libpostproc.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
             cp -d /usr/lib64/libplacebo.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
             cp -d /usr/lib64/librubberband.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
             cp -d /usr/lib64/libbluray.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
             cp -d /usr/lib64/liblua*.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
             cp -d /usr/lib64/libmujs.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib64/libjpeg.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib64/libdav1d.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib64/libvpx.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib64/libx264.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib64/libx265.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib64/libbz2.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib64/libcodec2.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib64/libsndio.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib64/libsphinx*.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib64/libsrt*.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib64/libssh*.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib64/libudfread.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
+            cp -d /usr/lib64/libvidstab.so* "$BUILDROOT/opt/xaneo-pc/lib/" 2>/dev/null || true
           fi
 
           chmod -R 755 "$BUILDROOT/opt/xaneo-pc"

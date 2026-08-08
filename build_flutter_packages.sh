@@ -335,7 +335,7 @@ AutoReq:        no
 %global __brp_check_rpaths %{nil}
 %global debug_package %{nil}
 
-Requires:       gtk3, glib2, libnotify, libmpv, libblas, libsixel
+Requires:       gtk3, glib2
 
 %description
 Xaneo PC is a desktop application with onboarding features.

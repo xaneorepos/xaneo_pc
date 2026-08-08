@@ -238,12 +238,12 @@ jobs:
               Package: xaneo-pc
               Version: {version}
               Architecture: amd64
-              Maintainer: Xaneo <info@xaneo.com>
+              Maintainer: Xaneo <info@xaneo.ru>
               Installed-Size: {size}
               Depends: libgtk-3-0, libglib2.0-0, libayatana-appindicator3-1 | libappindicator3-1, libnotify4 | libnotify-bin, libmpv2 | libmpv1
               Section: utils
               Priority: optional
-              Homepage: https://xaneo.com
+              Homepage: https://xaneo.ru
               Description: Xaneo PC - Desktop application with onboarding
                Xaneo PC is a desktop application with onboarding features.
           """).lstrip()
@@ -340,7 +340,7 @@ jobs:
           Release:        1%{{?dist}}
           Summary:        Xaneo PC - Desktop application with onboarding
           License:        Proprietary
-          URL:            https://xaneo.com
+          URL:            https://xaneo.ru
           AutoReq:        no
           %global __find_requires %{{nil}}
           %global __brp_check_rpaths %{{nil}}
@@ -366,7 +366,7 @@ jobs:
           gtk-update-icon-cache /usr/share/icons/hicolor || true
 
           %changelog
-          * {date} CI Build <ci@xaneo.com> - {version}-1
+          * {date} CI Build <ci@xaneo.ru> - {version}-1
           - Automated build
           """
           open(f"{rpm_root}/SPECS/xaneo-pc.spec", "w").write(spec)

@@ -260,12 +260,12 @@ create_deb() {
 Package: xaneo-pc
 Version: $version
 Architecture: amd64
-Maintainer: Xaneo <info@xaneo.com>
+Maintainer: Xaneo <info@xaneo.ru>
 Installed-Size: $(du -s "$pkg_dir/opt/xaneo-pc" | cut -f1)
 Depends: libgtk-3-0, libglib2.0-0
 Section: utils
 Priority: optional
-Homepage: https://xaneo.com
+Homepage: https://xaneo.ru
 Description: Xaneo PC - Desktop application with onboarding
  Xaneo PC is a desktop application with onboarding features.
 EOF
@@ -329,7 +329,8 @@ Version:        $version
 Release:        $release%{?dist}
 Summary:        Xaneo PC - Desktop application with onboarding
 License:        Proprietary
-URL:            https://xaneo.com
+URL:            https://xaneo.ru
+Source0:        xaneo-pc-$version.tar.gz
 AutoReq:        no
 %global __find_requires %{nil}
 %global __brp_check_rpaths %{nil}
@@ -376,7 +377,7 @@ gtk-update-icon-cache -f -t /usr/share/icons/hicolor || true
 /usr/bin/xaneo
 
 %changelog
-* $(LC_ALL=C date +'%a %b %d %Y') Xaneo <info@xaneo.com> - $version-$release
+* $(LC_ALL=C date +'%a %b %d %Y') Xaneo <info@xaneo.ru> - $version-$release
 - Initial package
 EOF
     
@@ -416,7 +417,7 @@ pkgver=$version
 pkgrel=1
 pkgdesc="Xaneo PC - Desktop application with onboarding"
 arch=('x86_64')
-url="https://xaneo.com"
+url="https://xaneo.ru"
 license=('custom')
 depends=('gtk3' 'glib2')
 
@@ -465,13 +466,13 @@ create_alpine() {
     
     # Создаём APKBUILD
     cat > "$pkgbuild_dir/APKBUILD" << EOF
-# Contributor: Xaneo <info@xaneo.com>
-# Maintainer: Xaneo <info@xaneo.com>
+# Contributor: Xaneo <info@xaneo.ru>
+# Maintainer: Xaneo <info@xaneo.ru>
 pkgname=xaneo-pc
 pkgver=$version
 pkgrel=0
 pkgdesc="Xaneo PC - Desktop application with onboarding"
-url="https://xaneo.com"
+url="https://xaneo.ru"
 arch="x86_64"
 license="custom"
 depends="gtk+3.0 glib"
@@ -527,9 +528,9 @@ version=$version
 revision=1
 build_style=meta
 short_desc="Xaneo PC - Desktop application with onboarding"
-maintainer="Xaneo <info@xaneo.com>"
+maintainer="Xaneo <info@xaneo.ru>"
 license="custom"
-homepage="https://xaneo.com"
+homepage="https://xaneo.ru"
 depends="gtk+3 glib"
 
 do_install() {

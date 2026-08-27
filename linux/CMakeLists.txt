@@ -34,6 +34,14 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     "Debug" "Profile" "Release")
 endif()
 
+# -Wno-deprecated-literal-operator only exists on newer Clang/GCC (the
+# diagnostic itself is new). Older toolchains (e.g. the Clang shipped in
+# CI Linux/Fedora images) reject the unrecognized flag outright, and since
+# we build with -Werror that turns into a hard build failure. Probe for
+# support once, so both old and new compilers can build.
+include(CheckCXXCompilerFlag)
+check_cxx_compiler_flag("-Wno-deprecated-literal-operator" XANEO_HAS_WNO_DEPRECATED_LITERAL_OPERATOR)
+
 # Compilation settings that should be applied to most targets.
 #
 # Be cautious about adding new options here, as plugins use this function by
@@ -41,7 +49,10 @@ endif()
 # of modifying this function.
 function(APPLY_STANDARD_SETTINGS TARGET)
   target_compile_features(${TARGET} PUBLIC cxx_std_14)
-  target_compile_options(${TARGET} PRIVATE -Wall -Werror -Wno-error=deprecated-declarations -Wno-deprecated-literal-operator -Wno-error=deprecated-literal-operator)
+  target_compile_options(${TARGET} PRIVATE -Wall -Werror -Wno-error=deprecated-declarations)
+  if(XANEO_HAS_WNO_DEPRECATED_LITERAL_OPERATOR)
+    target_compile_options(${TARGET} PRIVATE -Wno-deprecated-literal-operator -Wno-error=deprecated-literal-operator)
+  endif()
   target_compile_options(${TARGET} PRIVATE "$<$<NOT:$<CONFIG:Debug>>:-O3>")
   target_compile_definitions(${TARGET} PRIVATE "$<$<NOT:$<CONFIG:Debug>>:NDEBUG>")
 endfunction()

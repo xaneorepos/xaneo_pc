@@ -331,6 +331,7 @@ jobs:
             clang cmake ninja-build pkgconf-pkg-config \
             gtk3-devel glib2-devel libnotify-devel \
             libayatana-appindicator-gtk3-devel \
+            libsecret-devel \
             mpv-devel rpm-build fontconfig
 
       - name: Set up Flutter SDK

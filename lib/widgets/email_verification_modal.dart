@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/theme_provider.dart';
+import '../services/runtime_translations.dart';
 import 'package:xaneo/l10n/app_localizations.dart';
 
 /// Модальное окно подтверждения email в iOS-стиле
@@ -163,7 +164,7 @@ class _EmailVerificationModalState extends State<EmailVerificationModal> {
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
                     child: Text(
-                      'Мы отправили код подтверждения на\n${widget.email}',
+                      RuntimeTranslations.instance.resolveByText('Мы отправили код подтверждения на\n${widget.email}'),
                       style: TextStyle(
                         color: isDark ? Colors.grey.shade400 : Colors.grey.shade700,
                         fontSize: 16,
@@ -289,7 +290,7 @@ class _EmailVerificationModalState extends State<EmailVerificationModal> {
                   if (_resendCountdown > 0)
                     Center(
                       child: Text(
-                        'Отправить повторно через $_resendCountdown сек',
+                        RuntimeTranslations.instance.resolveByText('Отправить повторно через $_resendCountdown сек'),
                         style: TextStyle(
                           color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
                           fontSize: 14,

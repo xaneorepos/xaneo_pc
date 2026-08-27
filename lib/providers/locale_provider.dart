@@ -1,16 +1,28 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/language_pack_validator.dart';
+import '../services/local_language_pack_repository.dart';
+import '../services/runtime_translations.dart';
 
-/// Провайдер для управления локализацией приложения
+/// Провайдер для управления локализацией приложения (официальные и пользовательские языки)
 class LocaleProvider extends ChangeNotifier {
   Locale? _locale;
   static const String _prefsKey = 'app_locale_preference';
 
+  final LocalLanguagePackRepository _packRepo = LocalLanguagePackRepository();
+  List<InstalledLanguagePack> _installedPacks = [];
+  InstalledLanguagePack? _activeCustomPack;
+
   LocaleProvider() {
-    _loadLocale();
+    _init();
   }
 
   Locale? get locale => _locale;
+  List<InstalledLanguagePack> get installedCustomPacks => List.unmodifiable(_installedPacks);
+  InstalledLanguagePack? get activeCustomPack => _activeCustomPack;
+  bool get hasActiveCustomPack => _activeCustomPack != null;
 
   static const List<Locale> supportedLocales = [
     Locale('ru'),
@@ -34,12 +46,28 @@ class LocaleProvider extends ChangeNotifier {
     {'code': 'ar', 'name': 'العربية'},
   ];
 
+  Future<void> _init() async {
+    await _loadInstalledPacks();
+    final activeId = await _packRepo.getActivePackId();
+    if (activeId != null) {
+      await activateCustomPack(activeId, notify: false);
+    } else {
+      await _loadLocale();
+    }
+    notifyListeners();
+  }
+
+  Future<void> _loadInstalledPacks() async {
+    _installedPacks = await _packRepo.getInstalledPacks();
+  }
+
   Future<void> _loadLocale() async {
     final prefs = await SharedPreferences.getInstance();
     final langCode = prefs.getString(_prefsKey);
     if (langCode != null) {
       _locale = Locale(langCode);
-      notifyListeners();
+    } else {
+      _locale = const Locale('ru');
     }
   }
 
@@ -53,14 +81,77 @@ class LocaleProvider extends ChangeNotifier {
   }
 
   void setLocale(Locale locale) {
+    _activeCustomPack = null;
+    _packRepo.setActivePackId(null);
+    RuntimeTranslations.instance.setActivePack(null);
+
     _locale = locale;
     _saveLocale(locale.languageCode);
     notifyListeners();
   }
 
   void clearLocale() {
-    _locale = null;
-    _saveLocale(null);
+    _activeCustomPack = null;
+    _packRepo.setActivePackId(null);
+    RuntimeTranslations.instance.setActivePack(null);
+
+    _locale = const Locale('ru');
+    _saveLocale('ru');
+    notifyListeners();
+  }
+
+  /// Activate an installed custom language pack by ID
+  Future<bool> activateCustomPack(String packId, {bool notify = true}) async {
+    final packContent = await _packRepo.loadPackContent(packId);
+    if (packContent == null) {
+      // If file missing or corrupted, revert to fallback
+      await _packRepo.setActivePackId(null);
+      _activeCustomPack = null;
+      RuntimeTranslations.instance.setActivePack(null);
+      await _loadLocale();
+      if (notify) notifyListeners();
+      return false;
+    }
+
+    final packMeta = _installedPacks.where((p) => p.id == packId).firstOrNull;
+    _activeCustomPack = packMeta;
+    await _packRepo.setActivePackId(packId);
+
+    RuntimeTranslations.instance.setActivePack(packContent);
+
+    // Set Flutter framework locale to fallback_locale for Material widgets
+    final fallback = packContent['fallback_locale'] as String? ?? 'ru';
+    _locale = Locale(fallback);
+
+    if (notify) notifyListeners();
+    return true;
+  }
+
+  /// Validate a raw JSON string against the manifest
+  Future<ValidationResult> validatePackJson(String jsonString) async {
+    final manifest = await RuntimeTranslations.instance.getManifest();
+    return LanguagePackValidator.validate(jsonString, manifest);
+  }
+
+  /// Install a validated pack and activate it
+  Future<InstalledLanguagePack> installAndActivatePack(Map<String, dynamic> normalizedPack) async {
+    final installed = await _packRepo.installPack(normalizedPack);
+    await _loadInstalledPacks();
+    await activateCustomPack(installed.id);
+    return installed;
+  }
+
+  /// Delete an installed custom pack
+  Future<void> deleteCustomPack(String packId) async {
+    final wasActive = _activeCustomPack?.id == packId;
+    await _packRepo.deletePack(packId);
+    await _loadInstalledPacks();
+
+    if (wasActive) {
+      _activeCustomPack = null;
+      RuntimeTranslations.instance.setActivePack(null);
+      await _loadLocale();
+    }
     notifyListeners();
   }
 }

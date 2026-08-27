@@ -52,6 +52,9 @@ class _CustomTextFormFieldState extends State<CustomTextFormField> {
   @override
   void didUpdateWidget(covariant CustomTextFormField oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.isPasswordField != oldWidget.isPasswordField) {
+      _obscureText = widget.isPasswordField;
+    }
     if (widget.focusNode != oldWidget.focusNode) {
       oldWidget.focusNode?.removeListener(_handleFocusChange);
       _focusNode = widget.focusNode ?? FocusNode();
@@ -95,7 +98,7 @@ class _CustomTextFormFieldState extends State<CustomTextFormField> {
             });
           },
           child: FaIcon(
-            _obscureText ? FontAwesomeIcons.eyeSlash : FontAwesomeIcons.eye,
+            _obscureText ? FontAwesomeIcons.eye : FontAwesomeIcons.eyeSlash,
             color: isDark ? Colors.grey.shade500 : Colors.grey.shade500,
             size: 16 * scale,
           ),

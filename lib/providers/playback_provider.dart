@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import '../services/api_service.dart';
+import '../services/desktop_media_session_service.dart';
 import '../utils/ssl_helper.dart';
 
 class PlaybackItem {
@@ -13,6 +15,7 @@ class PlaybackItem {
   final String subtitle;
   final String? mimeType;
   final Duration? duration;
+  final Uri? artUri;
   final Map<String, dynamic>? payload;
 
   PlaybackItem({
@@ -21,6 +24,7 @@ class PlaybackItem {
     required this.subtitle,
     this.mimeType,
     this.duration,
+    this.artUri,
     this.payload,
   });
 }
@@ -41,12 +45,15 @@ class PlaybackProvider extends ChangeNotifier {
   Duration _duration = Duration.zero;
   bool _isLoading = false;
   bool _isSeeking = false;
-  bool _isSimulated = false;
   bool _isVideo = false;
+  bool _isSimulated = false;
   Timer? _simulatedTimer;
 
   List<PlaybackItem> _playlist = [];
   int _currentIndex = -1;
+
+  bool _isShuffle = false;
+  LoopMode _loopMode = LoopMode.off;
 
   String? get currentAudioUrl => _currentAudioUrl;
   String get title => _title;
@@ -58,21 +65,85 @@ class PlaybackProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
   bool get isVideo => _isVideo;
 
+  bool get isShuffle => _isShuffle;
+  LoopMode get loopMode => _loopMode;
+
   List<PlaybackItem> get playlist => List.unmodifiable(_playlist);
   int get currentIndex => _currentIndex;
-  bool get hasNext => _playlist.isNotEmpty && _currentIndex >= 0 && _currentIndex < _playlist.length - 1;
-  bool get hasPrevious => _playlist.isNotEmpty && _currentIndex > 0;
+  bool get hasNext =>
+      _playlist.isNotEmpty &&
+      (_isShuffle ||
+          _loopMode == LoopMode.all ||
+          _currentIndex < _playlist.length - 1);
+  bool get hasPrevious =>
+      _playlist.isNotEmpty &&
+      (_isShuffle || _loopMode == LoopMode.all || _currentIndex > 0);
+
+  void toggleShuffle() {
+    _isShuffle = !_isShuffle;
+    _updateMediaSession();
+    notifyListeners();
+  }
+
+  void setShuffle(bool enabled) {
+    _isShuffle = enabled;
+    _updateMediaSession();
+    notifyListeners();
+  }
+
+  void toggleLoopMode() {
+    switch (_loopMode) {
+      case LoopMode.off:
+        _loopMode = LoopMode.all;
+        break;
+      case LoopMode.all:
+        _loopMode = LoopMode.one;
+        break;
+      case LoopMode.one:
+        _loopMode = LoopMode.off;
+        break;
+    }
+    _updateMediaSession();
+    notifyListeners();
+  }
+
+  void setLoopMode(LoopMode mode) {
+    _loopMode = mode;
+    _updateMediaSession();
+    notifyListeners();
+  }
+
+  void _updateMediaSession() {
+    final hasTrack = _currentAudioUrl != null && _currentAudioUrl!.isNotEmpty && !_isVideo && !_isSimulated;
+    DesktopMediaSessionService.instance.updatePlaybackState(
+      title: _title,
+      artist: _subtitle,
+      isPlaying: _isPlaying,
+      hasTrack: hasTrack,
+      position: _position,
+      duration: _duration,
+      hasNext: hasNext,
+      hasPrevious: hasPrevious,
+    );
+  }
 
   PlaybackProvider() {
+    DesktopMediaSessionService.instance.setPlaybackProvider(this);
+    DesktopMediaSessionService.instance.init();
+
     _playerStateSub = _player.playerStateStream.listen((state) {
       _isPlaying = state.playing;
       if (state.processingState == ProcessingState.completed) {
         _isPlaying = false;
         _position = Duration.zero;
-        if (hasNext) {
+        if (_loopMode == LoopMode.one) {
+          seek(Duration.zero);
+          resume();
+        } else if (hasNext) {
           playNext();
         }
       }
+      _updateMediaSession();
       notifyListeners();
     });
 
@@ -357,6 +428,16 @@ class PlaybackProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> playFromPlaylist(List<PlaybackItem> items, {String? selectedUrl}) async {
+    if (items.isEmpty) return;
+    setPlaylist(items, initialUrl: selectedUrl);
+    final targetIndex = selectedUrl != null
+        ? items.indexWhere((item) => item.url == selectedUrl)
+        : 0;
+    final indexToPlay = targetIndex != -1 ? targetIndex : 0;
+    await playItemAtIndex(indexToPlay);
+  }
+
   Future<void> playItemAtIndex(int index) async {
     if (index < 0 || index >= _playlist.length) return;
     _currentIndex = index;
@@ -371,8 +452,28 @@ class PlaybackProvider extends ChangeNotifier {
   }
 
   Future<void> playNext() async {
-    if (_playlist.isNotEmpty && _currentIndex < _playlist.length - 1) {
+    if (_playlist.isEmpty) return;
+
+    if (_loopMode == LoopMode.one) {
+      await seek(Duration.zero);
+      resume();
+      return;
+    }
+
+    if (_isShuffle && _playlist.length > 1) {
+      final random = Random();
+      int nextIdx = random.nextInt(_playlist.length);
+      if (nextIdx == _currentIndex) {
+        nextIdx = (nextIdx + 1) % _playlist.length;
+      }
+      await playItemAtIndex(nextIdx);
+      return;
+    }
+
+    if (_currentIndex < _playlist.length - 1) {
       await playItemAtIndex(_currentIndex + 1);
+    } else if (_loopMode == LoopMode.all) {
+      await playItemAtIndex(0);
     }
   }
 
@@ -381,8 +482,22 @@ class PlaybackProvider extends ChangeNotifier {
       await seek(Duration.zero);
       return;
     }
-    if (_playlist.isNotEmpty && _currentIndex > 0) {
+    if (_playlist.isEmpty) return;
+
+    if (_isShuffle && _playlist.length > 1) {
+      final random = Random();
+      int prevIdx = random.nextInt(_playlist.length);
+      if (prevIdx == _currentIndex) {
+        prevIdx = (prevIdx - 1 + _playlist.length) % _playlist.length;
+      }
+      await playItemAtIndex(prevIdx);
+      return;
+    }
+
+    if (_currentIndex > 0) {
       await playItemAtIndex(_currentIndex - 1);
+    } else if (_loopMode == LoopMode.all) {
+      await playItemAtIndex(_playlist.length - 1);
     } else {
       await seek(Duration.zero);
     }
@@ -403,6 +518,7 @@ class PlaybackProvider extends ChangeNotifier {
     _duration = Duration.zero;
     _isLoading = false;
     _isSeeking = false;
+    _updateMediaSession();
     notifyListeners();
   }
 

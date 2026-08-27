@@ -20,6 +20,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../providers/theme_provider.dart';
 import '../providers/scale_provider.dart';
 import '../providers/playback_provider.dart';
+import '../utils/audio_metadata.dart';
 import '../l10n/app_localizations.dart';
 import '../widgets/advanced_background.dart';
 import '../widgets/voice_waveform_slider.dart';
@@ -36,11 +37,13 @@ import '../services/account_service.dart';
 import '../services/websocket_service.dart';
 import '../services/logger_service.dart';
 import '../services/system_tray_service.dart';
+import '../services/runtime_translations.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import '../widgets/custom_toast.dart';
 import '../widgets/custom_context_menu.dart';
 import '../widgets/chat_action_confirmation_modal.dart';
+import '../widgets/device_auth_approval_modal.dart';
 import '../utils/local_proxy.dart';
 import '../services/webrtc/call_manager.dart';
 import '../services/webrtc/webrtc_signaling_service.dart';
@@ -116,6 +119,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
   // Polling timer
   Timer? _pollingTimer;
+  Timer? _deviceAuthTimer;
+  final Set<String> _handledDeviceAuthRequests = {};
+  bool _deviceAuthDialogOpen = false;
   WebSocketService? _webSocketService;
   final Map<String, String> _sentPlaintexts = {};
   final Map<String, String> _localVideoPaths = {};
@@ -176,6 +182,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
     _loadPreferences();
     _initMessenger();
     _checkAppUpdate();
+    _checkPendingDeviceAuth();
+    _deviceAuthTimer = Timer.periodic(
+      const Duration(seconds: 60),
+      (_) => _checkPendingDeviceAuth(),
+    );
     SystemTrayService().setOpenSettingsCallback(() {
       if (mounted) {
         XaneoSettingsModal.open(
@@ -265,6 +276,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
     _messageController.removeListener(_onMessageTextChanged);
     _webSocketService?.dispose();
     _pollingTimer?.cancel();
+    _deviceAuthTimer?.cancel();
     _typingExpiryTimer?.cancel();
     _typingTimer?.cancel();
     _searchController.dispose();
@@ -273,6 +285,83 @@ class _MessengerScreenState extends State<MessengerScreen> {
     _scrollController.dispose();
     _cameraController?.dispose();
     super.dispose();
+  }
+
+  Future<void> _checkPendingDeviceAuth() async {
+    if (!mounted || _deviceAuthDialogOpen || _apiService.isThrottled) return;
+    final response = await _apiService.getPendingDeviceLogins();
+    final requests = response.data?['requests'];
+    if (!response.success || requests is! List) return;
+    for (final raw in requests) {
+      if (raw is! Map) continue;
+      final request = Map<String, dynamic>.from(raw);
+      final id = request['challenge_id']?.toString();
+      if (id == null || _handledDeviceAuthRequests.contains(id)) continue;
+      _handledDeviceAuthRequests.add(id);
+      await _showDeviceAuthApproval(request);
+      break;
+    }
+  }
+
+  Future<void> _showDeviceAuthApproval(Map<String, dynamic> request) async {
+    if (!mounted) return;
+    final rt = RuntimeTranslations.instance;
+    _deviceAuthDialogOpen = true;
+    final challenge = request['challenge_id']?.toString() ?? '';
+    final client =
+        request['client_type']?.toString() ?? rt.resolveByText('устройство');
+    final device = request['device_name']?.toString();
+    final approved = await DeviceAuthApprovalModal.confirm(
+      context: context,
+      deviceName: device?.isNotEmpty == true
+          ? device!
+          : rt.resolveByText('Новое устройство'),
+      clientName: _deviceAuthClientName(client),
+      ipAddress: request['ip_address']?.toString().trim().isNotEmpty == true
+          ? request['ip_address'].toString()
+          : rt.resolveByText('Не определён'),
+    );
+    try {
+      Map<String, dynamic>? transfer;
+      if (approved == true) {
+        final publicKey = request['recipient_public_key']?.toString();
+        if (publicKey != null) {
+          transfer = await _cryptoService.createQrTransferPayload(
+            publicKey,
+            challenge,
+          );
+        }
+      }
+      final result = await _apiService.decideDeviceLogin(
+        challengeId: challenge,
+        confirmed: approved == true,
+        transferPayload: transfer,
+      );
+      if (!result.success && mounted) {
+        CustomToast.show(
+          context,
+          result.error ??
+              rt.resolveByText('Не удалось обработать запрос на вход'),
+          type: ToastType.error,
+        );
+      }
+    } finally {
+      _deviceAuthDialogOpen = false;
+    }
+  }
+
+  String _deviceAuthClientName(String client) {
+    final rt = RuntimeTranslations.instance;
+    switch (client.toLowerCase()) {
+      case 'web':
+        return rt.resolveByText('Веб-версия Xaneo');
+      case 'pc':
+        return 'Xaneo PC';
+      case 'mobile':
+        return 'Xaneo Mobile';
+      default:
+        return client.isEmpty ? rt.resolveByText('Неизвестный клиент') : client;
+    }
   }
 
   // --- LOCAL CACHING / DB PERSISTENCE METHODS ---
@@ -294,11 +383,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
       final chatKeysRaw = prefs.getString(
         'cached_chat_symmetric_keys_$myIdStr',
       );
+      _chatSymmetricKeys.clear();
       if (chatKeysRaw != null) {
-        final map = jsonDecode(chatKeysRaw) as Map<String, dynamic>;
-        map.forEach((k, v) {
-          if (v is String) _chatSymmetricKeys[k] = v;
-        });
+        // Legacy plaintext key cache. Never restore secret chat keys from
+        // SharedPreferences; fetch them again for the active session.
+        await prefs.remove('cached_chat_symmetric_keys_$myIdStr');
       }
     } catch (e) {
       print('Error loading keys from local cache: $e');
@@ -317,14 +406,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
   }
 
   Future<void> _saveChatSymmetricKeys() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final myIdStr = _myId?.toString() ?? 'default';
-      await prefs.setString(
-        'cached_chat_symmetric_keys_$myIdStr',
-        jsonEncode(_chatSymmetricKeys),
-      );
-    } catch (_) {}
+    // Symmetric E2EE keys intentionally remain memory-only.
   }
 
   Future<void> _loadChatsFromLocalCache() async {
@@ -362,6 +444,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
           });
 
           for (var chat in [...chatList, ...archivedList]) {
+            _cacheFromChat(chat);
+            final rawLastMsg = chat['last_message'];
+            if (rawLastMsg != null && _isMessageDeleted(rawLastMsg)) {
+              chat['last_message'] = null;
+            }
             final lastMsg = chat['last_message'];
             if (lastMsg != null) {
               _decryptSingleMessage(
@@ -397,49 +484,52 @@ class _MessengerScreenState extends State<MessengerScreen> {
     return _areSameChat(selectedId, chatId);
   }
 
+  bool _isMessageDeleted(dynamic msg) {
+    if (msg == null || msg is! Map) return false;
+    if (msg['is_deleted'] == true) return true;
+    if (msg['delete_for_all'] == true) return true;
+    final deletedFor = msg['deleted_for_users'];
+    if (deletedFor is List) {
+      final myIdInt = _myId is int
+          ? _myId
+          : int.tryParse(_myId?.toString() ?? '');
+      final myIdStr = _myId?.toString();
+      if (myIdInt != null && deletedFor.contains(myIdInt)) return true;
+      if (myIdStr != null && deletedFor.contains(myIdStr)) return true;
+    }
+    return false;
+  }
+
+  Future<void> _clearLocalMessagesCache(String chatId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final myIdStr = _myId?.toString() ?? 'default';
+      await prefs.remove('cached_messages_${myIdStr}_$chatId');
+      await prefs.remove('cached_decrypted_${myIdStr}_$chatId');
+      if (chatId == 'favorites' || chatId.startsWith('favorites_')) {
+        await prefs.remove('cached_messages_${myIdStr}_favorites');
+        await prefs.remove('cached_decrypted_${myIdStr}_favorites');
+        if (_myId != null) {
+          await prefs.remove(
+            'cached_messages_${myIdStr}_favorites_user_$_myId',
+          );
+          await prefs.remove(
+            'cached_decrypted_${myIdStr}_favorites_user_$_myId',
+          );
+        }
+      }
+    } catch (_) {}
+  }
+
   Future<void> _loadMessagesFromLocalCache(String chatId) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final myIdStr = _myId?.toString() ?? 'default';
-      final cachedMsgsRaw = prefs.getString(
-        'cached_messages_${myIdStr}_$chatId',
-      );
-      final cachedDecryptedRaw = prefs.getString(
-        'cached_decrypted_${myIdStr}_$chatId',
-      );
-
-      if (cachedDecryptedRaw != null) {
-        try {
-          final Map<String, dynamic> decMap = jsonDecode(cachedDecryptedRaw);
-          decMap.forEach((k, v) {
-            final id = int.tryParse(k);
-            if (id != null) _decryptedMessages[id] = v.toString();
-          });
-        } catch (_) {}
-      }
-
-      if (cachedMsgsRaw != null) {
-        final msgList = (jsonDecode(cachedMsgsRaw) as List)
-            .map((m) => Map<String, dynamic>.from(m as Map))
-            .toList();
-
-        if (mounted && msgList.isNotEmpty) {
-          for (final msg in msgList) {
-            _cacheAuthorProfileFromMsg(msg);
-          }
-          await _decryptAllMessages(
-            msgList,
-            chatId,
-            _selectedChat?['other_user'],
-          );
-          if (mounted && _isCurrentChat(chatId)) {
-            setState(() {
-              _messages = msgList;
-              _isMessagesLoading = false;
-            });
-          }
-        }
-      }
+      // Message objects are mutated with decrypted reply text for rendering,
+      // so even the nominally encrypted cache could contain plaintext. Keep
+      // messages memory-only until an encrypted database is introduced.
+      await prefs.remove('cached_messages_${myIdStr}_$chatId');
+      await prefs.remove('cached_decrypted_${myIdStr}_$chatId');
     } catch (e) {
       print('Error loading messages from local cache: $e');
     }
@@ -449,24 +539,8 @@ class _MessengerScreenState extends State<MessengerScreen> {
     try {
       final prefs = await SharedPreferences.getInstance();
       final myIdStr = _myId?.toString() ?? 'default';
-      final msgsToStore = _messages.take(50).toList();
-      await prefs.setString(
-        'cached_messages_${myIdStr}_$chatId',
-        jsonEncode(msgsToStore),
-      );
-
-      final decryptedToStore = <String, String>{};
-      for (final msg in msgsToStore) {
-        final dynamic rawId = msg['id'];
-        final id = rawId is int ? rawId : int.tryParse(rawId?.toString() ?? '');
-        if (id != null && _decryptedMessages.containsKey(id)) {
-          decryptedToStore[id.toString()] = _decryptedMessages[id]!;
-        }
-      }
-      await prefs.setString(
-        'cached_decrypted_${myIdStr}_$chatId',
-        jsonEncode(decryptedToStore),
-      );
+      await prefs.remove('cached_messages_${myIdStr}_$chatId');
+      await prefs.remove('cached_decrypted_${myIdStr}_$chatId');
     } catch (_) {}
   }
 
@@ -481,6 +555,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
         }
       }
     }
+    Logger.info(
+      'E2EE-DIAG',
+      'Messenger crypto initialized: hasKeys=${_cryptoService.hasKeys}, '
+          'publicFp=${_cryptoService.x25519PublicKeyFingerprint}',
+    );
 
     // 2. Load profile & save current account to switcher list
     final token = await _apiService.getAccessToken();
@@ -494,6 +573,30 @@ class _MessengerScreenState extends State<MessengerScreen> {
           final dynamic rawMyId = profileRes.data!['id'];
           _myId = rawMyId is int ? rawMyId : int.tryParse(rawMyId.toString());
           _myUsername = profileRes.data!['username'] as String?;
+
+          if (_myProfile != null) {
+            final myAv =
+                _myProfile!['custom_avatar']?.toString() ??
+                _myProfile!['avatar']?.toString() ??
+                _myProfile!['avatar_url']?.toString();
+            final myGrad = _myProfile!['avatar_gradient']?.toString() ?? '';
+            final myFirst =
+                _myProfile!['first_name']?.toString() ??
+                _myProfile!['username']?.toString() ??
+                '';
+            if (_isRealAvatar(myAv)) {
+              final prof = {
+                'first_name': myFirst,
+                'avatar': myAv,
+                'avatar_gradient': myGrad,
+              };
+              if (_myId != null) _msgAuthorProfiles[_myId.toString()] = prof;
+              if (_myUsername != null && _myUsername!.isNotEmpty) {
+                _msgAuthorProfiles[_myUsername!] = prof;
+                _msgAuthorProfiles[_myUsername!.toLowerCase()] = prof;
+              }
+            }
+          }
         });
 
         // Connect signaling service
@@ -546,8 +649,37 @@ class _MessengerScreenState extends State<MessengerScreen> {
           final idInt = userId is int
               ? userId
               : int.tryParse(userId?.toString() ?? '');
+          final username =
+              item['contact_user_username']?.toString() ??
+              item['username']?.toString();
+          final firstName =
+              item['contact_user_first_name']?.toString() ??
+              item['custom_name']?.toString() ??
+              item['first_name']?.toString();
+          final avatar =
+              item['custom_avatar']?.toString() ??
+              item['contact_user_avatar']?.toString() ??
+              item['avatar']?.toString() ??
+              item['avatar_url']?.toString();
+          final gradient =
+              item['contact_user_avatar_gradient']?.toString() ??
+              item['avatar_gradient']?.toString() ??
+              '';
+
           if (idInt != null) {
             map[idInt] = item;
+          }
+          if (_isRealAvatar(avatar)) {
+            final prof = {
+              'first_name': firstName ?? username ?? '',
+              'avatar': avatar,
+              'avatar_gradient': gradient,
+            };
+            if (idInt != null) _msgAuthorProfiles[idInt.toString()] = prof;
+            if (username != null && username.isNotEmpty) {
+              _msgAuthorProfiles[username] = prof;
+              _msgAuthorProfiles[username.toLowerCase()] = prof;
+            }
           }
         }
       }
@@ -726,11 +858,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
           type: MaterialType.transparency,
           child: Center(
             child: Container(
-              width: 340 * scale,
+              width: 360 * scale,
               margin: EdgeInsets.all(20 * scale),
               decoration: BoxDecoration(
                 color: bgColor,
-                borderRadius: BorderRadius.circular(12 * scale),
+                borderRadius: BorderRadius.circular(14 * scale),
                 border: Border.all(color: borderColor, width: 1),
                 boxShadow: [
                   BoxShadow(
@@ -750,19 +882,20 @@ class _MessengerScreenState extends State<MessengerScreen> {
                       20 * scale,
                       20 * scale,
                       20 * scale,
-                      12 * scale,
+                      16 * scale,
                     ),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          l10n?.startCall ?? 'Начать звонок',
-                          style: TextStyle(
-                            fontSize: 10 * scale,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: 1.5 * scale,
-                            color: isDark ? Colors.white38 : Colors.black38,
-                            fontFamily: 'Inter',
+                        Expanded(
+                          child: Text(
+                            l10n?.startCall ?? 'Выберите родъ связи',
+                            style: TextStyle(
+                              fontSize: 17 * scale,
+                              fontWeight: FontWeight.bold,
+                              color: isDark ? Colors.white : Colors.black87,
+                              fontFamily: 'Inter',
+                            ),
                           ),
                         ),
                         GestureDetector(
@@ -771,8 +904,8 @@ class _MessengerScreenState extends State<MessengerScreen> {
                             cursor: SystemMouseCursors.click,
                             child: Icon(
                               Icons.close_rounded,
-                              size: 16 * scale,
-                              color: isDark ? Colors.white38 : Colors.black38,
+                              size: 20 * scale,
+                              color: isDark ? Colors.white60 : Colors.black54,
                             ),
                           ),
                         ),
@@ -782,104 +915,20 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
                   // Call options list
                   Padding(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: 10 * scale,
-                      vertical: 8 * scale,
+                    padding: EdgeInsets.fromLTRB(
+                      16 * scale,
+                      0,
+                      16 * scale,
+                      16 * scale,
                     ),
                     child: Column(
                       children: [
-                        // Audio Call
+                        // Video Call (1st option, matching Web)
                         Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            onTap: () {
-                              Navigator.of(context).pop();
-                              _startCall('audio');
-                            },
-                            hoverColor: isDark
-                                ? Colors.white.withOpacity(0.06)
-                                : Colors.black.withOpacity(0.04),
-                            splashColor: isDark
-                                ? Colors.white.withOpacity(0.12)
-                                : Colors.black.withOpacity(0.08),
-                            borderRadius: BorderRadius.circular(8 * scale),
-                            child: Padding(
-                              padding: EdgeInsets.symmetric(
-                                horizontal: 10 * scale,
-                                vertical: 10 * scale,
-                              ),
-                              child: Row(
-                                children: [
-                                  Container(
-                                    padding: EdgeInsets.all(10 * scale),
-                                    decoration: BoxDecoration(
-                                      color: isDark
-                                          ? const Color(
-                                              0xFF10B981,
-                                            ).withOpacity(0.15)
-                                          : const Color(
-                                              0xFF10B981,
-                                            ).withOpacity(0.1),
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: Icon(
-                                      Icons.phone_rounded,
-                                      color: const Color(0xFF10B981),
-                                      size: 18 * scale,
-                                    ),
-                                  ),
-                                  SizedBox(width: 14 * scale),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          l10n?.audioCall ?? 'Голосовой звонок',
-                                          style: TextStyle(
-                                            color: isDark
-                                                ? Colors.white
-                                                : Colors.black87,
-                                            fontSize: 13.5 * scale,
-                                            fontWeight: FontWeight.w600,
-                                            fontFamily: 'Inter',
-                                          ),
-                                        ),
-                                        SizedBox(height: 2 * scale),
-                                        Text(
-                                          l10n?.audioCallDesc ??
-                                              'Позвонить по голосовой связи',
-                                          style: TextStyle(
-                                            color: isDark
-                                                ? Colors.white38
-                                                : Colors.black38,
-                                            fontSize: 11.5 * scale,
-                                            fontFamily: 'Inter',
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-
-                        SizedBox(height: 4 * scale),
-                        Divider(
                           color: isDark
-                              ? Colors.white.withOpacity(0.05)
-                              : Colors.black.withOpacity(0.05),
-                          height: 1,
-                          indent: 10 * scale,
-                          endIndent: 10 * scale,
-                        ),
-                        SizedBox(height: 4 * scale),
-
-                        // Video Call
-                        Material(
-                          color: Colors.transparent,
+                              ? const Color(0xFF191919)
+                              : const Color(0xFFF7F7F8),
+                          borderRadius: BorderRadius.circular(12 * scale),
                           child: InkWell(
                             onTap: () {
                               Navigator.of(context).pop();
@@ -891,30 +940,36 @@ class _MessengerScreenState extends State<MessengerScreen> {
                             splashColor: isDark
                                 ? Colors.white.withOpacity(0.12)
                                 : Colors.black.withOpacity(0.08),
-                            borderRadius: BorderRadius.circular(8 * scale),
-                            child: Padding(
-                              padding: EdgeInsets.symmetric(
-                                horizontal: 10 * scale,
-                                vertical: 10 * scale,
+                            borderRadius: BorderRadius.circular(12 * scale),
+                            child: Container(
+                              padding: EdgeInsets.all(12 * scale),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(12 * scale),
+                                border: Border.all(
+                                  color: isDark
+                                      ? Colors.white.withOpacity(0.08)
+                                      : Colors.black.withOpacity(0.08),
+                                ),
                               ),
                               child: Row(
                                 children: [
                                   Container(
-                                    padding: EdgeInsets.all(10 * scale),
+                                    width: 44 * scale,
+                                    height: 44 * scale,
                                     decoration: BoxDecoration(
                                       color: isDark
-                                          ? const Color(
-                                              0xFF3B82F6,
-                                            ).withOpacity(0.15)
-                                          : const Color(
-                                              0xFF3B82F6,
-                                            ).withOpacity(0.1),
-                                      shape: BoxShape.circle,
+                                          ? Colors.white.withOpacity(0.08)
+                                          : Colors.black.withOpacity(0.05),
+                                      borderRadius: BorderRadius.circular(
+                                        10 * scale,
+                                      ),
                                     ),
                                     child: Icon(
                                       Icons.videocam_rounded,
-                                      color: const Color(0xFF3B82F6),
-                                      size: 18 * scale,
+                                      color: isDark
+                                          ? Colors.white70
+                                          : Colors.black87,
+                                      size: 22 * scale,
                                     ),
                                   ),
                                   SizedBox(width: 14 * scale),
@@ -929,20 +984,108 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                             color: isDark
                                                 ? Colors.white
                                                 : Colors.black87,
-                                            fontSize: 13.5 * scale,
+                                            fontSize: 14 * scale,
                                             fontWeight: FontWeight.w600,
                                             fontFamily: 'Inter',
                                           ),
                                         ),
-                                        SizedBox(height: 2 * scale),
+                                        SizedBox(height: 3 * scale),
                                         Text(
                                           l10n?.videoCallDesc ??
-                                              'Позвонить с включенной камерой',
+                                              'С видео и аудио',
                                           style: TextStyle(
                                             color: isDark
-                                                ? Colors.white38
-                                                : Colors.black38,
-                                            fontSize: 11.5 * scale,
+                                                ? Colors.white60
+                                                : Colors.black54,
+                                            fontSize: 12 * scale,
+                                            fontFamily: 'Inter',
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+
+                        SizedBox(height: 10 * scale),
+
+                        // Audio Call (2nd option, matching Web)
+                        Material(
+                          color: isDark
+                              ? const Color(0xFF191919)
+                              : const Color(0xFFF7F7F8),
+                          borderRadius: BorderRadius.circular(12 * scale),
+                          child: InkWell(
+                            onTap: () {
+                              Navigator.of(context).pop();
+                              _startCall('audio');
+                            },
+                            hoverColor: isDark
+                                ? Colors.white.withOpacity(0.06)
+                                : Colors.black.withOpacity(0.04),
+                            splashColor: isDark
+                                ? Colors.white.withOpacity(0.12)
+                                : Colors.black.withOpacity(0.08),
+                            borderRadius: BorderRadius.circular(12 * scale),
+                            child: Container(
+                              padding: EdgeInsets.all(12 * scale),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(12 * scale),
+                                border: Border.all(
+                                  color: isDark
+                                      ? Colors.white.withOpacity(0.08)
+                                      : Colors.black.withOpacity(0.08),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 44 * scale,
+                                    height: 44 * scale,
+                                    decoration: BoxDecoration(
+                                      color: isDark
+                                          ? Colors.white.withOpacity(0.08)
+                                          : Colors.black.withOpacity(0.05),
+                                      borderRadius: BorderRadius.circular(
+                                        10 * scale,
+                                      ),
+                                    ),
+                                    child: Icon(
+                                      Icons.phone_rounded,
+                                      color: isDark
+                                          ? Colors.white70
+                                          : Colors.black87,
+                                      size: 20 * scale,
+                                    ),
+                                  ),
+                                  SizedBox(width: 14 * scale),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          l10n?.audioCall ?? 'Голосовой звонок',
+                                          style: TextStyle(
+                                            color: isDark
+                                                ? Colors.white
+                                                : Colors.black87,
+                                            fontSize: 14 * scale,
+                                            fontWeight: FontWeight.w600,
+                                            fontFamily: 'Inter',
+                                          ),
+                                        ),
+                                        SizedBox(height: 3 * scale),
+                                        Text(
+                                          l10n?.audioCallDesc ?? 'Только аудио',
+                                          style: TextStyle(
+                                            color: isDark
+                                                ? Colors.white60
+                                                : Colors.black54,
+                                            fontSize: 12 * scale,
                                             fontFamily: 'Inter',
                                           ),
                                         ),
@@ -1144,12 +1287,31 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
   void _startPolling() {
     _pollingTimer?.cancel();
-    _pollingTimer = Timer.periodic(const Duration(seconds: 8), (timer) {
-      _loadChats(silent: true);
+    int tickCount = 0;
+    _pollingTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
+      if (!mounted || _apiService.isThrottled) return;
 
+      tickCount++;
       final wsActive = _webSocketService?.isConnected ?? false;
-      if (_selectedChat != null && !wsActive) {
-        _loadMessages(_selectedChat!['chat_id'] as String, silent: true);
+
+      // Если WebSocket подключен — чаты и сообщения обновляются через WS в реальном времени.
+      // Фоновое обновление списка чатов делаем редко (раз в 90 секунд) для синхронизации.
+      if (wsActive) {
+        if (tickCount % 6 == 0) {
+          _loadChats(silent: true);
+        }
+      } else {
+        // Если WebSocket отключен — проверяем раз в 30 секунд
+        if (tickCount % 2 == 0) {
+          _loadChats(silent: true);
+          if (_selectedChat != null) {
+            final activeId = (_selectedChat!['chat_id'] ?? _selectedChat!['id'])
+                ?.toString();
+            if (activeId != null && activeId.isNotEmpty) {
+              _loadMessages(activeId, silent: true);
+            }
+          }
+        }
       }
     });
   }
@@ -1158,7 +1320,8 @@ class _MessengerScreenState extends State<MessengerScreen> {
     await _webSocketService?.disconnect();
 
     final token = await _apiService.getAccessToken();
-    final wsUrl = ApiService.getWebSocketUrl(chatId, token);
+    if (token == null || token.isEmpty) return;
+    final wsUrl = ApiService.getWebSocketUrl(chatId);
 
     _webSocketService = WebSocketService(
       onMessageReceived: (data) => _handleWebSocketMessage(data, chatId),
@@ -1189,7 +1352,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
     );
 
     try {
-      await _webSocketService!.connect(wsUrl);
+      await _webSocketService!.connect(wsUrl, accessToken: token);
     } catch (e) {
       print("Failed to connect to WS: $e");
     }
@@ -1202,6 +1365,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
     final s1 = id1.toString().trim();
     final s2 = id2.toString().trim();
     if (s1 == s2) return true;
+
+    if ((s1 == 'favorites' || s1.startsWith('favorites_')) &&
+        (s2 == 'favorites' || s2.startsWith('favorites_'))) {
+      return true;
+    }
 
     if (s1.startsWith('personal_') && s2.startsWith('personal_')) {
       final parts1 = s1.replaceFirst('personal_', '').split('_');
@@ -1389,6 +1557,24 @@ class _MessengerScreenState extends State<MessengerScreen> {
                 _messagesToAnimate.add(msgId);
                 _scrollToBottom();
               }
+              final chatIndex = _chats.indexWhere(
+                (c) => _areSameChat(c['chat_id']?.toString(), msgChatId),
+              );
+              if (chatIndex != -1) {
+                _chats[chatIndex]['last_message'] = data;
+                final item = _chats.removeAt(chatIndex);
+                _chats.insert(0, item);
+              } else if (_selectedChat != null &&
+                  _areSameChat(
+                    _selectedChat!['chat_id']?.toString(),
+                    msgChatId,
+                  )) {
+                final chatToAdd = Map<String, dynamic>.from(_selectedChat!);
+                chatToAdd['last_message'] = data;
+                _chats.insert(0, chatToAdd);
+              } else {
+                _loadChats(silent: true);
+              }
             });
           }
         }
@@ -1506,8 +1692,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
       }
     } else if (type == 'reaction_update') {
       final msgIdRaw = data['message_id'];
-      final msgId =
-          msgIdRaw is int ? msgIdRaw : int.tryParse(msgIdRaw?.toString() ?? '');
+      final msgId = msgIdRaw is int
+          ? msgIdRaw
+          : int.tryParse(msgIdRaw?.toString() ?? '');
       final action = data['action']?.toString();
       final emoji = data['emoji']?.toString();
       final userIdRaw = data['user_id'];
@@ -1524,7 +1711,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
           });
           if (index != -1) {
             final msg = Map<String, dynamic>.from(_messages[index]);
-            List<dynamic> reactions = List<dynamic>.from(msg['reactions'] ?? []);
+            List<dynamic> reactions = List<dynamic>.from(
+              msg['reactions'] ?? [],
+            );
 
             reactions.removeWhere((r) {
               final rUserIdRaw = r['user_id'];
@@ -1536,12 +1725,28 @@ class _MessengerScreenState extends State<MessengerScreen> {
             });
 
             if (action == 'add') {
+              var userAv = data['user_avatar']?.toString() ?? '';
+              var userGrad = data['user_avatar_gradient']?.toString() ?? '';
+              final uUsername = data['user_username']?.toString();
+              final uFirst = data['user_first_name']?.toString();
+
+              if (!_isRealAvatar(userAv)) {
+                final foundReal = _findRealAvatarForUser(
+                  userId: userId,
+                  username: uUsername,
+                  firstName: uFirst,
+                );
+                if (foundReal != null) {
+                  userAv = foundReal;
+                }
+              }
+
               reactions.add({
                 'user_id': userId,
-                'user_username': data['user_username'] ?? '',
-                'user_first_name': data['user_first_name'] ?? '',
-                'user_avatar': data['user_avatar'] ?? '',
-                'user_avatar_gradient': data['user_avatar_gradient'] ?? '',
+                'user_username': uUsername ?? '',
+                'user_first_name': uFirst ?? '',
+                'user_avatar': userAv,
+                'user_avatar_gradient': userGrad,
                 'emoji': emoji,
                 'created_at':
                     data['timestamp'] ?? DateTime.now().toIso8601String(),
@@ -1616,6 +1821,69 @@ class _MessengerScreenState extends State<MessengerScreen> {
           }
         });
       }
+    } else if (type == 'message_deleted') {
+      final msgIdRaw = data['message_id'] ?? data['id'];
+      final msgId = msgIdRaw is int
+          ? msgIdRaw
+          : int.tryParse(msgIdRaw?.toString() ?? '');
+      if (msgId != null) {
+        if (mounted) {
+          setState(() {
+            _messages.removeWhere((m) {
+              final mId = m['id'] is int
+                  ? m['id']
+                  : int.tryParse(m['id']?.toString() ?? '');
+              return mId == msgId;
+            });
+            _decryptedMessages.remove(msgId);
+          });
+        }
+        if (activeChatId.isNotEmpty) {
+          _saveMessagesToLocalCache(activeChatId);
+        }
+        _loadChats(silent: true);
+      }
+    } else if (type == 'history_cleared') {
+      final clearedChatId = data['chat_id']?.toString();
+      if (clearedChatId != null) {
+        if (_areSameChat(clearedChatId, activeChatId)) {
+          if (mounted) {
+            setState(() {
+              _messages.clear();
+              _decryptedMessages.clear();
+            });
+          }
+        }
+        _clearLocalMessagesCache(clearedChatId);
+        _loadChats(silent: true);
+      }
+    } else if (type == 'chat_deleted') {
+      final deletedChatId = data['chat_id']?.toString();
+      if (deletedChatId != null) {
+        if (mounted) {
+          setState(() {
+            _chats.removeWhere(
+              (c) => _areSameChat(c['chat_id']?.toString(), deletedChatId),
+            );
+            _archivedChats.removeWhere(
+              (c) => _areSameChat(c['chat_id']?.toString(), deletedChatId),
+            );
+            if (_selectedChat != null &&
+                _areSameChat(
+                  _selectedChat!['chat_id']?.toString(),
+                  deletedChatId,
+                )) {
+              _selectedChat = null;
+              _messages.clear();
+              _decryptedMessages.clear();
+            }
+          });
+        }
+        _clearLocalMessagesCache(deletedChatId);
+        _saveChatsToLocalCache();
+      }
+    } else if (type == 'chats_reorder_required') {
+      _loadChats(silent: true);
     }
   }
 
@@ -1729,20 +1997,66 @@ class _MessengerScreenState extends State<MessengerScreen> {
         setState(() {
           for (int i = 0; i < chatList.length; i++) {
             final chatId = chatList[i]['chat_id'];
+            final serverLastMsg = chatList[i]['last_message'];
             final existing = _chats.cast<Map<String, dynamic>?>().firstWhere(
-              (c) => c != null && c['chat_id'] == chatId,
+              (c) =>
+                  c != null && _areSameChat(c['chat_id']?.toString(), chatId),
               orElse: () => null,
             );
             if (existing != null) {
               final merged = Map<String, dynamic>.from(existing)
                 ..addAll(chatList[i]);
+              merged['last_message'] = serverLastMsg;
               chatList[i] = merged;
+            } else {
+              chatList[i]['last_message'] = serverLastMsg;
+            }
+            final rawLastMsg = chatList[i]['last_message'];
+            if (rawLastMsg != null && _isMessageDeleted(rawLastMsg)) {
+              chatList[i].remove('last_message');
+            }
+          }
+
+          for (int i = 0; i < archivedList.length; i++) {
+            final chatId = archivedList[i]['chat_id'];
+            final serverLastMsg = archivedList[i]['last_message'];
+            final existing = _archivedChats
+                .cast<Map<String, dynamic>?>()
+                .firstWhere(
+                  (c) =>
+                      c != null &&
+                      _areSameChat(c['chat_id']?.toString(), chatId),
+                  orElse: () => null,
+                );
+            if (existing != null) {
+              final merged = Map<String, dynamic>.from(existing)
+                ..addAll(archivedList[i]);
+              if (serverLastMsg != null) {
+                merged['last_message'] = serverLastMsg;
+              } else {
+                merged.remove('last_message');
+              }
+              archivedList[i] = merged;
+            } else {
+              if (serverLastMsg != null) {
+                archivedList[i]['last_message'] = serverLastMsg;
+              } else {
+                archivedList[i].remove('last_message');
+              }
+            }
+            final rawLastMsg = archivedList[i]['last_message'];
+            if (rawLastMsg != null && _isMessageDeleted(rawLastMsg)) {
+              archivedList[i].remove('last_message');
             }
           }
 
           _chats = chatList;
           _archivedChats = archivedList;
           _isChatsLoading = false;
+
+          for (final chat in [...chatList, ...archivedList]) {
+            _cacheFromChat(chat);
+          }
 
           final joinedIds = <String>{};
           for (final c in [...chatList, ...archivedList]) {
@@ -1769,7 +2083,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
         // Decrypt latest message preview in each chat
         for (var chat in [...chatList, ...archivedList]) {
-          final lastMsg = chat['last_message'];
+          final rawLastMsg = chat['last_message'];
+          final lastMsg = (rawLastMsg != null && !_isMessageDeleted(rawLastMsg))
+              ? rawLastMsg
+              : null;
           if (lastMsg != null) {
             _decryptSingleMessage(
               lastMsg,
@@ -1920,8 +2237,17 @@ class _MessengerScreenState extends State<MessengerScreen> {
       );
       return;
     }
-    if (_selectedChat?['chat_id'] == chatId) {
-      setState(() => _messages = []);
+    if (_selectedChat != null &&
+        _areSameChat(_selectedChat!['chat_id']?.toString(), chatId)) {
+      setState(() {
+        _messages = [];
+        _decryptedMessages.clear();
+      });
+    }
+    await _clearLocalMessagesCache(chatId);
+    final rawChatId = chat['chat_id']?.toString();
+    if (rawChatId != null && rawChatId.isNotEmpty) {
+      await _clearLocalMessagesCache(rawChatId);
     }
     await _loadChats(silent: true);
   }
@@ -2111,6 +2437,195 @@ class _MessengerScreenState extends State<MessengerScreen> {
     );
   }
 
+  /// Проверяет, является ли аватар реальным изображением (PNG/JPG/URL), а не сгенерированным SVG или градиентом
+  bool _isRealAvatar(dynamic avatar) {
+    if (avatar == null) return false;
+    final str = avatar.toString().trim();
+    if (str.isEmpty || str == 'null' || str == 'None') return false;
+    if (str.startsWith('data:image/svg+xml')) return false;
+    if (str.contains('gradient')) return false;
+    return true;
+  }
+
+  /// Формирует полный URL для аватара
+  String _formatAvatarUrl(String avatar) {
+    if (avatar.startsWith('http://') ||
+        avatar.startsWith('https://') ||
+        avatar.startsWith('data:')) {
+      return avatar;
+    }
+    try {
+      final uri = Uri.parse(ApiService.baseUrl);
+      final origin =
+          "${uri.scheme}://${uri.host}${uri.hasPort ? ':${uri.port}' : ''}";
+      return avatar.startsWith('/') ? "$origin$avatar" : "$origin/$avatar";
+    } catch (_) {
+      final base = ApiService.baseUrl.endsWith('/')
+          ? ApiService.baseUrl.substring(0, ApiService.baseUrl.length - 1)
+          : ApiService.baseUrl;
+      return avatar.startsWith('/') ? '$base$avatar' : '$base/$avatar';
+    }
+  }
+
+  /// Ищет реальный аватар (PNG/JPG/URL) для пользователя среди всех доступных источников
+  String? _findRealAvatarForUser({
+    dynamic userId,
+    String? username,
+    String? firstName,
+    String? directAvatar,
+  }) {
+    // 1. Прямой аватар, если он реальный
+    if (_isRealAvatar(directAvatar)) {
+      return directAvatar;
+    }
+
+    final uIdStr = userId?.toString();
+    final uIdInt = userId is int ? userId : int.tryParse(uIdStr ?? '');
+
+    // 2. Текущий пользователь
+    if ((uIdInt != null && uIdInt == _myId) ||
+        (uIdStr != null && uIdStr == _myId?.toString()) ||
+        (username != null && username.isNotEmpty && username == _myUsername)) {
+      final myAv =
+          _myProfile?['custom_avatar']?.toString() ??
+          _myProfile?['avatar']?.toString() ??
+          _myProfile?['avatar_url']?.toString();
+      if (_isRealAvatar(myAv)) return myAv;
+      for (final acc in _accounts) {
+        if ((uIdInt != null && acc.userId == uIdInt) ||
+            (username != null && acc.username == username)) {
+          if (_isRealAvatar(acc.avatarUrl)) return acc.avatarUrl;
+        }
+      }
+    }
+
+    // 3. Карта контактов
+    if (uIdInt != null && _contactsMap.containsKey(uIdInt)) {
+      final contact = _contactsMap[uIdInt]!;
+      final cAv =
+          contact['custom_avatar']?.toString() ??
+          contact['contact_user_avatar']?.toString() ??
+          contact['avatar']?.toString() ??
+          contact['avatar_url']?.toString();
+      if (_isRealAvatar(cAv)) return cAv;
+    }
+
+    if (username != null && username.isNotEmpty) {
+      for (final contact in _contactsMap.values) {
+        final cUsername =
+            contact['contact_user_username']?.toString() ??
+            contact['username']?.toString();
+        if (cUsername != null &&
+            cUsername.toLowerCase() == username.toLowerCase()) {
+          final cAv =
+              contact['custom_avatar']?.toString() ??
+              contact['contact_user_avatar']?.toString() ??
+              contact['avatar']?.toString() ??
+              contact['avatar_url']?.toString();
+          if (_isRealAvatar(cAv)) return cAv;
+        }
+      }
+    }
+
+    // 4. Кэш профилей пользователей
+    if (uIdInt != null && _userProfileCache.containsKey(uIdInt)) {
+      final prof = _userProfileCache[uIdInt]!;
+      final pAv =
+          prof['custom_avatar']?.toString() ??
+          prof['avatar']?.toString() ??
+          prof['avatar_url']?.toString();
+      if (_isRealAvatar(pAv)) return pAv;
+    }
+
+    // 5. Кэш авторов сообщений
+    if (username != null && username.isNotEmpty) {
+      final prof =
+          _msgAuthorProfiles[username] ??
+          _msgAuthorProfiles[username.toLowerCase()];
+      final av = prof?['avatar']?.toString();
+      if (_isRealAvatar(av)) return av;
+    }
+    if (uIdStr != null && uIdStr.isNotEmpty) {
+      final prof = _msgAuthorProfiles[uIdStr];
+      final av = prof?['avatar']?.toString();
+      if (_isRealAvatar(av)) return av;
+    }
+
+    // 6. Собеседник в выбранном чате
+    if (_selectedChat != null && _selectedChat!['chat_type'] == 'personal') {
+      final otherUser = _selectedChat!['other_user'] as Map<String, dynamic>?;
+      if (otherUser != null) {
+        final otherId = otherUser['id']?.toString();
+        final otherUname = otherUser['username']?.toString();
+        if ((uIdStr != null && uIdStr == otherId) ||
+            (username != null &&
+                username.isNotEmpty &&
+                username.toLowerCase() == otherUname?.toLowerCase())) {
+          final av =
+              otherUser['custom_avatar']?.toString() ??
+              otherUser['avatar']?.toString() ??
+              otherUser['avatar_url']?.toString();
+          if (_isRealAvatar(av)) return av;
+        }
+      }
+    }
+
+    // 7. Собеседники в списке чатов
+    for (final chat in _chats) {
+      if (chat['chat_type'] == 'personal') {
+        final otherUser = chat['other_user'] as Map<String, dynamic>?;
+        if (otherUser != null) {
+          final otherId = otherUser['id']?.toString();
+          final otherUname = otherUser['username']?.toString();
+          if ((uIdStr != null && uIdStr == otherId) ||
+              (username != null &&
+                  username.isNotEmpty &&
+                  username.toLowerCase() == otherUname?.toLowerCase())) {
+            final av =
+                otherUser['custom_avatar']?.toString() ??
+                otherUser['avatar']?.toString() ??
+                otherUser['avatar_url']?.toString();
+            if (_isRealAvatar(av)) return av;
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /// Сохраняет профиль чата в кэш
+  void _cacheFromChat(Map<String, dynamic> chat) {
+    if (chat['chat_type'] == 'personal') {
+      final otherUser = chat['other_user'] as Map<String, dynamic>?;
+      if (otherUser != null) {
+        final id = otherUser['id']?.toString();
+        final username = otherUser['username']?.toString();
+        final firstName =
+            otherUser['first_name']?.toString() ??
+            otherUser['realname']?.toString() ??
+            username;
+        final avatar =
+            otherUser['custom_avatar']?.toString() ??
+            otherUser['avatar']?.toString() ??
+            otherUser['avatar_url']?.toString();
+        final gradient = otherUser['avatar_gradient']?.toString() ?? '';
+        if (_isRealAvatar(avatar)) {
+          final prof = {
+            'first_name': firstName ?? '',
+            'avatar': avatar,
+            'avatar_gradient': gradient,
+          };
+          if (id != null && id.isNotEmpty) _msgAuthorProfiles[id] = prof;
+          if (username != null && username.isNotEmpty) {
+            _msgAuthorProfiles[username] = prof;
+            _msgAuthorProfiles[username.toLowerCase()] = prof;
+          }
+        }
+      }
+    }
+  }
+
   /// Кешируем first_name + avatar + avatar_gradient автора из любого сообщения
   void _cacheAuthorProfileFromMsg(Map<String, dynamic> msg) {
     final key =
@@ -2127,6 +2642,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
       final authorMap = Map<String, dynamic>.from(msg['author'] as Map);
       firstName = authorMap['first_name']?.toString();
       avatar =
+          authorMap['custom_avatar']?.toString() ??
           authorMap['avatar']?.toString() ??
           authorMap['avatar_url']?.toString();
       gradient = authorMap['avatar_gradient']?.toString();
@@ -2134,40 +2650,102 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
     firstName ??=
         msg['author_first_name']?.toString() ?? msg['first_name']?.toString();
-    avatar ??= msg['author_avatar']?.toString() ?? msg['avatar']?.toString();
+    avatar ??=
+        msg['custom_avatar']?.toString() ??
+        msg['author_avatar']?.toString() ??
+        msg['avatar']?.toString();
     gradient ??=
         msg['author_avatar_gradient']?.toString() ??
         msg['avatar_gradient']?.toString();
 
     final existing = _msgAuthorProfiles[key];
     firstName ??= existing?['first_name']?.toString();
-    if (avatar == null || avatar.isEmpty)
-      avatar = existing?['avatar']?.toString();
-    if (gradient == null || gradient.isEmpty)
+
+    final existingAvatar = existing?['avatar']?.toString();
+    if (_isRealAvatar(existingAvatar) && !_isRealAvatar(avatar)) {
+      avatar = existingAvatar;
+    } else if (avatar == null || avatar.isEmpty) {
+      avatar = existingAvatar;
+    }
+    if (gradient == null || gradient.isEmpty) {
       gradient = existing?['avatar_gradient']?.toString();
+    }
+
+    final authorId = msg['author_id'] ?? msg['sender_id'] ?? msg['user_id'];
+    final authorUsername =
+        msg['author_username']?.toString() ?? msg['username']?.toString();
+    if (!_isRealAvatar(avatar)) {
+      final foundReal = _findRealAvatarForUser(
+        userId: authorId,
+        username: authorUsername,
+        firstName: firstName,
+      );
+      if (foundReal != null) {
+        avatar = foundReal;
+      }
+    }
 
     if (firstName != null || avatar != null || gradient != null) {
-      _msgAuthorProfiles[key] = {
+      final prof = {
         'first_name': (firstName != null && firstName.isNotEmpty)
             ? firstName
             : key,
         'avatar': avatar,
         'avatar_gradient': gradient ?? '',
       };
+      _msgAuthorProfiles[key] = prof;
+      if (authorUsername != null && authorUsername.isNotEmpty) {
+        _msgAuthorProfiles[authorUsername] = prof;
+        _msgAuthorProfiles[authorUsername.toLowerCase()] = prof;
+      }
+      if (authorId != null) {
+        _msgAuthorProfiles[authorId.toString()] = prof;
+      }
+    }
+
+    // Также кешируем реальные аватарки из реакций, если они есть
+    if (msg['reactions'] is List) {
+      for (final r in (msg['reactions'] as List)) {
+        if (r is Map) {
+          final rUserId = r['user_id']?.toString();
+          final rUsername = r['user_username']?.toString();
+          final rFirstName = r['user_first_name']?.toString();
+          final rAvatar = r['user_avatar']?.toString();
+          final rGradient = r['user_avatar_gradient']?.toString() ?? '';
+          if (_isRealAvatar(rAvatar)) {
+            final prof = {
+              'first_name': (rFirstName != null && rFirstName.isNotEmpty)
+                  ? rFirstName
+                  : (rUsername ?? ''),
+              'avatar': rAvatar,
+              'avatar_gradient': rGradient,
+            };
+            if (rUserId != null && rUserId.isNotEmpty) {
+              _msgAuthorProfiles[rUserId] = prof;
+            }
+            if (rUsername != null && rUsername.isNotEmpty) {
+              _msgAuthorProfiles[rUsername] = prof;
+              _msgAuthorProfiles[rUsername.toLowerCase()] = prof;
+            }
+          }
+        }
+      }
     }
   }
 
   /// Рендерит аватарку пользователя для группового сообщения.
-  /// Если есть png — показываем его, иначе — градиентный кружок с инициалом.
+  /// Если есть png/реальная фотка — показываем её, иначе — градиентный кружок с инициалом.
   Widget _buildGroupAvatar(
     String? avatar,
     String? gradient,
     String displayName,
-    double size,
-  ) {
+    double size, {
+    dynamic userId,
+    String? username,
+  }) {
     final initial = displayName.isNotEmpty ? displayName[0].toUpperCase() : '?';
 
-    // Парсим градиент из строки вида "linear-gradient(135deg, #A, #B)"
+    // Парсим градиент из строки вида "linear-gradient(135deg, #A, #B)" или "#A|#B"
     List<Color> gradientColors = [
       const Color(0xFF2563EB),
       const Color(0xFF7C3AED),
@@ -2183,16 +2761,22 @@ class _MessengerScreenState extends State<MessengerScreen> {
         gradientColors = [parsed[0], parsed[0]];
     }
 
-    final hasRealAvatar =
-        avatar != null &&
-        avatar.isNotEmpty &&
-        !avatar.contains('gradient') &&
-        (avatar.startsWith('http') || avatar.startsWith('/'));
+    String? effectiveAvatar = avatar;
+    if (!_isRealAvatar(effectiveAvatar)) {
+      final foundReal = _findRealAvatarForUser(
+        userId: userId,
+        username: username,
+        firstName: displayName,
+      );
+      if (foundReal != null) {
+        effectiveAvatar = foundReal;
+      }
+    }
+
+    final hasRealAvatar = _isRealAvatar(effectiveAvatar);
 
     if (hasRealAvatar) {
-      final url = avatar.startsWith('http')
-          ? avatar
-          : 'https://xaneo.ru$avatar';
+      final url = _formatAvatarUrl(effectiveAvatar!);
       return ClipOval(
         child: Image.network(
           url,
@@ -2273,18 +2857,46 @@ class _MessengerScreenState extends State<MessengerScreen> {
     if (!_isCurrentChat(chatId)) return;
 
     if (res.success && res.data != null) {
-      final msgList = res.data!['results'] as List? ?? [];
+      final rawList = res.data!['results'] as List? ?? [];
+      Logger.info(
+        'E2EE-DIAG',
+        'Messages loaded from API: chat=$chatId, count=${rawList.length}, '
+            'responseFields=${res.data!.keys.toList()}',
+      );
+      final msgList = rawList
+          .where((m) => m is Map<String, dynamic> && !_isMessageDeleted(m))
+          .cast<Map<String, dynamic>>()
+          .toList();
       for (final msg in msgList) {
-        if (msg is Map<String, dynamic>) _cacheAuthorProfileFromMsg(msg);
+        _cacheAuthorProfileFromMsg(msg);
       }
       await _decryptAllMessages(msgList, chatId, _selectedChat?['other_user']);
       if (mounted && _isCurrentChat(chatId)) {
         setState(() {
           _messages = msgList.toList();
           _isMessagesLoading = false;
-          _hasMoreMessages = msgList.length >= 20;
+          _hasMoreMessages = rawList.length >= 20;
+          if (msgList.isEmpty) {
+            for (var c in _chats) {
+              if (c is Map && _areSameChat(c['chat_id']?.toString(), chatId)) {
+                c.remove('last_message');
+              }
+            }
+            for (var c in _archivedChats) {
+              if (c is Map && _areSameChat(c['chat_id']?.toString(), chatId)) {
+                c.remove('last_message');
+              }
+            }
+            if (_selectedChat != null &&
+                _areSameChat(_selectedChat!['chat_id']?.toString(), chatId)) {
+              _selectedChat!.remove('last_message');
+            }
+          }
         });
         _saveMessagesToLocalCache(chatId);
+        if (msgList.isEmpty) {
+          _saveChatsToLocalCache();
+        }
       }
     } else {
       if (mounted && _isCurrentChat(chatId)) {
@@ -2324,16 +2936,20 @@ class _MessengerScreenState extends State<MessengerScreen> {
     if (!_isCurrentChat(chatId)) return;
 
     if (res.success && res.data != null) {
-      final msgList = res.data!['results'] as List? ?? [];
+      final rawList = res.data!['results'] as List? ?? [];
+      final msgList = rawList
+          .where((m) => m is Map<String, dynamic> && !_isMessageDeleted(m))
+          .cast<Map<String, dynamic>>()
+          .toList();
       for (final msg in msgList) {
-        if (msg is Map<String, dynamic>) _cacheAuthorProfileFromMsg(msg);
+        _cacheAuthorProfileFromMsg(msg);
       }
       await _decryptAllMessages(msgList, chatId, _selectedChat?['other_user']);
       if (mounted && _isCurrentChat(chatId)) {
         setState(() {
           _messages.addAll(msgList.toList());
           _isLoadingMore = false;
-          _hasMoreMessages = msgList.length >= 20;
+          _hasMoreMessages = rawList.length >= 20;
         });
         _saveMessagesToLocalCache(chatId);
       }
@@ -2354,21 +2970,8 @@ class _MessengerScreenState extends State<MessengerScreen> {
     String? targetUserIdStr;
     final myIdStr = _myId?.toString();
 
-    // 1. Derive peer ID directly from personal chatId (e.g. personal_2_15)
-    if (chatId != null && chatId.startsWith('personal_')) {
-      final parts = chatId.split('_');
-      if (parts.length >= 3) {
-        final u1 = parts[1];
-        final u2 = parts[2];
-        if (myIdStr != null) {
-          targetUserIdStr = (u1 == myIdStr) ? u2 : u1;
-        }
-      }
-    }
-
-    // 2. Fallback to otherUser if targetUserIdStr not found or equals myIdStr
-    if ((targetUserIdStr == null || targetUserIdStr == myIdStr) &&
-        otherUser != null) {
+    // 1. Check if otherUser indicates a bot
+    if (otherUser != null) {
       final isBot =
           otherUser['is_bot'] == true ||
           otherUser['bot'] == true ||
@@ -2380,22 +2983,26 @@ class _MessengerScreenState extends State<MessengerScreen> {
       if (isBot) {
         return 'bot';
       }
+    }
 
-      final userId = otherUser['id'];
-      if (userId != null && userId.toString() != myIdStr) {
-        targetUserIdStr = userId.toString();
+    // 2. Derive peer ID directly from personal chatId (e.g. personal_2_15)
+    if (chatId != null && chatId.startsWith('personal_')) {
+      final parts = chatId.split('_');
+      if (parts.length >= 3) {
+        final u1 = parts[1];
+        final u2 = parts[2];
+        if (myIdStr != null) {
+          targetUserIdStr = (u1 == myIdStr) ? u2 : u1;
+        }
       }
     }
 
-    // 3. Last fallback to chatId if still null or equals myIdStr
-    if (targetUserIdStr == null || targetUserIdStr == myIdStr) {
-      if (chatId != null && chatId.startsWith('personal_')) {
-        final parts = chatId.split('_');
-        if (parts.length >= 3) {
-          final u1 = parts[1];
-          final u2 = parts[2];
-          targetUserIdStr = (myIdStr != null && u1 == myIdStr) ? u2 : u1;
-        }
+    // 3. Fallback to otherUser if targetUserIdStr not found or equals myIdStr
+    if ((targetUserIdStr == null || targetUserIdStr == myIdStr) &&
+        otherUser != null) {
+      final userId = otherUser['id'] ?? otherUser['user_id'];
+      if (userId != null && userId.toString() != myIdStr) {
+        targetUserIdStr = userId.toString();
       }
     }
 
@@ -2414,12 +3021,28 @@ class _MessengerScreenState extends State<MessengerScreen> {
           cachedKey == myPubKeyHex) {
         _peerPublicKeys.remove(targetUserIdStr);
       } else {
+        Logger.info(
+          'E2EE-DIAG',
+          'Peer key selected from cache: chat=$chatId, myId=$myIdStr, '
+              'peerId=$targetUserIdStr, keyPrefix=${cachedKey == null || cachedKey.length < 12 ? 'missing' : cachedKey.substring(0, 12)}',
+        );
         return cachedKey;
       }
     }
 
-    // Fetch peer public key from API
-    final res = await _apiService.getUserPublicKey(targetUserIdStr);
+    // The endpoint is username-based. User ID 1 is a valid regular account and
+    // must not be treated as a bot without an explicit API flag.
+    final peerUsername = otherUser?['username']?.toString().trim();
+    final lookup = peerUsername != null && peerUsername.isNotEmpty
+        ? peerUsername
+        : targetUserIdStr;
+    final res = await _apiService.getUserPublicKey(lookup);
+    Logger.info(
+      'E2EE-DIAG',
+      'Peer key API response: chat=$chatId, myId=$myIdStr, '
+          'peerId=$targetUserIdStr, lookup=$lookup, success=${res.success}, '
+          'status=${res.statusCode}, fields=${res.data?.keys.toList()}',
+    );
     if (res.success && res.data != null) {
       if (res.data!['is_bot'] == true) {
         _peerPublicKeys[targetUserIdStr] = 'bot';
@@ -2428,6 +3051,12 @@ class _MessengerScreenState extends State<MessengerScreen> {
       }
       final key = res.data!['x25519_public_key'] as String?;
       if (key != null) {
+        Logger.info(
+          'E2EE-DIAG',
+          'Peer key received: chat=$chatId, peerId=$targetUserIdStr, '
+              'keyPrefix=${key.length < 12 ? 'invalid-length-${key.length}' : key.substring(0, 12)}, '
+              'matchesOwn=${myPubKeyHex != null && key == myPubKeyHex}',
+        );
         if (myPubKeyHex != null && key == myPubKeyHex) {
           print(
             "WARNING: API returned own public key for peer $targetUserIdStr",
@@ -2441,12 +3070,32 @@ class _MessengerScreenState extends State<MessengerScreen> {
     return null;
   }
 
-  /// Get the server-managed symmetric key for group/channel chats
+  /// Get the server-managed symmetric key for group/channel chats (with E2EE epoch support)
   Future<String?> _getGroupChatKey(String chatId) async {
     if (_chatSymmetricKeys.containsKey(chatId)) {
       return _chatSymmetricKeys[chatId];
     }
 
+    // 1. Try to fetch active E2EE epoch first (for groups and channels only)
+    if (chatId.startsWith('group_') || chatId.startsWith('channel_')) {
+      try {
+        final epochRes = await _apiService.getGroupEpochCurrent(chatId);
+        if (epochRes.success && epochRes.data != null) {
+          final epochKey = await _cryptoService.deriveEpochKeyFromData(
+            epochRes.data!,
+          );
+          if (epochKey != null && epochKey.isNotEmpty) {
+            _chatSymmetricKeys[chatId] = epochKey;
+            _saveChatSymmetricKeys();
+            return epochKey;
+          }
+        }
+      } catch (e) {
+        print("[_getGroupChatKey] E2EE epoch fetch error for $chatId: $e");
+      }
+    }
+
+    // 2. Fallback to server ChatKey
     final res = await _apiService.getChatKey(chatId);
     if (res.success && res.data != null) {
       final key = res.data!['key'] as String?;
@@ -2476,7 +3125,18 @@ class _MessengerScreenState extends State<MessengerScreen> {
     String chatId,
     Map<String, dynamic>? otherUser,
   ) async {
-    if (!_isBase64(encryptedText)) {
+    final looksEncrypted = _isBase64(encryptedText);
+    Logger.info(
+      'E2EE-DIAG',
+      'Decrypt dispatch: chat=$chatId, inputChars=${encryptedText.length}, '
+          'isBase64=$looksEncrypted, hasKeys=${_cryptoService.hasKeys}',
+    );
+    if (!looksEncrypted) {
+      Logger.warning(
+        'E2EE-DIAG',
+        'Decrypt skipped because payload is not encrypted Base64: chat=$chatId, '
+            'isErrorMarker=${encryptedText.contains('Ошибка дешифрования')}',
+      );
       return encryptedText;
     }
 
@@ -2493,16 +3153,54 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
     if (chatId.startsWith('personal_')) {
       final peerPubKey = await _getPeerPublicKey(otherUser, chatId: chatId);
-      if (peerPubKey == null)
+      if (peerPubKey == null) {
         return (AppLocalizations.of(context)?.netKlyucha_337b ?? 'Fallback');
+      }
       if (peerPubKey == 'bot') {
         final chatKeyHex = await _getGroupChatKey(chatId);
-        if (chatKeyHex == null)
+        final altKeys = <String>[];
+        if (chatId.startsWith('personal_')) {
+          final parts = chatId.split('_');
+          if (parts.length >= 3) {
+            final altChatId = 'personal_${parts[2]}_${parts[1]}';
+            if (altChatId != chatId) {
+              final altKey = await _getGroupChatKey(altChatId);
+              if (altKey != null && altKey.isNotEmpty) {
+                altKeys.add(altKey);
+              }
+            }
+          }
+        }
+        if (chatKeyHex == null && altKeys.isEmpty) {
           return (AppLocalizations.of(context)?.netKlyucha_337b ?? 'Fallback');
-        return await _cryptoService.decryptGroupMessage(
+        }
+        final primaryKey = chatKeyHex ?? altKeys.first;
+        var dec = await _cryptoService.decryptGroupMessage(
           encryptedText,
-          chatKeyHex,
+          primaryKey,
+          alternativeKeyHexes: altKeys,
+          debugChatId: chatId,
         );
+        if (dec == "[Ошибка дешифрования]") {
+          // If decryption failed, invalidate cached symmetric keys and try once more directly from API
+          _chatSymmetricKeys.remove(chatId);
+          if (chatId.startsWith('personal_')) {
+            final parts = chatId.split('_');
+            if (parts.length >= 3) {
+              _chatSymmetricKeys.remove('personal_${parts[2]}_${parts[1]}');
+            }
+          }
+          final freshKey = await _getGroupChatKey(chatId);
+          if (freshKey != null && freshKey != primaryKey) {
+            dec = await _cryptoService.decryptGroupMessage(
+              encryptedText,
+              freshKey,
+              alternativeKeyHexes: [primaryKey, ...altKeys],
+              debugChatId: chatId,
+            );
+          }
+        }
+        return dec;
       }
       return await _cryptoService.decryptPersonalMessage(
         encryptedText,
@@ -2511,14 +3209,58 @@ class _MessengerScreenState extends State<MessengerScreen> {
       );
     }
 
-    if (chatId.startsWith('group_') || chatId.startsWith('channel_')) {
-      final chatKeyHex = await _getGroupChatKey(chatId);
-      if (chatKeyHex == null)
+    final effectiveChatType = _selectedChat?['chat_type'] as String?;
+    if (chatId.startsWith('group_') ||
+        chatId.startsWith('channel_') ||
+        effectiveChatType == 'group' ||
+        effectiveChatType == 'channel') {
+      final normalizedChatId =
+          (chatId.startsWith('group_') || chatId.startsWith('channel_'))
+          ? chatId
+          : (effectiveChatType == 'channel'
+                ? 'channel_$chatId'
+                : 'group_$chatId');
+      var chatKeyHex = await _getGroupChatKey(normalizedChatId);
+      if (chatKeyHex == null) {
         return (AppLocalizations.of(context)?.netKlyucha_337b ?? 'Fallback');
-      return await _cryptoService.decryptGroupMessage(
+      }
+
+      // Also get raw server ChatKey as fallback candidate
+      String? legacyKey;
+      try {
+        final legacyRes = await _apiService.getChatKey(normalizedChatId);
+        if (legacyRes.success && legacyRes.data != null) {
+          legacyKey = legacyRes.data!['key'] as String?;
+        }
+      } catch (_) {}
+
+      final candidates = <String>[
+        if (legacyKey != null && legacyKey != chatKeyHex) legacyKey,
+      ];
+
+      var decrypted = await _cryptoService.decryptGroupMessage(
         encryptedText,
         chatKeyHex,
+        alternativeKeyHexes: candidates.isNotEmpty ? candidates : null,
+        debugChatId: normalizedChatId,
       );
+      if (decrypted == "[Ошибка дешифрования]") {
+        // Очищаем кэш и запрашиваем актуальный ключ с сервера повторно
+        final oldKey = _chatSymmetricKeys.remove(normalizedChatId);
+        chatKeyHex = await _getGroupChatKey(normalizedChatId);
+        if (chatKeyHex != null) {
+          decrypted = await _cryptoService.decryptGroupMessage(
+            encryptedText,
+            chatKeyHex,
+            alternativeKeyHexes: [
+              if (oldKey != null) oldKey,
+              if (legacyKey != null) legacyKey,
+            ],
+            debugChatId: normalizedChatId,
+          );
+        }
+      }
+      return decrypted;
     }
 
     return (AppLocalizations.of(context)?.neizvestnyyTipChata_2617 ??
@@ -2724,14 +3466,36 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
       final encryptedText = msg['encrypted_text'] as String?;
       if (encryptedText == null || encryptedText.isEmpty) {
+        Logger.warning(
+          'E2EE-DIAG',
+          'Message has no encrypted_text: chat=$chatId, messageId=$id, '
+              'fields=${(msg as Map).keys.toList()}',
+        );
         _decryptedMessages[id] = "";
         continue;
       }
 
       String decrypted;
       try {
+        Logger.info(
+          'E2EE-DIAG',
+          'Decrypting message: chat=$chatId, messageId=$id, '
+              'author=${msg['author_id'] ?? msg['sender_id']}, '
+              'inputChars=${encryptedText.length}, isBase64=${_isBase64(encryptedText)}',
+        );
         decrypted = await _decryptForChat(encryptedText, chatId, otherUser);
-      } catch (_) {
+        Logger.info(
+          'E2EE-DIAG',
+          'Message decrypt result: chat=$chatId, messageId=$id, '
+              'success=${decrypted != '[Ошибка дешифрования]' && !decrypted.contains('Ошибка дешифрования')}',
+        );
+      } catch (error, stackTrace) {
+        Logger.error(
+          'E2EE-DIAG',
+          'Message decrypt threw: chat=$chatId, messageId=$id',
+          error,
+          stackTrace,
+        );
         decrypted =
             (AppLocalizations.of(context)?.oshibkaDeshifrovaniya_4146 ??
             'Fallback');
@@ -2907,6 +3671,18 @@ class _MessengerScreenState extends State<MessengerScreen> {
         setState(() {
           _messages.insert(0, tempMsg);
           _messagesToAnimate.add(tempId);
+          final existingIndex = _chats.indexWhere(
+            (c) => _areSameChat(c['chat_id']?.toString(), chatId),
+          );
+          if (existingIndex == -1 && _selectedChat != null) {
+            final chatToAdd = Map<String, dynamic>.from(_selectedChat!);
+            chatToAdd['last_message'] = tempMsg;
+            _chats.insert(0, chatToAdd);
+          } else if (existingIndex != -1) {
+            _chats[existingIndex]['last_message'] = tempMsg;
+            final item = _chats.removeAt(existingIndex);
+            _chats.insert(0, item);
+          }
         });
         _scrollToBottom();
       }
@@ -2925,6 +3701,18 @@ class _MessengerScreenState extends State<MessengerScreen> {
           setState(() {
             _messages.insert(0, newMsg);
             _messagesToAnimate.add(id);
+            final existingIndex = _chats.indexWhere(
+              (c) => _areSameChat(c['chat_id']?.toString(), chatId),
+            );
+            if (existingIndex == -1 && _selectedChat != null) {
+              final chatToAdd = Map<String, dynamic>.from(_selectedChat!);
+              chatToAdd['last_message'] = newMsg;
+              _chats.insert(0, chatToAdd);
+            } else if (existingIndex != -1) {
+              _chats[existingIndex]['last_message'] = newMsg;
+              final item = _chats.removeAt(existingIndex);
+              _chats.insert(0, item);
+            }
           });
           _scrollToBottom();
         }
@@ -3263,14 +4051,6 @@ class _MessengerScreenState extends State<MessengerScreen> {
       _isSearching = false;
       _searchResults = [];
       _searchController.clear();
-
-      final existingIndex = _chats.indexWhere((c) => c['chat_id'] == chatId);
-      if (existingIndex == -1) {
-        _chats.insert(0, newChat);
-      } else {
-        _chats.removeAt(existingIndex);
-        _chats.insert(0, newChat);
-      }
       _messages = [];
       _messagesToAnimate.clear();
       _isMessagesLoading = true;
@@ -3320,6 +4100,89 @@ class _MessengerScreenState extends State<MessengerScreen> {
     final l10n = AppLocalizations.of(context);
     if (count <= 0) return l10n?.channel ?? 'Канал';
     return l10n?.subscribersCount(count) ?? '$count подписчиков';
+  }
+
+  String _getUserOfflineStatusText(Map<String, dynamic>? user) {
+    if (RuntimeTranslations.instance.hasActiveCustomPack) {
+      final rawLastSeen = user?['last_seen']?.toString();
+      if (rawLastSeen != null && rawLastSeen.isNotEmpty) {
+        final lastSeenDate = DateTime.tryParse(rawLastSeen);
+        if (lastSeenDate != null) {
+          final now = DateTime.now();
+          final diff = now.difference(lastSeenDate);
+          if (diff.isNegative) {
+            final onVal = RuntimeTranslations.instance.get(
+              'messenger.status.online',
+            );
+            if (onVal != 'messenger.status.online') return onVal;
+          }
+          final diffMins = diff.inMinutes;
+          final diffHours = diff.inHours;
+          final diffDays = diff.inDays;
+
+          if (diffMins < 1) {
+            final t = RuntimeTranslations.instance.get(
+              'messenger.status.recentlyOnline',
+            );
+            if (t != 'messenger.status.recentlyOnline') return t;
+          } else if (diffMins < 60) {
+            final t = RuntimeTranslations.instance.get(
+              'messenger.status.lastSeenMins',
+            );
+            if (t != 'messenger.status.lastSeenMins')
+              return t.replaceAll('{n}', diffMins.toString());
+          } else if (diffHours < 24) {
+            final t = RuntimeTranslations.instance.get(
+              'messenger.status.lastSeenHours',
+            );
+            if (t != 'messenger.status.lastSeenHours')
+              return t.replaceAll('{n}', diffHours.toString());
+          } else if (diffDays < 7) {
+            final t = RuntimeTranslations.instance.get(
+              'messenger.status.lastSeenDays',
+            );
+            if (t != 'messenger.status.lastSeenDays')
+              return t.replaceAll('{n}', diffDays.toString());
+          } else {
+            final t = RuntimeTranslations.instance.get(
+              'messenger.status.lastSeenDate',
+            );
+            if (t != 'messenger.status.lastSeenDate') {
+              final formattedDate =
+                  '${lastSeenDate.day} ${_getMonthName(lastSeenDate.month)}';
+              return t.replaceAll('{date}', formattedDate);
+            }
+          }
+        }
+      }
+      final customRecently = RuntimeTranslations.instance.get(
+        'messenger.status.lastSeenRecently',
+      );
+      if (customRecently != 'messenger.status.lastSeenRecently') {
+        return customRecently;
+      }
+    }
+    final l10n = AppLocalizations.of(context);
+    return l10n?.lastSeenRecently ?? l10n?.offline ?? 'был(а) недавно';
+  }
+
+  String _getMonthName(int month) {
+    const months = [
+      'янв',
+      'фев',
+      'мар',
+      'апр',
+      'май',
+      'июн',
+      'июл',
+      'авг',
+      'сен',
+      'окт',
+      'ноя',
+      'дек',
+    ];
+    if (month >= 1 && month <= 12) return months[month - 1];
+    return '';
   }
 
   DateTime? _parseMsgDate(dynamic createdAt) {
@@ -3631,10 +4494,6 @@ class _MessengerScreenState extends State<MessengerScreen> {
       };
       setState(() {
         _selectedChat = favChat;
-        final existingIndex = _chats.indexWhere((c) => c['chat_id'] == chatId);
-        if (existingIndex < 0) {
-          _chats.insert(0, favChat);
-        }
       });
       _loadMessages(chatId);
       _connectWebSocket(chatId);
@@ -3660,14 +4519,6 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
       setState(() {
         _selectedChat = groupChat;
-        if (isMember) {
-          final existingIndex = _chats.indexWhere(
-            (c) => c['chat_id'] == chatId,
-          );
-          if (existingIndex < 0) {
-            _chats.insert(0, groupChat);
-          }
-        }
       });
       _loadMessages(chatId);
       _connectWebSocket(chatId);
@@ -3692,14 +4543,6 @@ class _MessengerScreenState extends State<MessengerScreen> {
       channelChat['is_joined'] = isSubscribed;
       setState(() {
         _selectedChat = channelChat;
-        if (isSubscribed) {
-          final existingIndex = _chats.indexWhere(
-            (c) => c['chat_id'] == chatId,
-          );
-          if (existingIndex < 0) {
-            _chats.insert(0, channelChat);
-          }
-        }
       });
       _loadMessages(chatId);
       _connectWebSocket(chatId);
@@ -3712,25 +4555,14 @@ class _MessengerScreenState extends State<MessengerScreen> {
   Future<void> _logout() async {
     await _webSocketService?.disconnect();
 
-    // Find the account to remove by the current token, because _myId might be out of sync
-    // during an account switch if the new account's token is invalid.
-    int? accountToRemove;
-    final prefs = await SharedPreferences.getInstance();
-    final currentToken = prefs.getString('xaneo_access_token');
-    if (currentToken != null) {
-      final accounts = await AccountService().getAccounts();
-      try {
-        final match = accounts.firstWhere((a) => a.accessToken == currentToken);
-        accountToRemove = match.userId;
-      } catch (_) {}
-    }
-    accountToRemove ??= _myId;
+    final accountToRemove = await AccountService().getActiveUserId() ?? _myId;
 
     await _apiService.logout();
     await _cryptoService.clearKeys();
 
     if (accountToRemove != null) {
-      await AccountService().removeAccount(accountToRemove);
+      // ApiService.logout already revoked the active refresh token.
+      await AccountService().removeAccount(accountToRemove, revoke: false);
     }
 
     _myId = null;
@@ -3755,13 +4587,16 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
     _pollingTimer?.cancel();
     await _webSocketService?.disconnect();
+    await context.read<WebRTCSignalingService>().disconnect();
 
     final success = await AccountService().switchAccount(userId);
     if (success) {
-      _selectedChat = null;
-      _messages = [];
-      _decryptedMessages.clear();
-      await _initMessenger();
+      // Recreate the complete screen state. This prevents delayed requests,
+      // profile caches, typing state and media metadata from the previous
+      // account from leaking into the newly activated session.
+      if (mounted) {
+        Navigator.of(context).pushReplacementNamed('/messenger');
+      }
     } else {
       if (mounted) {
         CustomToast.show(
@@ -5439,17 +6274,75 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                                   else
                                                     GestureDetector(
                                                       onTap: () async {
-                                                        await AccountService()
-                                                            .removeAccount(
-                                                              acc.userId,
+                                                        final l10n =
+                                                            AppLocalizations.of(
+                                                              context,
                                                             );
-                                                        setModalState(() {});
-                                                        final updated =
-                                                            await AccountService()
-                                                                .getAccounts();
-                                                        setState(() {
-                                                          _accounts = updated;
-                                                        });
+                                                        final confirmed = await showDialog<bool>(
+                                                          context: context,
+                                                          builder: (dialogContext) => AlertDialog(
+                                                            title: Text(
+                                                              l10n?.deleteAccount ??
+                                                                  'Удалить аккаунт',
+                                                            ),
+                                                            content: Text(
+                                                              '@${acc.username}',
+                                                            ),
+                                                            actions: [
+                                                              TextButton(
+                                                                onPressed: () =>
+                                                                    Navigator.pop(
+                                                                      dialogContext,
+                                                                      false,
+                                                                    ),
+                                                                child: Text(
+                                                                  l10n?.cancel ??
+                                                                      'Отмена',
+                                                                ),
+                                                              ),
+                                                              TextButton(
+                                                                onPressed: () =>
+                                                                    Navigator.pop(
+                                                                      dialogContext,
+                                                                      true,
+                                                                    ),
+                                                                child: Text(
+                                                                  l10n?.delete ??
+                                                                      'Удалить',
+                                                                ),
+                                                              ),
+                                                            ],
+                                                          ),
+                                                        );
+                                                        if (confirmed != true) {
+                                                          return;
+                                                        }
+                                                        try {
+                                                          await AccountService()
+                                                              .removeAccount(
+                                                                acc.userId,
+                                                              );
+                                                          setModalState(() {});
+                                                          final updated =
+                                                              await AccountService()
+                                                                  .getAccounts();
+                                                          if (mounted) {
+                                                            setState(() {
+                                                              _accounts =
+                                                                  updated;
+                                                            });
+                                                          }
+                                                        } catch (error) {
+                                                          if (mounted) {
+                                                            CustomToast.show(
+                                                              context,
+                                                              l10n?.serverError ??
+                                                                  'Не удалось удалить аккаунт',
+                                                              type: ToastType
+                                                                  .error,
+                                                            );
+                                                          }
+                                                        }
                                                       },
                                                       child: MouseRegion(
                                                         cursor:
@@ -5482,7 +6375,8 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
                                   SizedBox(height: 12 * scale),
 
-                                  if (accounts.length < 5)
+                                  if (accounts.length <
+                                      AccountService.maxAccounts)
                                     Padding(
                                       padding: EdgeInsets.symmetric(
                                         horizontal: 4 * scale,
@@ -6119,7 +7013,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
     final unreadCount = rawUnread is int
         ? rawUnread
         : int.tryParse(rawUnread.toString()) ?? 0;
-    final lastMsg = chat['last_message'];
+    final rawLastMsg = chat['last_message'];
+    final lastMsg = (rawLastMsg != null && !_isMessageDeleted(rawLastMsg))
+        ? rawLastMsg
+        : null;
 
     String lastMsgText =
         (AppLocalizations.of(context)?.netSoobscheniy_29d4 ?? 'Fallback');
@@ -6140,26 +7037,41 @@ class _MessengerScreenState extends State<MessengerScreen> {
         final authorName =
             lastMsg['author_first_name'] ??
             lastMsg['author_username'] ??
-            (AppLocalizations.of(context)?.polzovatel_f154 ?? 'Fallback');
-        lastMsgText = "$authorName присоединился к чату";
+            (AppLocalizations.of(context)?.polzovatel_f154 ?? 'Пользователь');
+        final actionText =
+            AppLocalizations.of(context)?.joinedChat ??
+            (AppLocalizations.of(context)?.prisoedinilsyaKChatu_f623 ??
+                'присоединился к чату');
+        lastMsgText = "$authorName $actionText";
       } else if (msgType == 'user_left_group' || msgType == 'user_left') {
         final authorName =
             lastMsg['author_first_name'] ??
             lastMsg['author_username'] ??
-            (AppLocalizations.of(context)?.polzovatel_f154 ?? 'Fallback');
-        lastMsgText = "$authorName покинул чат";
+            (AppLocalizations.of(context)?.polzovatel_f154 ?? 'Пользователь');
+        final actionText =
+            AppLocalizations.of(context)?.leftChat ??
+            (AppLocalizations.of(context)?.pokinulChat_d567 ?? 'покинул чат');
+        lastMsgText = "$authorName $actionText";
       } else if (msgType == 'user_subscribed_channel') {
         final authorName =
             lastMsg['author_first_name'] ??
             lastMsg['author_username'] ??
-            (AppLocalizations.of(context)?.polzovatel_f154 ?? 'Fallback');
-        lastMsgText = "$authorName подписался на канал";
+            (AppLocalizations.of(context)?.polzovatel_f154 ?? 'Пользователь');
+        final actionText =
+            AppLocalizations.of(context)?.subscribedChannel ??
+            (AppLocalizations.of(context)?.podpisalsyaNaKanal_0673 ??
+                'подписался на канал');
+        lastMsgText = "$authorName $actionText";
       } else if (msgType == 'user_unsubscribed_channel') {
         final authorName =
             lastMsg['author_first_name'] ??
             lastMsg['author_username'] ??
-            (AppLocalizations.of(context)?.polzovatel_f154 ?? 'Fallback');
-        lastMsgText = "$authorName отписался от канала";
+            (AppLocalizations.of(context)?.polzovatel_f154 ?? 'Пользователь');
+        final actionText =
+            AppLocalizations.of(context)?.unsubscribedChannel ??
+            (AppLocalizations.of(context)?.otpisalsyaOtKanala_fa13 ??
+                'отписался от канала');
+        lastMsgText = "$authorName $actionText";
       } else if (msgType == 'todo_list') {
         lastMsgText =
             (AppLocalizations.of(context)?.toDoList_27e1 ?? 'Fallback');
@@ -6460,13 +7372,27 @@ class _MessengerScreenState extends State<MessengerScreen> {
     bool isDark, {
     String? avatarGradient,
     BorderRadius? borderRadius,
+    dynamic userId,
+    String? username,
   }) {
     final initials = displayName.isNotEmpty
         ? displayName.substring(0, 1).toUpperCase()
         : "?";
     final effectiveBorderRadius = borderRadius ?? BorderRadius.circular(radius);
 
-    if (avatarUrl == null || avatarUrl.isEmpty) {
+    String? effectiveAvatar = avatarUrl;
+    if (!_isRealAvatar(effectiveAvatar)) {
+      final foundReal = _findRealAvatarForUser(
+        userId: userId,
+        username: username,
+        firstName: displayName,
+      );
+      if (foundReal != null) {
+        effectiveAvatar = foundReal;
+      }
+    }
+
+    if (effectiveAvatar == null || effectiveAvatar.isEmpty) {
       return _buildInitialsAvatar(
         initials,
         radius,
@@ -6477,19 +7403,19 @@ class _MessengerScreenState extends State<MessengerScreen> {
       );
     }
 
-    if (avatarUrl.startsWith('data:image/svg+xml')) {
+    if (effectiveAvatar.startsWith('data:image/svg+xml')) {
       try {
         String svgString;
-        if (avatarUrl.startsWith('data:image/svg+xml;base64,')) {
-          final base64String = avatarUrl.substring(
+        if (effectiveAvatar.startsWith('data:image/svg+xml;base64,')) {
+          final base64String = effectiveAvatar.substring(
             'data:image/svg+xml;base64,'.length,
           );
           svgString = utf8.decode(base64.decode(base64String));
         } else {
-          final commaIndex = avatarUrl.indexOf(',');
+          final commaIndex = effectiveAvatar.indexOf(',');
           if (commaIndex != -1) {
             svgString = Uri.decodeComponent(
-              avatarUrl.substring(commaIndex + 1),
+              effectiveAvatar.substring(commaIndex + 1),
             );
           } else {
             svgString = '';
@@ -6569,13 +7495,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
       }
     }
 
-    String fullUrl = avatarUrl;
-    if (!avatarUrl.startsWith('http://') && !avatarUrl.startsWith('https://')) {
-      final uri = Uri.parse(ApiService.baseUrl);
-      final origin =
-          "${uri.scheme}://${uri.host}${uri.hasPort ? ':${uri.port}' : ''}";
-      fullUrl = "$origin$avatarUrl";
-    }
+    final fullUrl = _formatAvatarUrl(effectiveAvatar);
 
     return ClipRRect(
       borderRadius: effectiveBorderRadius,
@@ -6835,18 +7755,13 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
     String statusText = "";
     if (chatType == 'favorites') {
-      statusText =
-          l10n?.savedMessages ??
-          (AppLocalizations.of(context)?.izbrannoe_2fc4 ?? 'Fallback');
+      statusText = l10n?.savedMessages ?? 'Избранное';
     } else if (chatType == 'personal') {
       statusText = isBot
-          ? (AppLocalizations.of(context)?.bot_2712 ?? 'Fallback')
+          ? (l10n?.bot_2712 ?? 'Бот')
           : (isOnline
-                ? (l10n?.online ??
-                      (AppLocalizations.of(context)?.vSeti_d902 ?? 'Fallback'))
-                : (l10n?.offline ??
-                      (AppLocalizations.of(context)?.neVSeti_ee01 ??
-                          'Fallback')));
+                ? (l10n?.online ?? 'в сети')
+                : _getUserOfflineStatusText(otherUser));
     } else if (chatType == 'group') {
       statusText = _getGroupStatusText(_selectedChat!);
     } else if (chatType == 'channel') {
@@ -7126,10 +8041,52 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
   Widget _buildEmptyMessagesPlaceholder(bool isDark, double scale) {
     final l10n = AppLocalizations.of(context);
-    final title = l10n?.noMessagesTitle ?? 'Нет сообщений';
-    final subtitle =
-        l10n?.noMessagesSubtitle ??
-        'Напишите первыми, чтобы начать общение в Xaneo Connect!';
+    final isFavorites =
+        _selectedChat?['chat_type'] == 'favorites' ||
+        _selectedChat?['id'] == -1 ||
+        _selectedChat?['is_favorites'] == true;
+    final isGroup =
+        _selectedChat?['chat_type'] == 'group' ||
+        _selectedChat?['type'] == 'group' ||
+        (_selectedChat?['id']?.toString().startsWith('group_') ?? false);
+    final isChannel =
+        _selectedChat?['chat_type'] == 'channel' ||
+        _selectedChat?['type'] == 'channel' ||
+        (_selectedChat?['id']?.toString().startsWith('channel_') ?? false);
+
+    final String title;
+    final String subtitle;
+    final IconData centerIcon;
+
+    if (isFavorites) {
+      title = l10n?.savedMessages ?? 'Избранное';
+      subtitle =
+          l10n?.savedMessagesDesc ??
+          'Ваше личное хранилище для заметок, файлов и сообщений';
+      centerIcon = Icons.star_rounded;
+    } else if (isGroup) {
+      title =
+          _selectedChat?['name']?.toString() ??
+          _selectedChat?['title']?.toString() ??
+          (l10n?.group ?? 'Группа');
+      subtitle =
+          l10n?.groupWelcome ??
+          'Добро пожаловать в группу! Общайтесь и делитесь файлами.';
+      centerIcon = Icons.group_rounded;
+    } else if (isChannel) {
+      title =
+          _selectedChat?['name']?.toString() ??
+          _selectedChat?['title']?.toString() ??
+          (l10n?.channel ?? 'Канал');
+      subtitle =
+          l10n?.channelWelcome ??
+          'Добро пожаловать в канал! Здесь публикуются важные объявления и новости.';
+      centerIcon = Icons.campaign_rounded;
+    } else {
+      title = l10n?.noMessagesTitle ?? 'Нет сообщений';
+      subtitle = l10n?.noMessagesSubtitle ?? 'Начните общение прямо сейчас';
+      centerIcon = Icons.chat_bubble_outline_rounded;
+    }
 
     final cardBg = isDark ? const Color(0xFF121212) : const Color(0xFFFFFFFF);
     final borderColor = isDark
@@ -7163,19 +8120,34 @@ class _MessengerScreenState extends State<MessengerScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Clean Minimal Icon Container
+              // Icon Container
               Container(
                 width: 64 * scale,
                 height: 64 * scale,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: iconBg,
-                  border: Border.all(color: borderColor, width: 1),
+                  color: isFavorites ? const Color(0xFF7C3AED) : iconBg,
+                  border: isFavorites
+                      ? null
+                      : Border.all(color: borderColor, width: 1),
+                  boxShadow: isFavorites
+                      ? [
+                          BoxShadow(
+                            color: const Color(
+                              0xFF7C3AED,
+                            ).withValues(alpha: 0.35),
+                            blurRadius: 12 * scale,
+                            offset: Offset(0, 4 * scale),
+                          ),
+                        ]
+                      : null,
                 ),
-                child: Icon(
-                  Icons.chat_bubble_outline_rounded,
-                  size: 28 * scale,
-                  color: primaryTextColor,
+                child: Center(
+                  child: Icon(
+                    centerIcon,
+                    size: isFavorites ? 34 * scale : 28 * scale,
+                    color: isFavorites ? Colors.white : primaryTextColor,
+                  ),
                 ),
               ),
               SizedBox(height: 18 * scale),
@@ -7204,40 +8176,6 @@ class _MessengerScreenState extends State<MessengerScreen> {
                   fontFamily: 'Inter',
                 ),
                 textAlign: TextAlign.center,
-              ),
-              SizedBox(height: 20 * scale),
-
-              // Clean Neutral Badge
-              Container(
-                padding: EdgeInsets.symmetric(
-                  horizontal: 14 * scale,
-                  vertical: 6 * scale,
-                ),
-                decoration: BoxDecoration(
-                  color: iconBg,
-                  borderRadius: BorderRadius.circular(20 * scale),
-                  border: Border.all(color: borderColor, width: 1),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.edit_note_rounded,
-                      size: 15 * scale,
-                      color: primaryTextColor,
-                    ),
-                    SizedBox(width: 6 * scale),
-                    Text(
-                      '👋 Xaneo Connect',
-                      style: TextStyle(
-                        fontSize: 11 * scale,
-                        fontWeight: FontWeight.w600,
-                        color: primaryTextColor,
-                        fontFamily: 'Inter',
-                      ),
-                    ),
-                  ],
-                ),
               ),
             ],
           ),
@@ -7369,12 +8307,30 @@ class _MessengerScreenState extends State<MessengerScreen> {
         else if (lowerName.endsWith('.m4a') || lowerName.endsWith('.aac'))
           audioUrl += audioUrl.contains('?') ? '&ext=.m4a' : '?ext=.m4a';
 
+        final coverUriStr = audioTrackCoverUri(payload);
+        final artUri = coverUriStr != null && coverUriStr.isNotEmpty
+            ? Uri.tryParse(
+                coverUriStr.startsWith('http')
+                    ? coverUriStr
+                    : '$host${coverUriStr.startsWith('/') ? '' : '/'}$coverUriStr',
+              )
+            : null;
+        final trackDurationSec = audioTrackDuration(payload);
+        final rawArtist = audioTrackArtist(payload, fileName).trim();
+        final unknownText =
+            AppLocalizations.of(context)?.neizvestnyy_be89 ?? 'Неизвестно';
+        final artist = rawArtist.isNotEmpty ? rawArtist : unknownText;
+
         playlist.add(
           PlaybackItem(
             url: audioUrl,
-            title: fileName,
-            subtitle: _formatBytes(fileSize),
+            title: audioTrackTitle(payload, fileName),
+            subtitle: artist,
             mimeType: mimeType,
+            duration: trackDurationSec > 0
+                ? Duration(seconds: trackDurationSec)
+                : null,
+            artUri: artUri,
             payload: payload,
           ),
         );
@@ -7430,46 +8386,98 @@ class _MessengerScreenState extends State<MessengerScreen> {
     final messageData = msg['message_data'] as Map<String, dynamic>? ?? {};
 
     final l10n = AppLocalizations.of(context);
-    final userLabel =
-        (AppLocalizations.of(context)?.polzovatel_f154 ?? 'Fallback');
+    final rt = RuntimeTranslations.instance;
+    final userLabel = l10n?.polzovatel_f154 ?? rt.resolveByText('Пользователь');
+
+    String resolveUserName(dynamic userMap, dynamic fallbackName) {
+      if (userMap is Map) {
+        final isDeleted = userMap['is_deleted'] == true;
+        final isBot = userMap['is_bot'] == true;
+        final uName = userMap['username']?.toString() ?? '';
+        if (isDeleted ||
+            uName.startsWith('deleted_user_') ||
+            uName.startsWith('deleted_bot_')) {
+          return (isBot || uName.startsWith('deleted_bot_'))
+              ? (rt.get('messenger.system.deletedBot') !=
+                        'messenger.system.deletedBot'
+                    ? rt.get('messenger.system.deletedBot')
+                    : rt.resolveByText('Удалённый бот'))
+              : (rt.get('messenger.system.deletedAccount') !=
+                        'messenger.system.deletedAccount'
+                    ? rt.get('messenger.system.deletedAccount')
+                    : rt.resolveByText('Удалённый аккаунт'));
+        }
+        final fName = userMap['first_name']?.toString() ?? '';
+        if (fName.isNotEmpty) return fName;
+        if (uName.isNotEmpty) return uName;
+      }
+      final str = fallbackName?.toString() ?? '';
+      if (str.startsWith('deleted_user_')) {
+        return rt.get('messenger.system.deletedAccount') !=
+                'messenger.system.deletedAccount'
+            ? rt.get('messenger.system.deletedAccount')
+            : rt.resolveByText('Удалённый аккаунт');
+      } else if (str.startsWith('deleted_bot_')) {
+        return rt.get('messenger.system.deletedBot') !=
+                'messenger.system.deletedBot'
+            ? rt.get('messenger.system.deletedBot')
+            : rt.resolveByText('Удалённый бот');
+      }
+      return str.isNotEmpty ? str : userLabel;
+    }
+
+    final name = resolveUserName(author, authorName);
     String displayText = '';
 
     if (messageType == 'user_joined_group' || messageType == 'user_joined') {
-      final name = authorName.isNotEmpty ? authorName : userLabel;
-      displayText =
-          '$name ${l10n?.joinedChat ?? (AppLocalizations.of(context)?.prisoedinilsyaKChatu_f623 ?? 'Fallback')}';
+      final joinAction =
+          l10n?.joinedChat ??
+          (l10n?.prisoedinilsyaKChatu_f623 ??
+              rt.resolveByText('присоединился к чату'));
+      displayText = '$name $joinAction';
     } else if (messageType == 'user_left_group' || messageType == 'user_left') {
-      final name = authorName.isNotEmpty ? authorName : userLabel;
-      displayText =
-          '$name ${l10n?.leftChat ?? (AppLocalizations.of(context)?.pokinulChat_d567 ?? 'Fallback')}';
+      final leftAction =
+          l10n?.leftChat ??
+          (l10n?.pokinulChat_d567 ?? rt.resolveByText('покинул чат'));
+      displayText = '$name $leftAction';
     } else if (messageType == 'user_subscribed_channel') {
-      final name = authorName.isNotEmpty ? authorName : userLabel;
-      displayText =
-          '$name ${l10n?.subscribedChannel ?? (AppLocalizations.of(context)?.podpisalsyaNaKanal_0673 ?? 'Fallback')}';
-    } else if (messageType == 'user_unsubscribed_channel') {
-      final name = authorName.isNotEmpty ? authorName : userLabel;
-      displayText =
-          '$name ${l10n?.unsubscribedChannel ?? (AppLocalizations.of(context)?.otpisalsyaOtKanala_fa13 ?? 'Fallback')}';
+      final subAction =
+          l10n?.subscribedChannel ??
+          (l10n?.podpisalsyaNaKanal_0673 ??
+              rt.resolveByText('подписался на канал'));
+      displayText = '$name $subAction';
+    } else if (messageType == 'user_unsubscribed_channel' ||
+        messageType == 'user_left_channel') {
+      final unsubAction =
+          l10n?.unsubscribedChannel ??
+          (l10n?.otpisalsyaOtKanala_fa13 ??
+              rt.resolveByText('отписался от канала'));
+      displayText = '$name $unsubAction';
     } else if (messageType == 'user_invited_group' ||
         messageType == 'user_invited_channel') {
-      final inviter = authorName.isNotEmpty ? authorName : userLabel;
-      final invited =
+      final inviter = name;
+      final invitedRaw =
           messageData['invited_name'] ??
           messageData['subject_user_name'] ??
-          (AppLocalizations.of(context)?.polzovatelya_1083 ?? 'Fallback');
-      displayText =
-          '$inviter ${l10n?.invited ?? (AppLocalizations.of(context)?.priglasil_47ae ?? 'Fallback')} $invited';
+          (messageData['invited_user'] is Map
+              ? (messageData['invited_user']['first_name'] ??
+                    messageData['invited_user']['username'])
+              : null);
+      final invited = resolveUserName(messageData['invited_user'], invitedRaw);
+      final invitedWord =
+          l10n?.invited ??
+          (l10n?.priglasil_47ae ?? rt.resolveByText('пригласил'));
+      displayText = '$inviter $invitedWord $invited';
     } else {
       if (text.isNotEmpty &&
           !text.startsWith('{') &&
-          text !=
-              (AppLocalizations.of(context)?.rasshifrovka_e47f ?? 'Fallback')) {
-        displayText = text;
+          text != (l10n?.rasshifrovka_e47f ?? 'Расшифровка...')) {
+        displayText = rt.resolveByText(text);
       } else {
         displayText =
             l10n?.systemMessage ??
-            (AppLocalizations.of(context)?.sistemnoeSoobschenie_d2bd ??
-                'Fallback');
+            (l10n?.sistemnoeSoobschenie_d2bd ??
+                rt.resolveByText('Системное сообщение'));
       }
     }
 
@@ -7498,25 +8506,14 @@ class _MessengerScreenState extends State<MessengerScreen> {
             width: 1.0,
           ),
         ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.info_outline_rounded,
-              size: 13 * scale,
-              color: isDark ? Colors.white54 : Colors.black54,
-            ),
-            SizedBox(width: 6 * scale),
-            Text(
-              displayText,
-              style: TextStyle(
-                fontSize: 12.5 * scale,
-                fontWeight: FontWeight.w500,
-                color: isDark ? Colors.white70 : Colors.black87,
-              ),
-              textAlign: TextAlign.center,
-            ),
-          ],
+        child: Text(
+          displayText,
+          style: TextStyle(
+            fontSize: 12.5 * scale,
+            fontWeight: FontWeight.w500,
+            color: isDark ? Colors.white70 : Colors.black87,
+          ),
+          textAlign: TextAlign.center,
         ),
       ),
     );
@@ -7809,9 +8806,6 @@ class _MessengerScreenState extends State<MessengerScreen> {
         isReplyFieldValid(msg['reply_to']) ||
         isReplyFieldValid(msg['reply_text']);
     final mediaItems = _getMediaItemsFromMsg(msg, customPayload);
-    final bool isPureAudio = customPayload != null &&
-        (customPayload['type'] == 'audio' || _isAudioFile(customPayload)) &&
-        (decryptedText.trim().isEmpty || decryptedText.trim().startsWith('{'));
 
     final bubbleContent = GestureDetector(
       onTap: () {
@@ -7823,194 +8817,226 @@ class _MessengerScreenState extends State<MessengerScreen> {
           _showMessageContextMenu(msg, details.globalPosition, scale, isDark),
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 4),
-        padding: isPureAudio
-            ? EdgeInsets.zero
-            : const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.6,
+          maxWidth: min(
+            520.0 * scale,
+            MediaQuery.of(context).size.width * 0.65,
+          ),
         ),
-        decoration: isPureAudio
-            ? null
-            : BoxDecoration(
-                gradient: (isMe && !isChannel)
-                    ? const LinearGradient(
-                        colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      )
-                    : LinearGradient(
-                        colors: isDark
-                            ? [
-                                Colors.white.withOpacity(0.08),
-                                Colors.white.withOpacity(0.12),
-                              ]
-                            : [
-                                Colors.black.withOpacity(0.03),
-                                Colors.black.withOpacity(0.06),
-                              ],
-                      ),
-                borderRadius: BorderRadius.only(
-                  topLeft: const Radius.circular(16),
-                  topRight: const Radius.circular(16),
-                  bottomLeft: Radius.circular((isMe && !isChannel) ? 16 : 2),
-                  bottomRight: Radius.circular((isMe && !isChannel) ? 2 : 16),
+        decoration: BoxDecoration(
+          gradient: (isMe && !isChannel)
+              ? const LinearGradient(
+                  colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                )
+              : LinearGradient(
+                  colors: isDark
+                      ? [
+                          Colors.white.withOpacity(0.08),
+                          Colors.white.withOpacity(0.12),
+                        ]
+                      : [
+                          Colors.black.withOpacity(0.03),
+                          Colors.black.withOpacity(0.06),
+                        ],
                 ),
-                border: Border.all(
-                  color: (isMe && !isChannel)
-                      ? Colors.transparent
-                      : (isDark
-                            ? Colors.white.withOpacity(0.1)
-                            : Colors.black.withOpacity(0.05)),
-                ),
-              ),
+          borderRadius: BorderRadius.only(
+            topLeft: const Radius.circular(16),
+            topRight: const Radius.circular(16),
+            bottomLeft: Radius.circular((isMe && !isChannel) ? 16 : 2),
+            bottomRight: Radius.circular((isMe && !isChannel) ? 2 : 16),
+          ),
+          border: Border.all(
+            color: (isMe && !isChannel)
+                ? Colors.transparent
+                : (isDark
+                      ? Colors.white.withOpacity(0.1)
+                      : Colors.black.withOpacity(0.05)),
+          ),
+        ),
         child: IntrinsicWidth(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-            // Sender name (channel name for channels, author name for groups if not me)
-            if (isChannel || (!isMe && isGroup))
-              Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Text(
-                  isChannel ? _getChatName(_selectedChat!) : authorFirstName,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                    color: Color(0xFF2563EB),
+              // Sender name (channel name for channels, author name for groups if not me)
+              if (isChannel || (!isMe && isGroup))
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text(
+                    isChannel ? _getChatName(_selectedChat!) : authorFirstName,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                      color: Color(0xFF2563EB),
+                    ),
                   ),
                 ),
-              ),
 
-            if (hasReply) _buildReplyQuote(msg, isMe, isDark, scale),
+              if (hasReply) _buildReplyQuote(msg, isMe, isDark, scale),
 
-            // Decrypted Plaintext or Media Collage / Attachments
-            if (mediaItems.isNotEmpty) ...[
-              _buildMediaCollageWidget(mediaItems, isMe, isDark, scale),
-              if (decryptedText.trim().isNotEmpty &&
-                  !decryptedText.trim().startsWith('{')) ...[
-                const SizedBox(height: 8),
-                _buildFormattedText(
-                  decryptedText,
-                  TextStyle(
-                    color: (isMe && !isChannel)
-                        ? Colors.white
-                        : (isDark
-                              ? Colors.white.withOpacity(0.9)
-                              : Colors.black87),
-                    fontSize: 15 * scale,
+              // Decrypted Plaintext or Media Collage / Attachments
+              if (mediaItems.isNotEmpty) ...[
+                _buildMediaCollageWidget(mediaItems, isMe, isDark, scale),
+                if (decryptedText.trim().isNotEmpty &&
+                    !decryptedText.trim().startsWith('{')) ...[
+                  const SizedBox(height: 8),
+                  _buildFormattedText(
+                    decryptedText,
+                    TextStyle(
+                      color: (isMe && !isChannel)
+                          ? Colors.white
+                          : (isDark
+                                ? Colors.white.withOpacity(0.9)
+                                : Colors.black87),
+                      fontSize: 15 * scale,
+                    ),
                   ),
+                ],
+              ] else if (customPayload != null &&
+                  customPayload['type'] == 'voice')
+                _VoiceMessageBubblePlayer(
+                  payload: customPayload,
+                  isMe: isMe,
+                  isDark: isDark,
+                  scale: scale,
+                  senderName: isChannel
+                      ? _getChatName(_selectedChat!)
+                      : (isMe
+                            ? (AppLocalizations.of(context)?.vy_0101 ??
+                                  'Fallback')
+                            : (_selectedChat?['chat_type'] == 'personal'
+                                  ? _getChatName(_selectedChat!)
+                                  : authorFirstName)),
+                )
+              else if (customPayload != null &&
+                  customPayload['type'] == 'video_message')
+                _VideoMessageMockBubble(
+                  key: ValueKey(customPayload['file_id'] ?? id),
+                  payload: customPayload,
+                  isMe: isMe,
+                  isDark: isDark,
+                  scale: scale,
+                )
+              else if (customPayload != null &&
+                  (customPayload['type'] == 'audio' ||
+                      _isAudioFile(customPayload))) ...[
+                _MusicMessageBubblePlayer(
+                  payload: customPayload,
+                  isMe: isMe,
+                  isDark: isDark,
+                  scale: scale,
+                  onPlayRequested: (selectedUrl) =>
+                      context.read<PlaybackProvider>().playFromPlaylist(
+                        _getMusicPlaylistFromChat(),
+                        selectedUrl: selectedUrl,
+                      ),
                 ),
-              ],
-            ] else if (customPayload != null &&
-                customPayload['type'] == 'voice')
-              _VoiceMessageBubblePlayer(
-                payload: customPayload,
-                isMe: isMe,
-                isDark: isDark,
-                scale: scale,
-                senderName: isChannel
-                    ? _getChatName(_selectedChat!)
-                    : (isMe
-                          ? (AppLocalizations.of(context)?.vy_0101 ??
-                                'Fallback')
-                          : (_selectedChat?['chat_type'] == 'personal'
-                                ? _getChatName(_selectedChat!)
-                                : authorFirstName)),
-              )
-            else if (customPayload != null &&
-                customPayload['type'] == 'video_message')
-              _VideoMessageMockBubble(
-                key: ValueKey(customPayload['file_id'] ?? id),
-                payload: customPayload,
-                isMe: isMe,
-                isDark: isDark,
-                scale: scale,
-              )
-            else if (customPayload != null &&
-                (customPayload['type'] == 'audio' ||
-                    _isAudioFile(customPayload))) ...[
-              _MusicMessageBubblePlayer(
-                payload: customPayload,
-                isMe: isMe,
-                isDark: isDark,
-                scale: scale,
-                onDownload: () {
-                  final fileId = customPayload!['file_id']?.toString() ?? '';
-                  final fileName =
-                      customPayload!['file_name']?.toString() ?? 'audio.mp3';
-                  _downloadFile(fileId, fileName);
-                },
-              ),
-              if (decryptedText.trim().isNotEmpty &&
-                  !decryptedText.trim().startsWith('{')) ...[
-                SizedBox(height: 8),
-                _buildFormattedText(
-                  decryptedText,
-                  TextStyle(
-                    color: (isMe && !isChannel)
-                        ? Colors.white
-                        : (isDark
-                              ? Colors.white.withOpacity(0.9)
-                              : Colors.black87),
-                    fontSize: 15 * scale,
+                if (decryptedText.trim().isNotEmpty &&
+                    !decryptedText.trim().startsWith('{')) ...[
+                  SizedBox(height: 8),
+                  _buildFormattedText(
+                    decryptedText,
+                    TextStyle(
+                      color: (isMe && !isChannel)
+                          ? Colors.white
+                          : (isDark
+                                ? Colors.white.withOpacity(0.9)
+                                : Colors.black87),
+                      fontSize: 15 * scale,
+                    ),
                   ),
-                ),
-              ],
-            ] else if (customPayload != null &&
-                customPayload['type'] == 'file') ...[
-              _buildFileAttachmentWidget(customPayload, isMe, isDark, scale),
-              if (decryptedText.trim().isNotEmpty &&
-                  !decryptedText.trim().startsWith('{')) ...[
-                const SizedBox(height: 8),
-                _buildFormattedText(
-                  decryptedText,
-                  TextStyle(
-                    color: (isMe && !isChannel)
-                        ? Colors.white
-                        : (isDark
-                              ? Colors.white.withOpacity(0.9)
-                              : Colors.black87),
-                    fontSize: 15 * scale,
+                ],
+              ] else if (customPayload != null &&
+                  customPayload['type'] == 'file') ...[
+                _buildFileAttachmentWidget(customPayload, isMe, isDark, scale),
+                if (decryptedText.trim().isNotEmpty &&
+                    !decryptedText.trim().startsWith('{')) ...[
+                  const SizedBox(height: 8),
+                  _buildFormattedText(
+                    decryptedText,
+                    TextStyle(
+                      color: (isMe && !isChannel)
+                          ? Colors.white
+                          : (isDark
+                                ? Colors.white.withOpacity(0.9)
+                                : Colors.black87),
+                      fontSize: 15 * scale,
+                    ),
                   ),
-                ),
-              ],
-            ] else if (customPayload != null &&
-                customPayload['type'] == 'file_loading') ...[
-              Container(
-                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    SizedBox(
-                      width: 14 * scale,
-                      height: 14 * scale,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 1.5,
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          isMe
-                              ? Colors.white70
-                              : (isDark ? Colors.white54 : Colors.black54),
+                ],
+              ] else if (customPayload != null &&
+                  customPayload['type'] == 'file_loading') ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 8,
+                    horizontal: 4,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: 14 * scale,
+                        height: 14 * scale,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 1.5,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            isMe
+                                ? Colors.white70
+                                : (isDark ? Colors.white54 : Colors.black54),
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 10),
-                    Text(
-                      (AppLocalizations.of(context)?.zagruzkaFayla_f817 ??
-                          'Fallback'),
-                      style: TextStyle(
-                        color: isMe
-                            ? Colors.white70
-                            : (isDark ? Colors.white54 : Colors.black54),
-                        fontSize: 12.5 * scale,
-                        fontStyle: FontStyle.italic,
+                      const SizedBox(width: 10),
+                      Text(
+                        (AppLocalizations.of(context)?.zagruzkaFayla_f817 ??
+                            'Fallback'),
+                        style: TextStyle(
+                          color: isMe
+                              ? Colors.white70
+                              : (isDark ? Colors.white54 : Colors.black54),
+                          fontSize: 12.5 * scale,
+                          fontStyle: FontStyle.italic,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-              if (decryptedText.trim().isNotEmpty &&
-                  !decryptedText.trim().startsWith('{')) ...[
-                const SizedBox(height: 8),
+                if (decryptedText.trim().isNotEmpty &&
+                    !decryptedText.trim().startsWith('{')) ...[
+                  const SizedBox(height: 8),
+                  _buildFormattedText(
+                    decryptedText,
+                    TextStyle(
+                      color: (isMe && !isChannel)
+                          ? Colors.white
+                          : (isDark
+                                ? Colors.white.withOpacity(0.9)
+                                : Colors.black87),
+                      fontSize: 15 * scale,
+                    ),
+                  ),
+                ],
+              ] else if (customPayload != null &&
+                  (msg['message_type'] == 'todo_list' ||
+                      msg['message_type'] == 'todo_list_message' ||
+                      customPayload['is_native'] == true) &&
+                  (customPayload['type'] == 'todo_list' ||
+                      (customPayload['items'] != null &&
+                          customPayload['title'] != null)))
+                _buildTodoWidget(msg, customPayload, isMe, isDark, scale)
+              else if (customPayload != null &&
+                  (msg['message_type'] == 'poll' ||
+                      msg['message_type'] == 'poll_message' ||
+                      customPayload['is_native'] == true) &&
+                  (customPayload['type'] == 'poll' ||
+                      (customPayload['options'] != null &&
+                          customPayload['question'] != null)))
+                _buildPollWidget(msg, customPayload, isMe, isDark, scale)
+              else if (customPayload != null && customPayload['type'] == 'call')
+                _buildCallWidget(customPayload, isMe, isDark, scale)
+              else
                 _buildFormattedText(
                   decryptedText,
                   TextStyle(
@@ -8022,115 +9048,91 @@ class _MessengerScreenState extends State<MessengerScreen> {
                     fontSize: 15 * scale,
                   ),
                 ),
-              ],
-            ] else if (customPayload != null &&
-                (msg['message_type'] == 'todo_list' ||
-                    msg['message_type'] == 'todo_list_message' ||
-                    customPayload['is_native'] == true) &&
-                (customPayload['type'] == 'todo_list' ||
-                    (customPayload['items'] != null &&
-                        customPayload['title'] != null)))
-              _buildTodoWidget(msg, customPayload, isMe, isDark, scale)
-            else if (customPayload != null &&
-                (msg['message_type'] == 'poll' ||
-                    msg['message_type'] == 'poll_message' ||
-                    customPayload['is_native'] == true) &&
-                (customPayload['type'] == 'poll' ||
-                    (customPayload['options'] != null &&
-                        customPayload['question'] != null)))
-              _buildPollWidget(msg, customPayload, isMe, isDark, scale)
-            else if (customPayload != null && customPayload['type'] == 'call')
-              _buildCallWidget(customPayload, isMe, isDark, scale)
-            else
-              _buildFormattedText(
-                decryptedText,
-                TextStyle(
-                  color: (isMe && !isChannel)
-                      ? Colors.white
-                      : (isDark
-                            ? Colors.white.withOpacity(0.9)
-                            : Colors.black87),
-                  fontSize: 15 * scale,
-                ),
-              ),
 
-            const SizedBox(height: 4),
-            // Reactions and Timestamp/Status
-            Builder(
-              builder: (context) {
-                final hasReactions = msg['reactions'] != null &&
-                    (msg['reactions'] as List).isNotEmpty;
-                final timestampWidget = Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      timeStr,
-                      style: TextStyle(
-                        color: (isMe && !isChannel) ? Colors.white60 : Colors.grey,
-                        fontSize: 10,
-                      ),
-                    ),
-                    if (isMe && !isChannel && customPayload?['type'] != 'call') ...[
-                      const SizedBox(width: 4),
-                      Builder(
-                        builder: (context) {
-                          final isPending =
-                              msg['is_pending'] == true ||
-                              msg['id'].toString().startsWith('temp_');
-                          final isRead =
-                              msg['is_read'] == true ||
-                              msg['is_read_by_recipient'] == true;
-                          return FaIcon(
-                            isPending
-                                ? FontAwesomeIcons.clock
-                                : (isRead
-                                      ? FontAwesomeIcons.checkDouble
-                                      : FontAwesomeIcons.check),
-                            size: 10 * scale,
-                            color: isPending
-                                ? (isDark ? Colors.white38 : Colors.black38)
-                                : (isRead
-                                      ? const Color(0xFF4ADE80)
-                                      : (isDark ? Colors.white60 : Colors.black54)),
-                          );
-                        },
-                      ),
-                    ] else if (customPayload?['type'] != 'call') ...[
-                      const SizedBox(width: 4),
-                      FaIcon(
-                        FontAwesomeIcons.lock,
-                        size: 9 * scale,
-                        color: isMe ? Colors.white60 : Colors.grey,
-                      ),
-                    ],
-                  ],
-                );
-
-                if (hasReactions) {
-                  return Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    crossAxisAlignment: CrossAxisAlignment.center,
+              const SizedBox(height: 4),
+              // Reactions and Timestamp/Status
+              Builder(
+                builder: (context) {
+                  final hasReactions =
+                      msg['reactions'] != null &&
+                      (msg['reactions'] as List).isNotEmpty;
+                  final timestampWidget = Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Flexible(
-                        child: _buildReactionsRow(msg, isMe, isDark, scale),
+                      Text(
+                        timeStr,
+                        style: TextStyle(
+                          color: (isMe && !isChannel)
+                              ? Colors.white60
+                              : Colors.grey,
+                          fontSize: 10,
+                        ),
                       ),
-                      const SizedBox(width: 8),
-                      timestampWidget,
+                      if (isMe &&
+                          !isChannel &&
+                          customPayload?['type'] != 'call') ...[
+                        const SizedBox(width: 4),
+                        Builder(
+                          builder: (context) {
+                            final isPending =
+                                msg['is_pending'] == true ||
+                                msg['id'].toString().startsWith('temp_');
+                            final isRead =
+                                msg['is_read'] == true ||
+                                msg['is_read_by_recipient'] == true;
+                            return FaIcon(
+                              isPending
+                                  ? FontAwesomeIcons.clock
+                                  : (isRead
+                                        ? FontAwesomeIcons.checkDouble
+                                        : FontAwesomeIcons.check),
+                              size: 10 * scale,
+                              color: isPending
+                                  ? (isDark ? Colors.white38 : Colors.black38)
+                                  : (isRead
+                                        ? const Color(0xFF4ADE80)
+                                        : (isDark
+                                              ? Colors.white60
+                                              : Colors.black54)),
+                            );
+                          },
+                        ),
+                      ] else if (customPayload?['type'] != 'call') ...[
+                        const SizedBox(width: 4),
+                        FaIcon(
+                          FontAwesomeIcons.lock,
+                          size: 9 * scale,
+                          color: isMe ? Colors.white60 : Colors.grey,
+                        ),
+                      ],
                     ],
                   );
-                }
 
-                return Align(
-                  alignment: Alignment.centerRight,
-                  child: timestampWidget,
-                );
-              },
-            ),
-          ],
+                  if (hasReactions) {
+                    return Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Flexible(
+                          child: _buildReactionsRow(msg, isMe, isDark, scale),
+                        ),
+                        const SizedBox(width: 8),
+                        timestampWidget,
+                      ],
+                    );
+                  }
+
+                  return Align(
+                    alignment: Alignment.centerRight,
+                    child: timestampWidget,
+                  );
+                },
+              ),
+            ],
+          ),
         ),
       ),
-    ),
-  );
+    );
 
     if (isChannel) {
       return Align(
@@ -8156,6 +9158,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
                 authorGradient,
                 authorFirstName,
                 40,
+                userId: msg['author_id'] ?? msg['sender_id'] ?? msg['user_id'],
+                username:
+                    msg['author_username']?.toString() ??
+                    msg['username']?.toString(),
               ),
               const SizedBox(width: 6),
               bubbleContent,
@@ -8176,8 +9182,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
   void _toggleReaction(Map<String, dynamic> msg, String emoji) {
     final rawMsgId = msg['id'];
-    final msgId =
-        rawMsgId is int ? rawMsgId : int.tryParse(rawMsgId.toString());
+    final msgId = rawMsgId is int
+        ? rawMsgId
+        : int.tryParse(rawMsgId.toString());
     if (msgId == null || _myId == null) return;
 
     final reactions = List<dynamic>.from(msg['reactions'] ?? []);
@@ -8214,15 +9221,30 @@ class _MessengerScreenState extends State<MessengerScreen> {
     String name,
     double size,
     double scale,
-    bool isDark,
-  ) {
-    final initials =
-        name.trim().isNotEmpty ? name.trim()[0].toUpperCase() : 'U';
+    bool isDark, {
+    dynamic userId,
+    String? username,
+  }) {
+    final initials = name.trim().isNotEmpty
+        ? name.trim()[0].toUpperCase()
+        : 'U';
 
-    if (avatarUrl != null && avatarUrl.isNotEmpty) {
-      if (avatarUrl.startsWith('data:image/svg+xml;base64,')) {
+    String? effectiveAvatar = avatarUrl;
+    if (!_isRealAvatar(effectiveAvatar)) {
+      final foundReal = _findRealAvatarForUser(
+        userId: userId,
+        username: username,
+        firstName: name,
+      );
+      if (foundReal != null) {
+        effectiveAvatar = foundReal;
+      }
+    }
+
+    if (effectiveAvatar != null && effectiveAvatar.isNotEmpty) {
+      if (effectiveAvatar.startsWith('data:image/svg+xml;base64,')) {
         try {
-          final b64 = avatarUrl.split(',')[1];
+          final b64 = effectiveAvatar.split(',')[1];
           final svgString = utf8.decode(base64.decode(b64));
 
           if (svgString.contains('<text') && svgString.contains('</text>')) {
@@ -8269,13 +9291,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
           );
         } catch (_) {}
       } else {
-        String fullUrl = avatarUrl;
-        if (fullUrl.startsWith('/')) {
-          final base = ApiService.baseUrl.endsWith('/')
-              ? ApiService.baseUrl.substring(0, ApiService.baseUrl.length - 1)
-              : ApiService.baseUrl;
-          fullUrl = '$base$fullUrl';
-        }
+        final fullUrl = _formatAvatarUrl(effectiveAvatar);
 
         return ClipOval(
           child: SizedBox(
@@ -8340,12 +9356,14 @@ class _MessengerScreenState extends State<MessengerScreen> {
           return uId == _myId;
         });
 
-        final String userNames = users.map((u) {
-          final name = u['user_first_name']?.toString();
-          return (name != null && name.isNotEmpty)
-              ? name
-              : (u['user_username']?.toString() ?? '');
-        }).join(', ');
+        final String userNames = users
+            .map((u) {
+              final name = u['user_first_name']?.toString();
+              return (name != null && name.isNotEmpty)
+                  ? name
+                  : (u['user_username']?.toString() ?? '');
+            })
+            .join(', ');
 
         return Tooltip(
           message: userNames,
@@ -8359,9 +9377,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                 vertical: 3 * scale,
               ),
               decoration: BoxDecoration(
-                color: hasMyReaction
-                    ? Colors.white
-                    : const Color(0x99000000),
+                color: hasMyReaction ? Colors.white : const Color(0x99000000),
                 borderRadius: BorderRadius.circular(12 * scale),
                 border: Border.all(
                   color: hasMyReaction
@@ -8375,7 +9391,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                           color: Colors.white.withOpacity(0.3),
                           blurRadius: 6,
                           spreadRadius: 1,
-                        )
+                        ),
                       ]
                     : null,
               ),
@@ -8387,13 +9403,16 @@ class _MessengerScreenState extends State<MessengerScreen> {
                       height: 16 * scale,
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
-                        children: users.take(3).toList().asMap().entries.map((e) {
+                        children: users.take(3).toList().asMap().entries.map((
+                          e,
+                        ) {
                           final idx = e.key;
                           final u = e.value;
                           final avatarUrl = u['user_avatar']?.toString();
-                          final avatarGradient =
-                              u['user_avatar_gradient']?.toString();
-                          final name = u['user_first_name']?.toString() ??
+                          final avatarGradient = u['user_avatar_gradient']
+                              ?.toString();
+                          final name =
+                              u['user_first_name']?.toString() ??
                               u['user_username']?.toString() ??
                               'U';
                           return Transform.translate(
@@ -8417,6 +9436,8 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                 16 * scale,
                                 scale,
                                 isDark,
+                                userId: u['user_id'],
+                                username: u['user_username']?.toString(),
                               ),
                             ),
                           );
@@ -8424,12 +9445,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
                       ),
                     ),
                     SizedBox(
-                        width: (4 - (users.take(3).length - 1) * 4) * scale),
+                      width: (4 - (users.take(3).length - 1) * 4) * scale,
+                    ),
                   ],
-                  Text(
-                    emoji,
-                    style: TextStyle(fontSize: 13 * scale),
-                  ),
+                  Text(emoji, style: TextStyle(fontSize: 13 * scale)),
                   if (count > 1) ...[
                     SizedBox(width: 4 * scale),
                     Text(
@@ -8457,8 +9476,19 @@ class _MessengerScreenState extends State<MessengerScreen> {
     bool isDark,
   ) {
     final List<String> popularEmojis = [
-      '👍', '❤️', '🔥', '😂', '😮', '😢', '🤡', '👏', '🎉', '💩'
+      '👍',
+      '❤️',
+      '🔥',
+      '😂',
+      '😮',
+      '😢',
+      '🤡',
+      '👏',
+      '🎉',
+      '💩',
     ];
+
+    final l10n = AppLocalizations.of(context)!;
 
     showMenu<String>(
       context: context,
@@ -8550,7 +9580,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
               ),
               SizedBox(width: 10 * scale),
               Text(
-                'Ответить',
+                l10n.reply,
                 style: TextStyle(
                   fontSize: 14 * scale,
                   color: isDark ? Colors.white : Colors.black87,
@@ -8570,34 +9600,291 @@ class _MessengerScreenState extends State<MessengerScreen> {
   ) {
     final Map<String, List<String>> emojiCategories = {
       'Эмоции': [
-        '😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '🙃', '😉', '😊', '😇',
-        '🥰', '😍', '🤩', '😘', '😗', '😚', '😋', '😛', '😜', '🤪', '😝', '🤑', '🤗',
-        '🤭', '🤫', '🤔', '🤐', '🤨', '😐', '😑', '😶', '😏', '😒', '🙄', '😬', '🤥',
-        '😌', '😔', '😪', '🤤', '😴', '😷', '🤒', '🤕', '🤢', '🤮', '🤧', '🥵', '🥶',
-        '🥴', '😵', '🤯', '🤠', '🥳', '😎', '🤓', '🧐', '😕', '😟', '🙁', '😮', '😯',
-        '😲', '😳', '🥺', '😦', '😧', '😨', '😰', '😥', '😢', '😭', '😱', '😖', '😣',
-        '😞', '😓', '😩', '😫', '🥱', '😤', '😡', '😠', '🤬', '😈', '👿', '💀', '☠️',
-        '💩', '🤡', '👹', '👺', '👻', '👽', '👾', '🤖'
+        '😀',
+        '😃',
+        '😄',
+        '😁',
+        '😆',
+        '😅',
+        '🤣',
+        '😂',
+        '🙂',
+        '🙃',
+        '😉',
+        '😊',
+        '😇',
+        '🥰',
+        '😍',
+        '🤩',
+        '😘',
+        '😗',
+        '😚',
+        '😋',
+        '😛',
+        '😜',
+        '🤪',
+        '😝',
+        '🤑',
+        '🤗',
+        '🤭',
+        '🤫',
+        '🤔',
+        '🤐',
+        '🤨',
+        '😐',
+        '😑',
+        '😶',
+        '😏',
+        '😒',
+        '🙄',
+        '😬',
+        '🤥',
+        '😌',
+        '😔',
+        '😪',
+        '🤤',
+        '😴',
+        '😷',
+        '🤒',
+        '🤕',
+        '🤢',
+        '🤮',
+        '🤧',
+        '🥵',
+        '🥶',
+        '🥴',
+        '😵',
+        '🤯',
+        '🤠',
+        '🥳',
+        '😎',
+        '🤓',
+        '🧐',
+        '😕',
+        '😟',
+        '🙁',
+        '😮',
+        '😯',
+        '😲',
+        '😳',
+        '🥺',
+        '😦',
+        '😧',
+        '😨',
+        '😰',
+        '😥',
+        '😢',
+        '😭',
+        '😱',
+        '😖',
+        '😣',
+        '😞',
+        '😓',
+        '😩',
+        '😫',
+        '🥱',
+        '😤',
+        '😡',
+        '😠',
+        '🤬',
+        '😈',
+        '👿',
+        '💀',
+        '☠️',
+        '💩',
+        '🤡',
+        '👹',
+        '👺',
+        '👻',
+        '👽',
+        '👾',
+        '🤖',
       ],
       'Жесты и тело': [
-        '👋', '🤚', '🖐️', '✋', '🖖', '👌', '🤏', '✌️', '🤞', '🤟', '🤘', '🤙', '👈',
-        '👉', '👆', '🖕', '👇', '☝️', '👍', '👎', '✊', '👊', '🤛', '🤜', '👏', '🙌',
-        '👐', '🤲', '🤝', '🙏', '✍️', '💅', '🤳', '💪', '🦾', '🦿', '🦵', '🦶', '👂',
-        '🦻', '👃', '🧠', '🫀', '🫁', '🦷', '🦴', '👀', '👁️', '👅', '👄'
+        '👋',
+        '🤚',
+        '🖐️',
+        '✋',
+        '🖖',
+        '👌',
+        '🤏',
+        '✌️',
+        '🤞',
+        '🤟',
+        '🤘',
+        '🤙',
+        '👈',
+        '👉',
+        '👆',
+        '🖕',
+        '👇',
+        '☝️',
+        '👍',
+        '👎',
+        '✊',
+        '👊',
+        '🤛',
+        '🤜',
+        '👏',
+        '🙌',
+        '👐',
+        '🤲',
+        '🤝',
+        '🙏',
+        '✍️',
+        '💅',
+        '🤳',
+        '💪',
+        '🦾',
+        '🦿',
+        '🦵',
+        '🦶',
+        '👂',
+        '🦻',
+        '👃',
+        '🧠',
+        '🫀',
+        '🫁',
+        '🦷',
+        '🦴',
+        '👀',
+        '👁️',
+        '👅',
+        '👄',
       ],
       'Сердца и символы': [
-        '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍', '🤎', '💔', '❣️', '💕', '💞',
-        '💓', '💗', '💖', '💘', '💝', '💟', '☮️', '✝️', '☪️', '🕉️', '☸️', '✡️', '🔯',
-        '🕎', '☯️', '☦️', '🛐', '⛎', '♈', '♉', '♊', '♋', '♌', '♍', '♎', '♏', '♐',
-        '♑', '♒', '♓', '🎯', '💯', '🔥', '💥', '✨', '⚡', '🌟', '💫', '⭐️'
+        '❤️',
+        '🧡',
+        '💛',
+        '💚',
+        '💙',
+        '💜',
+        '🖤',
+        '🤍',
+        '🤎',
+        '💔',
+        '❣️',
+        '💕',
+        '💞',
+        '💓',
+        '💗',
+        '💖',
+        '💘',
+        '💝',
+        '💟',
+        '☮️',
+        '✝️',
+        '☪️',
+        '🕉️',
+        '☸️',
+        '✡️',
+        '🔯',
+        '🕎',
+        '☯️',
+        '☦️',
+        '🛐',
+        '⛎',
+        '♈',
+        '♉',
+        '♊',
+        '♋',
+        '♌',
+        '♍',
+        '♎',
+        '♏',
+        '♐',
+        '♑',
+        '♒',
+        '♓',
+        '🎯',
+        '💯',
+        '🔥',
+        '💥',
+        '✨',
+        '⚡',
+        '🌟',
+        '💫',
+        '⭐️',
       ],
       'Еда и предметы': [
-        '🍏', '🍎', '🍐', '🍊', '🍋', '🍌', '🍉', '🍇', '🍓', '🫐', '🍈', '🍒', '🍑',
-        '🥭', '🍍', '🥥', '🥝', '🍅', '🍆', '🥑', '🥦', '🥬', '🥒', '🌶️', '🫑', '🌽',
-        '🥕', '🫒', '🧄', '🧅', '🥔', '🍠', '🥐', '🥯', '🍞', '🥖', '🥨', '🧀', '🍳',
-        '🥞', '🧇', '🥓', '🥩', '🍗', '🍖', '🌭', '🍔', '🍟', '🍕', '🥪', '🥙', '🧆',
-        '🌮', '🌯', '🥗', '🥘', '🍝', '🍜', '🍲', '🍛', '🍣', '🍱', '🥟', '🍤', '🍙',
-        '🍧', '🍨', '🍦', '🥧', '🧁', '🍰', '🎂', '🍮', '🍭', '🍬', '🍫', '🍿', '🍩'
+        '🍏',
+        '🍎',
+        '🍐',
+        '🍊',
+        '🍋',
+        '🍌',
+        '🍉',
+        '🍇',
+        '🍓',
+        '🫐',
+        '🍈',
+        '🍒',
+        '🍑',
+        '🥭',
+        '🍍',
+        '🥥',
+        '🥝',
+        '🍅',
+        '🍆',
+        '🥑',
+        '🥦',
+        '🥬',
+        '🥒',
+        '🌶️',
+        '🫑',
+        '🌽',
+        '🥕',
+        '🫒',
+        '🧄',
+        '🧅',
+        '🥔',
+        '🍠',
+        '🥐',
+        '🥯',
+        '🍞',
+        '🥖',
+        '🥨',
+        '🧀',
+        '🍳',
+        '🥞',
+        '🧇',
+        '🥓',
+        '🥩',
+        '🍗',
+        '🍖',
+        '🌭',
+        '🍔',
+        '🍟',
+        '🍕',
+        '🥪',
+        '🥙',
+        '🧆',
+        '🌮',
+        '🌯',
+        '🥗',
+        '🥘',
+        '🍝',
+        '🍜',
+        '🍲',
+        '🍛',
+        '🍣',
+        '🍱',
+        '🥟',
+        '🍤',
+        '🍙',
+        '🍧',
+        '🍨',
+        '🍦',
+        '🥧',
+        '🧁',
+        '🍰',
+        '🎂',
+        '🍮',
+        '🍭',
+        '🍬',
+        '🍫',
+        '🍿',
+        '🍩',
       ],
     };
 
@@ -8608,11 +9895,15 @@ class _MessengerScreenState extends State<MessengerScreen> {
       builder: (dialogCtx) {
         return StatefulBuilder(
           builder: (context, setModalState) {
-            final List<dynamic> currentReactions = List<dynamic>.from(msg['reactions'] ?? []);
+            final List<dynamic> currentReactions = List<dynamic>.from(
+              msg['reactions'] ?? [],
+            );
 
             return Dialog(
               backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
               child: Container(
                 width: 420 * scale,
                 height: 480 * scale,
@@ -8683,8 +9974,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
                         children: emojiCategories.entries.map((cat) {
                           final categoryTitle = cat.key;
                           final emojis = cat.value
-                              .where((e) =>
-                                  searchQuery.isEmpty || e.contains(searchQuery))
+                              .where(
+                                (e) =>
+                                    searchQuery.isEmpty ||
+                                    e.contains(searchQuery),
+                              )
                               .toList();
 
                           if (emojis.isEmpty) return const SizedBox.shrink();
@@ -8693,14 +9987,17 @@ class _MessengerScreenState extends State<MessengerScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 6),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 6,
+                                ),
                                 child: Text(
                                   categoryTitle,
                                   style: TextStyle(
                                     fontSize: 12 * scale,
                                     fontWeight: FontWeight.bold,
-                                    color:
-                                        isDark ? Colors.white54 : Colors.black54,
+                                    color: isDark
+                                        ? Colors.white54
+                                        : Colors.black54,
                                   ),
                                 ),
                               ),
@@ -8708,11 +10005,14 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                 spacing: 8 * scale,
                                 runSpacing: 8 * scale,
                                 children: emojis.map((emoji) {
-                                  final hasMyReaction = currentReactions.any((r) {
+                                  final hasMyReaction = currentReactions.any((
+                                    r,
+                                  ) {
                                     final uId = r['user_id'] is int
                                         ? r['user_id']
                                         : int.tryParse(
-                                            r['user_id']?.toString() ?? '');
+                                            r['user_id']?.toString() ?? '',
+                                          );
                                     return uId == _myId && r['emoji'] == emoji;
                                   });
 
@@ -8726,16 +10026,22 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                       padding: const EdgeInsets.all(8),
                                       decoration: BoxDecoration(
                                         color: hasMyReaction
-                                            ? const Color(0xFF2563EB)
-                                                .withOpacity(0.25)
+                                            ? const Color(
+                                                0xFF2563EB,
+                                              ).withOpacity(0.25)
                                             : (isDark
-                                                ? Colors.white.withOpacity(0.06)
-                                                : Colors.black.withOpacity(0.04)),
+                                                  ? Colors.white.withOpacity(
+                                                      0.06,
+                                                    )
+                                                  : Colors.black.withOpacity(
+                                                      0.04,
+                                                    )),
                                         shape: BoxShape.circle,
                                         border: hasMyReaction
                                             ? Border.all(
                                                 color: const Color(0xFF2563EB),
-                                                width: 1.5)
+                                                width: 1.5,
+                                              )
                                             : null,
                                       ),
                                       child: Text(
@@ -8790,12 +10096,24 @@ class _MessengerScreenState extends State<MessengerScreen> {
         iconBg = const Color(0xFF10B981).withOpacity(0.15);
         final mins = duration ~/ 60;
         final secs = duration % 60;
-        final minLabel = AppLocalizations.of(context)?.minuteShort ?? 'мин';
-        final secLabel = AppLocalizations.of(context)?.secondShort ?? 'сек';
-        if (mins > 0) {
-          callSubtext = '$mins $minLabel $secs $secLabel';
+        final minSecTpl = RuntimeTranslations.instance.get(
+          'messenger.calls.durationMinSec',
+        );
+        final secTpl = RuntimeTranslations.instance.get(
+          'messenger.calls.durationSec',
+        );
+        if (mins > 0 && minSecTpl != 'messenger.calls.durationMinSec') {
+          callSubtext = minSecTpl
+              .replaceAll('{mins}', mins.toString())
+              .replaceAll('{secs}', secs.toString());
+        } else if (secTpl != 'messenger.calls.durationSec') {
+          callSubtext = secTpl.replaceAll('{secs}', secs.toString());
         } else {
-          callSubtext = '$secs $secLabel';
+          final minLabel = AppLocalizations.of(context)?.minuteShort ?? 'мин';
+          final secLabel = AppLocalizations.of(context)?.secondShort ?? 'сек';
+          callSubtext = mins > 0
+              ? '$mins $minLabel $secs $secLabel'
+              : '$secs $secLabel';
         }
       } else {
         iconColor = const Color(0xFF9CA3AF);
@@ -8814,12 +10132,24 @@ class _MessengerScreenState extends State<MessengerScreen> {
         iconBg = const Color(0xFF10B981).withOpacity(0.15);
         final mins = duration ~/ 60;
         final secs = duration % 60;
-        final minLabel = AppLocalizations.of(context)?.minuteShort ?? 'мин';
-        final secLabel = AppLocalizations.of(context)?.secondShort ?? 'сек';
-        if (mins > 0) {
-          callSubtext = '$mins $minLabel $secs $secLabel';
+        final minSecTpl = RuntimeTranslations.instance.get(
+          'messenger.calls.durationMinSec',
+        );
+        final secTpl = RuntimeTranslations.instance.get(
+          'messenger.calls.durationSec',
+        );
+        if (mins > 0 && minSecTpl != 'messenger.calls.durationMinSec') {
+          callSubtext = minSecTpl
+              .replaceAll('{mins}', mins.toString())
+              .replaceAll('{secs}', secs.toString());
+        } else if (secTpl != 'messenger.calls.durationSec') {
+          callSubtext = secTpl.replaceAll('{secs}', secs.toString());
         } else {
-          callSubtext = '$secs $secLabel';
+          final minLabel = AppLocalizations.of(context)?.minuteShort ?? 'мин';
+          final secLabel = AppLocalizations.of(context)?.secondShort ?? 'сек';
+          callSubtext = mins > 0
+              ? '$mins $minLabel $secs $secLabel'
+              : '$secs $secLabel';
         }
       } else if (status == 'rejected') {
         callTitle =
@@ -9596,7 +10926,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                       items: [
                                         CustomContextMenuItem(
                                           icon: FaIcon(
-                                            FontAwesomeIcons.fileLines,
+                                            FontAwesomeIcons.arrowUpFromBracket,
                                             size: 14 * scale,
                                           ),
                                           label: l10n?.file ?? 'Файл',
@@ -13549,7 +14879,7 @@ class _MusicMessageBubblePlayer extends StatefulWidget {
   final bool isMe;
   final bool isDark;
   final double scale;
-  final VoidCallback? onDownload;
+  final Future<void> Function(String selectedUrl)? onPlayRequested;
 
   const _MusicMessageBubblePlayer({
     super.key,
@@ -13557,7 +14887,7 @@ class _MusicMessageBubblePlayer extends StatefulWidget {
     required this.isMe,
     required this.isDark,
     required this.scale,
-    this.onDownload,
+    this.onPlayRequested,
   });
 
   @override
@@ -13600,20 +14930,6 @@ class _MusicMessageBubblePlayerState extends State<_MusicMessageBubblePlayer> {
     return finalUrl;
   }
 
-  String _formatBytes(int bytes) {
-    if (bytes <= 0)
-      return (AppLocalizations.of(context)?.loc_0B_5a4d ?? 'Fallback');
-    var suffixes = [
-      (AppLocalizations.of(context)?.b_3b67 ?? 'Fallback'),
-      (AppLocalizations.of(context)?.kb_419d ?? 'Fallback'),
-      (AppLocalizations.of(context)?.mb_b808 ?? 'Fallback'),
-      (AppLocalizations.of(context)?.gb_e572 ?? 'Fallback'),
-    ];
-    var i = (log(bytes) / log(1024)).floor();
-    if (i >= suffixes.length) i = suffixes.length - 1;
-    return ((bytes / pow(1024, i)).toStringAsFixed(1)) + ' ' + suffixes[i];
-  }
-
   String _formatDuration(Duration d) {
     final m = d.inMinutes;
     final s = d.inSeconds % 60;
@@ -13631,14 +14947,21 @@ class _MusicMessageBubblePlayerState extends State<_MusicMessageBubblePlayer> {
         payload['file_name']?.toString() ??
         payload['name']?.toString() ??
         (AppLocalizations.of(context)?.audiozapis_867d ?? 'Fallback');
-    final fileSize = payload['file_size'] as int? ?? 0;
+    final title = audioTrackTitle(payload, fileName);
+    final rawArtist = audioTrackArtist(payload, fileName).trim();
+    final unknownText =
+        AppLocalizations.of(context)?.neizvestnyy_be89 ?? 'Неизвестно';
+    final displayArtist = rawArtist.isNotEmpty ? rawArtist : unknownText;
     final mimeType = payload['mime_type']?.toString() ?? 'audio/mp3';
     final audioUrl = _buildAudioUrl();
 
+    final trackDurationSec = audioTrackDuration(payload);
     final rawDuration = payload['duration'];
-    final fallbackSeconds = rawDuration is num
-        ? rawDuration.toInt()
-        : (int.tryParse(rawDuration?.toString() ?? '') ?? 0);
+    final fallbackSeconds = trackDurationSec > 0
+        ? trackDurationSec
+        : (rawDuration is num
+              ? rawDuration.toInt()
+              : (int.tryParse(rawDuration?.toString() ?? '') ?? 0));
     final fallbackDuration = Duration(seconds: fallbackSeconds);
 
     return Selector<PlaybackProvider, _VoicePlaybackState>(
@@ -13682,247 +15005,178 @@ class _MusicMessageBubblePlayerState extends State<_MusicMessageBubblePlayer> {
               )
             : position;
 
+        final foreground = isMe || isDark ? Colors.white : Colors.black;
+        final muted = foreground.withValues(alpha: 0.55);
+        final inverse = isMe || isDark ? Colors.black : Colors.white;
+
         return Container(
-          width: 290 * scale,
-          padding: EdgeInsets.all(10 * scale),
-          decoration: BoxDecoration(
-            gradient: isMe
-                ? const LinearGradient(
-                    colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  )
-                : null,
-            color: isMe
-                ? null
-                : (isDark
-                      ? Colors.white.withOpacity(0.04)
-                      : Colors.black.withOpacity(0.03)),
-            borderRadius: BorderRadius.circular(14 * scale),
-            border: Border.all(
-              color: isMe
-                  ? Colors.white.withOpacity(0.2)
-                  : (isDark
-                        ? Colors.white.withOpacity(0.08)
-                        : Colors.black.withOpacity(0.05)),
-            ),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
+          width: 270 * scale,
+          padding: EdgeInsets.symmetric(horizontal: 4 * scale, vertical: 3),
+          child: Row(
             children: [
-              // Top Row: Play button, Track info, Download button
-              Row(
-                children: [
-                  GestureDetector(
-                    onTap: () {
-                      if (isLoading) return;
-                      context.read<PlaybackProvider>().play(
-                        audioUrl,
-                        fileName,
-                        _formatBytes(fileSize),
-                        mimeType: mimeType,
-                        duration: totalDuration > Duration.zero
-                            ? totalDuration
-                            : null,
-                      );
-                    },
-                    child: Container(
-                      width: 42 * scale,
-                      height: 42 * scale,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: isMe
-                            ? Colors.white
-                            : (isDark
-                                  ? Colors.blue.shade600
-                                  : Colors.blue.shade500),
-                        boxShadow: [
-                          BoxShadow(
-                            color: (isMe ? Colors.black : Colors.blue)
-                                .withOpacity(0.15),
-                            blurRadius: 6,
-                            offset: const Offset(0, 2),
+              InkResponse(
+                onTap: () async {
+                  if (isLoading) return;
+                  if (widget.onPlayRequested != null) {
+                    await widget.onPlayRequested!(audioUrl);
+                    return;
+                  }
+                  context.read<PlaybackProvider>().play(
+                    audioUrl,
+                    title,
+                    displayArtist,
+                    mimeType: mimeType,
+                    duration: totalDuration > Duration.zero
+                        ? totalDuration
+                        : null,
+                  );
+                },
+                radius: 20 * scale,
+                child: SizedBox(
+                  width: 38 * scale,
+                  height: 38 * scale,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: foreground,
+                    ),
+                    child: Center(
+                      child: isLoading
+                          ? SizedBox(
+                              width: 16 * scale,
+                              height: 16 * scale,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: inverse.withValues(alpha: 0.6),
+                              ),
+                            )
+                          : FaIcon(
+                              isPlaying
+                                  ? FontAwesomeIcons.pause
+                                  : FontAwesomeIcons.play,
+                              color: inverse,
+                              size: 14 * scale,
+                            ),
+                    ),
+                  ),
+                ),
+              ),
+              SizedBox(width: 10 * scale),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        color: foreground,
+                        fontSize: 13.5 * scale,
+                        fontWeight: FontWeight.w600,
+                        fontFamily: 'Inter',
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    if (!isCurrent) ...[
+                      SizedBox(height: 1.5 * scale),
+                      Text(
+                        displayArtist,
+                        style: TextStyle(
+                          color: muted,
+                          fontSize: 11 * scale,
+                          fontFamily: 'Inter',
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ] else ...[
+                      SizedBox(height: 1.5 * scale),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: SizedBox(
+                              height: 18 * scale,
+                              child: SliderTheme(
+                                data: SliderThemeData(
+                                  trackHeight: 2.5 * scale,
+                                  thumbShape: RoundSliderThumbShape(
+                                    enabledThumbRadius: 4.5 * scale,
+                                  ),
+                                  overlayShape: RoundSliderOverlayShape(
+                                    overlayRadius: 10 * scale,
+                                  ),
+                                  activeTrackColor: foreground,
+                                  inactiveTrackColor: foreground.withValues(
+                                    alpha: 0.2,
+                                  ),
+                                  thumbColor: foreground,
+                                  overlayColor: foreground.withValues(
+                                    alpha: 0.08,
+                                  ),
+                                ),
+                                child: Slider(
+                                  value: currentSliderPos.clamp(0.0, 1.0),
+                                  onChanged: (val) {
+                                    setState(() => _dragValue = val);
+                                    if (isInitialized &&
+                                        totalDuration > Duration.zero) {
+                                      final targetMs =
+                                          (val * totalDuration.inMilliseconds)
+                                              .round();
+                                      context
+                                          .read<PlaybackProvider>()
+                                          .seekPreview(
+                                            Duration(milliseconds: targetMs),
+                                          );
+                                    }
+                                  },
+                                  onChangeEnd: (val) async {
+                                    setState(() => _dragValue = null);
+                                    if (totalDuration <= Duration.zero) return;
+                                    final playbackProvider = context
+                                        .read<PlaybackProvider>();
+                                    final targetDuration = Duration(
+                                      milliseconds:
+                                          (val * totalDuration.inMilliseconds)
+                                              .round(),
+                                    );
+                                    if (!isInitialized || !isCurrent) {
+                                      if (widget.onPlayRequested != null) {
+                                        await widget.onPlayRequested!(audioUrl);
+                                      } else {
+                                        await playbackProvider.play(
+                                          audioUrl,
+                                          title,
+                                          displayArtist,
+                                          mimeType: mimeType,
+                                          duration: totalDuration,
+                                        );
+                                      }
+                                    }
+                                    playbackProvider.seek(targetDuration);
+                                  },
+                                ),
+                              ),
+                            ),
+                          ),
+                          SizedBox(width: 6 * scale),
+                          Text(
+                            totalDuration > Duration.zero
+                                ? '${_formatDuration(displayPos)} / ${_formatDuration(totalDuration)}'
+                                : _formatDuration(displayPos),
+                            style: TextStyle(
+                              color: muted,
+                              fontSize: 10 * scale,
+                              fontFamily: 'Inter',
+                              fontWeight: FontWeight.w400,
+                            ),
                           ),
                         ],
                       ),
-                      child: Center(
-                        child: isLoading
-                            ? SizedBox(
-                                width: 18 * scale,
-                                height: 18 * scale,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation<Color>(
-                                    isMe ? Colors.blue.shade700 : Colors.white,
-                                  ),
-                                ),
-                              )
-                            : FaIcon(
-                                isPlaying
-                                    ? FontAwesomeIcons.pause
-                                    : FontAwesomeIcons.play,
-                                color: isMe
-                                    ? Colors.blue.shade700
-                                    : Colors.white,
-                                size: 16 * scale,
-                              ),
-                      ),
-                    ),
-                  ),
-                  SizedBox(width: 10 * scale),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          fileName,
-                          style: TextStyle(
-                            color: isMe
-                                ? Colors.white
-                                : (isDark
-                                      ? Colors.white.withOpacity(0.95)
-                                      : Colors.black87),
-                            fontSize: 13.5 * scale,
-                            fontWeight: FontWeight.w600,
-                            fontFamily: 'Inter',
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        SizedBox(height: 2 * scale),
-                        Row(
-                          children: [
-                            FaIcon(
-                              FontAwesomeIcons.music,
-                              size: 10 * scale,
-                              color: isMe
-                                  ? Colors.white70
-                                  : (isDark ? Colors.white54 : Colors.black54),
-                            ),
-                            SizedBox(width: 4 * scale),
-                            Text(
-                              _formatBytes(fileSize),
-                              style: TextStyle(
-                                color: isMe
-                                    ? Colors.white70
-                                    : (isDark
-                                          ? Colors.white54
-                                          : Colors.black54),
-                                fontSize: 11 * scale,
-                                fontFamily: 'Inter',
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (widget.onDownload != null) ...[
-                    SizedBox(width: 6 * scale),
-                    IconButton(
-                      icon: FaIcon(
-                        FontAwesomeIcons.download,
-                        color: isMe
-                            ? Colors.white70
-                            : (isDark ? Colors.white54 : Colors.black54),
-                        size: 14 * scale,
-                      ),
-                      onPressed: widget.onDownload,
-                      padding: EdgeInsets.zero,
-                      constraints: BoxConstraints.tightFor(
-                        width: 28 * scale,
-                        height: 28 * scale,
-                      ),
-                    ),
+                    ],
                   ],
-                ],
-              ),
-
-              SizedBox(height: 8 * scale),
-
-              // Bottom Row: Interactive Slider & Time Display
-              Row(
-                children: [
-                  Expanded(
-                    child: SliderTheme(
-                      data: SliderThemeData(
-                        trackHeight: 4 * scale,
-                        thumbShape: RoundSliderThumbShape(
-                          enabledThumbRadius: 6 * scale,
-                        ),
-                        overlayShape: RoundSliderOverlayShape(
-                          overlayRadius: 14 * scale,
-                        ),
-                        activeTrackColor: isMe
-                            ? Colors.white
-                            : Colors.blue.shade500,
-                        inactiveTrackColor: isMe
-                            ? Colors.white30
-                            : (isDark ? Colors.white24 : Colors.black12),
-                        thumbColor: isMe
-                            ? Colors.white
-                            : (isDark
-                                  ? Colors.blue.shade400
-                                  : Colors.blue.shade600),
-                      ),
-                      child: Slider(
-                        value: currentSliderPos.clamp(0.0, 1.0),
-                        onChanged: (val) {
-                          setState(() {
-                            _dragValue = val;
-                          });
-                          if (isInitialized && totalDuration > Duration.zero) {
-                            final targetMs =
-                                (val * totalDuration.inMilliseconds).round();
-                            context.read<PlaybackProvider>().seekPreview(
-                              Duration(milliseconds: targetMs),
-                            );
-                          }
-                        },
-                        onChangeEnd: (val) async {
-                          final targetVal = val;
-                          setState(() {
-                            _dragValue = null;
-                          });
-                          if (totalDuration > Duration.zero) {
-                            final targetMs =
-                                (targetVal * totalDuration.inMilliseconds)
-                                    .round();
-                            final targetDuration = Duration(
-                              milliseconds: targetMs,
-                            );
-                            if (!isInitialized || !isCurrent) {
-                              await context.read<PlaybackProvider>().play(
-                                audioUrl,
-                                fileName,
-                                _formatBytes(fileSize),
-                                mimeType: mimeType,
-                                duration: totalDuration,
-                              );
-                            }
-                            context.read<PlaybackProvider>().seek(
-                              targetDuration,
-                            );
-                          }
-                        },
-                      ),
-                    ),
-                  ),
-                  SizedBox(width: 8 * scale),
-                  Text(
-                    totalDuration > Duration.zero
-                        ? '${_formatDuration(displayPos)} / ${_formatDuration(totalDuration)}'
-                        : _formatDuration(displayPos),
-                    style: TextStyle(
-                      color: isMe
-                          ? Colors.white70
-                          : (isDark ? Colors.white54 : Colors.black54),
-                      fontSize: 11 * scale,
-                      fontFamily: 'Inter',
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
+                ),
               ),
             ],
           ),
@@ -15128,6 +16382,15 @@ class _TooltipL10n {
   };
 
   static String get(String key, BuildContext context) {
+    if (RuntimeTranslations.instance.hasActiveCustomPack) {
+      final customVal = RuntimeTranslations.instance.get(key);
+      if (customVal != key) return customVal;
+      final ruVal = _map['ru']?[key];
+      if (ruVal != null) {
+        final resolved = RuntimeTranslations.instance.resolveByText(ruVal);
+        if (resolved != ruVal) return resolved;
+      }
+    }
     final lang = Localizations.localeOf(context).languageCode.toLowerCase();
     final l = _map.containsKey(lang) ? lang : 'en';
     return _map[l]?[key] ?? _map['en']?[key] ?? key;
@@ -15187,6 +16450,15 @@ class _FormattingL10n {
   };
 
   static String get(String key, BuildContext context) {
+    if (RuntimeTranslations.instance.hasActiveCustomPack) {
+      final customVal = RuntimeTranslations.instance.get(key);
+      if (customVal != key) return customVal;
+      final ruVal = _map['ru']?[key];
+      if (ruVal != null) {
+        final resolved = RuntimeTranslations.instance.resolveByText(ruVal);
+        if (resolved != ruVal) return resolved;
+      }
+    }
     final lang = Localizations.localeOf(context).languageCode.toLowerCase();
     final l = _map.containsKey(lang) ? lang : 'en';
     return _map[l]?[key] ?? _map['en']?[key] ?? key;

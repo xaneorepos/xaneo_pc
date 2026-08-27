@@ -10,6 +10,7 @@ import '../l10n/app_localizations.dart';
 import '../providers/theme_provider.dart';
 import '../providers/locale_provider.dart';
 import '../services/notification_service.dart';
+import 'custom_language_pack_dialogs.dart';
 
 /// Глобальная кнопка настроек с модальным окном
 class SettingsButton extends StatefulWidget {
@@ -1171,6 +1172,10 @@ class SettingsButtonState extends State<SettingsButton>
   }
 
   Widget _buildLanguageSelector(LocaleProvider localeProvider, bool isDark, AppLocalizations? l10n) {
+    final hasActiveCustom = localeProvider.hasActiveCustomPack;
+    final activeCustomId = localeProvider.activeCustomPack?.id;
+    final customPacks = localeProvider.installedCustomPacks;
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -1188,76 +1193,167 @@ class SettingsButtonState extends State<SettingsButton>
         ),
       ),
       child: Column(
-        children: _availableLanguages.map((lang) {
-          final isSelected = localeProvider.locale?.languageCode == lang['code'];
-          return MouseRegion(
-            cursor: SystemMouseCursors.click,
-            child: GestureDetector(
-              onTap: () {
-                localeProvider.setLocale(Locale(lang['code']!));
-                setState(() {
-                  _selectedLanguageIndex = _availableLanguages.indexWhere((l) => l['code'] == lang['code']);
-                });
-              },
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                margin: const EdgeInsets.only(bottom: 8),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: isSelected
-                      ? (isDark ? Colors.white.withOpacity(0.1) : Colors.black.withOpacity(0.05))
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ..._availableLanguages.map((lang) {
+            final isSelected = !hasActiveCustom && localeProvider.locale?.languageCode == lang['code'];
+            return MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: GestureDetector(
+                onTap: () {
+                  localeProvider.setLocale(Locale(lang['code']!));
+                  setState(() {
+                    _selectedLanguageIndex = _availableLanguages.indexWhere((l) => l['code'] == lang['code']);
+                  });
+                },
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
                     color: isSelected
-                        ? (isDark ? Colors.white.withOpacity(0.2) : Colors.black.withOpacity(0.1))
+                        ? (isDark ? Colors.white.withOpacity(0.1) : Colors.black.withOpacity(0.05))
                         : Colors.transparent,
-                    width: 1,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isSelected
+                          ? (isDark ? Colors.white.withOpacity(0.2) : Colors.black.withOpacity(0.1))
+                          : Colors.transparent,
+                      width: 1,
+                    ),
                   ),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 20,
-                      height: 20,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: isSelected
-                              ? (isDark ? Colors.white : Colors.black)
-                              : (isDark ? Colors.grey.shade600 : Colors.grey.shade400),
-                          width: 2,
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 20,
+                        height: 20,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: isSelected
+                                ? (isDark ? Colors.white : Colors.black)
+                                : (isDark ? Colors.grey.shade600 : Colors.grey.shade400),
+                            width: 2,
+                          ),
+                        ),
+                        child: isSelected
+                            ? Center(
+                                child: Container(
+                                  width: 10,
+                                  height: 10,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: isDark ? Colors.white : Colors.black,
+                                  ),
+                                ),
+                              )
+                            : null,
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        lang['name']!,
+                        style: TextStyle(
+                          color: isDark ? Colors.white : Colors.black,
+                          fontSize: 15,
+                          fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                          fontFamily: 'Inter',
                         ),
                       ),
-                      child: isSelected
-                          ? Center(
-                              child: Container(
-                                width: 10,
-                                height: 10,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: isDark ? Colors.white : Colors.black,
-                                ),
-                              ),
-                            )
-                          : null,
-                    ),
-                    const SizedBox(width: 12),
-                    Text(
-                      lang['name']!,
-                      style: TextStyle(
-                        color: isDark ? Colors.white : Colors.black,
-                        fontSize: 15,
-                        fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                        fontFamily: 'Inter',
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
+            );
+          }),
+
+          const SizedBox(height: 16),
+          Divider(color: isDark ? Colors.white12 : Colors.black12),
+          const SizedBox(height: 12),
+
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Пользовательские языки',
+                style: TextStyle(
+                  color: isDark ? Colors.white : Colors.black,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  fontFamily: 'Inter',
+                ),
+              ),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: isDark ? const Color(0xFF1E293B) : const Color(0xFFE2E8F0),
+                  foregroundColor: isDark ? const Color(0xFF00FFCC) : const Color(0xFF0F766E),
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                icon: const Icon(Icons.file_upload_outlined, size: 16),
+                label: const Text('Импорт .json', style: TextStyle(fontSize: 13)),
+                onPressed: () => CustomLanguagePackDialogs.pickAndImportLanguagePack(context),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+
+          if (customPacks.isEmpty) ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Text(
+                'Нет загруженных языковых пакетов. Вы можете загрузить свой .json файл.',
+                style: TextStyle(fontSize: 13, color: isDark ? Colors.white38 : Colors.black38),
+              ),
             ),
-          );
-        }).toList(),
+          ] else ...[
+            ...customPacks.map((pack) {
+              final isSelected = hasActiveCustom && activeCustomId == pack.id;
+              return Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                decoration: BoxDecoration(
+                  color: isSelected
+                      ? (isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.04))
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: isSelected
+                        ? (isDark ? const Color(0xFF00FFCC).withOpacity(0.4) : const Color(0xFF0F766E).withOpacity(0.4))
+                        : (isDark ? Colors.white10 : Colors.black12),
+                  ),
+                ),
+                child: ListTile(
+                  dense: true,
+                  leading: Icon(
+                    isSelected ? Icons.radio_button_checked : Icons.radio_button_off,
+                    size: 20,
+                    color: isSelected ? const Color(0xFF00FFCC) : (isDark ? Colors.white38 : Colors.black38),
+                  ),
+                  title: Text(
+                    '${pack.name} (${pack.nativeName})',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                      color: isDark ? Colors.white : Colors.black87,
+                    ),
+                  ),
+                  subtitle: Text(
+                    '${pack.locale} • ${pack.stringCount} строк • fallback: ${pack.fallbackLocale}',
+                    style: TextStyle(fontSize: 12, color: isDark ? Colors.white38 : Colors.black38),
+                  ),
+                  trailing: IconButton(
+                    icon: Icon(Icons.delete_outline, size: 18, color: Colors.redAccent.withOpacity(0.8)),
+                    onPressed: () => localeProvider.deleteCustomPack(pack.id),
+                    tooltip: 'Удалить пакет',
+                  ),
+                  onTap: () {
+                    localeProvider.activateCustomPack(pack.id);
+                  },
+                ),
+              );
+            }),
+          ],
+        ],
       ),
     );
   }

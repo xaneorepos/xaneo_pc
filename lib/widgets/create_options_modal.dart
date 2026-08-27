@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import '../services/runtime_translations.dart';
 import 'base_custom_modal.dart';
 import 'create_channel_modal.dart';
 import 'create_group_modal.dart';
@@ -11,8 +12,8 @@ class CreateOptionsModal extends BaseCustomModal {
   const CreateOptionsModal({
     super.key,
     required this.onSelectPersonalChat,
-    super.modalTag = 'СОЗДАНИЕ',
-    super.title = 'СОЗДАТЬ НОВУЮ БЕСЕДУ',
+    super.modalTag = '',
+    super.title = '',
   });
 
   static Future<void> show({
@@ -36,9 +37,15 @@ class _CreateOptionsModalState extends BaseCustomModalState<CreateOptionsModal> 
   double get modalWidth => 460.0;
 
   @override
-  String getModalTitle(BuildContext context) {
+  String getModalTag(BuildContext context) {
     final lang = Localizations.localeOf(context).languageCode.toLowerCase();
     return _OptionsL10n.get('header', lang).toUpperCase();
+  }
+
+  @override
+  String getModalTitle(BuildContext context) {
+    final lang = Localizations.localeOf(context).languageCode.toLowerCase();
+    return _OptionsL10n.get('title', lang);
   }
 
   @override
@@ -242,17 +249,17 @@ class _OptionsL10n {
       'group_title': 'Crear grupo',
       'group_sub': 'Chat grupal para múltiples participantes',
       'channel_title': 'Crear canal',
-      'channel_sub': 'Canal de difusión para gran audiencia',
+      'channel_sub': 'Canal de transmisión para una amplia audiencia',
     },
     'fr': {
       'header': 'CRÉER',
-      'title': 'Démarrer une nouvelle discussion',
+      'title': 'Démarrer une nouvelle conversation',
       'personal_chat_title': 'Discussion privée',
-      'personal_chat_sub': 'Envoyer un message à un utilisateur',
+      'personal_chat_sub': 'Envoyer des messages à un autre utilisateur',
       'group_title': 'Créer un groupe',
-      'group_sub': 'Discussion de groupe pour plusieurs personnes',
-      'channel_title': 'Créer une chaîne',
-      'channel_sub': 'Chaîne de diffusion pour une large audience',
+      'group_sub': 'Discussion de groupe pour plusieurs participants',
+      'channel_title': 'Créer un canal',
+      'channel_sub': 'Canal de diffusion pour un large public',
     },
     'ar': {
       'header': 'إنشاء',
@@ -267,18 +274,18 @@ class _OptionsL10n {
     'ja': {
       'header': '作成',
       'title': '新しい会話を開始',
-      'personal_chat_title': 'ダイレクトチャット',
-      'personal_chat_sub': 'ユーザーと個別にメッセージを送受信',
+      'personal_chat_title': '個人チャット',
+      'personal_chat_sub': '他のユーザーとメッセージを開始',
       'group_title': 'グループを作成',
-      'group_sub': '複数メンバーでのグループチャット',
+      'group_sub': '複数人でのグループチャット',
       'channel_title': 'チャンネルを作成',
-      'channel_sub': '大規模な受講者に向けた配信チャンネル',
+      'channel_sub': '幅広い視聴者向けの配信チャンネル',
     },
     'ko': {
-      'header': '만들기',
+      'header': '생성',
       'title': '새 대화 시작',
-      'personal_chat_title': '개인 대화',
-      'personal_chat_sub': '다른 사용자와 1:1 대화 시작',
+      'personal_chat_title': '개인 채팅',
+      'personal_chat_sub': '다른 사용자와 메시지 시작',
       'group_title': '그룹 만들기',
       'group_sub': '여러 참가자와의 그룹 대화방',
       'channel_title': '채널 만들기',
@@ -296,7 +303,71 @@ class _OptionsL10n {
     },
   };
 
+  static const Map<String, List<String>> _manifestKeys = {
+    'header': [
+      'common.create',
+      'messenger.createChat.title',
+      'messenger.createOptions.header',
+    ],
+    'title': [
+      'messenger.createChat.title',
+      'messenger.createChatTooltip',
+      'messenger.createOptions.title',
+      'messenger.chat.newChat',
+    ],
+    'personal_chat_title': [
+      'messenger.createChat.newMessageTitle',
+      'messenger.createOptions.personalTitle',
+      'messenger.chatInfo.user',
+      'messenger.chat.personal',
+    ],
+    'personal_chat_sub': [
+      'messenger.createChat.newMessageDesc',
+      'messenger.createOptions.personalDesc',
+    ],
+    'group_title': [
+      'messenger.createChat.groupTitle',
+      'messenger.createGroup.title',
+      'messenger.chatInfo.groupTitle',
+      'common.group',
+    ],
+    'group_sub': [
+      'messenger.createChat.groupDesc',
+      'messenger.createGroup.descriptionPlaceholder',
+      'messenger.createGroup.typeDescription',
+    ],
+    'channel_title': [
+      'messenger.createChat.channelTitle',
+      'messenger.createChannel.title',
+      'messenger.chatInfo.channelTitle',
+      'common.channel',
+    ],
+    'channel_sub': [
+      'messenger.createChat.channelDesc',
+      'messenger.createChannel.descriptionPlaceholder',
+      'messenger.createChannel.typeDescription',
+    ],
+  };
+
   static String get(String key, String lang) {
+    if (RuntimeTranslations.instance.hasActiveCustomPack) {
+      final manifestCandidateKeys = _manifestKeys[key];
+      if (manifestCandidateKeys != null) {
+        for (final mk in manifestCandidateKeys) {
+          final val = RuntimeTranslations.instance.get(mk);
+          if (val != mk && val.isNotEmpty) {
+            return val;
+          }
+        }
+      }
+      final customVal = RuntimeTranslations.instance.get(key);
+      if (customVal != key) return customVal;
+      final ruVal = _map['ru']?[key];
+      if (ruVal != null) {
+        final resolved = RuntimeTranslations.instance.resolveByText(ruVal);
+        if (resolved != ruVal) return resolved;
+      }
+    }
     final l = _map.containsKey(lang) ? lang : 'en';
     return _map[l]?[key] ?? _map['en']?[key] ?? key;
   }

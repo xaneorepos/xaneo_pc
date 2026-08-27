@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:flutter/rendering.dart';
 import 'dart:math' as math;
+import '../services/runtime_translations.dart';
 import 'base_custom_modal.dart';
 
 /// Локализация для модального окна обрезки аватарок в монохромном десктопном стиле
@@ -133,6 +134,15 @@ class _CropperL10n {
   };
 
   static String get(BuildContext context, String key) {
+    if (RuntimeTranslations.instance.hasActiveCustomPack) {
+      final customVal = RuntimeTranslations.instance.get(key);
+      if (customVal != key) return customVal;
+      final ruVal = _values['ru']?[key];
+      if (ruVal != null) {
+        final resolved = RuntimeTranslations.instance.resolveByText(ruVal);
+        if (resolved != ruVal) return resolved;
+      }
+    }
     final lang = Localizations.localeOf(context).languageCode.toLowerCase();
     final dict = _values[lang] ?? _values['ru']!;
     return dict[key] ?? _values['en']![key] ?? key;

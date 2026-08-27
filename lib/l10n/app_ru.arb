@@ -400,6 +400,10 @@
   "@qrLoginSubtitle": {
     "description": "Подзаголовок для входа по QR-коду"
   },
+  "qrApprovalTitle": "Подтвердите вход на телефоне",
+  "qrApprovalDesc": "QR-код распознан. Разрешите авторизацию в мобильном приложении Xaneo.",
+  "qrVerificationCodeLabel": "Код проверки",
+  "qrVerificationCodeHint": "Убедитесь, что этот код совпадает с кодом на телефоне.",
   "qrScanInstructionTitle": "КАК ВОЙТИ В АККАУНТ:",
   "@qrScanInstructionTitle": {
     "description": "Заголовок инструкции к QR"
@@ -459,5 +463,39 @@
   "registrationDisabled": "Регистрация отключена в данном режиме",
   "@registrationDisabled": {
     "description": "Сообщение об отключении регистрации"
+  },
+  "requestCodeViaEmailIn": "Запросить код на почту через {seconds} сек.",
+  "@requestCodeViaEmailIn": {
+    "description": "Текст отсчета для запроса кода на почту",
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "cantLoginSendToEmail": "Не получается войти через бота? Отправить код на email",
+  "@cantLoginSendToEmail": {
+    "description": "Ссылка для отправки кода на почту"
+  },
+  "resendCodeToEmail": "Повторно отправить код на email",
+  "@resendCodeToEmail": {
+    "description": "Ссылка повторной отправки кода на почту"
+  },
+  "codeSentToBot": "Код отправлен в чат «Уведомления Xaneo».",
+  "@codeSentToBot": {
+    "description": "Инструкция при отправке кода в бота"
+  },
+  "emailCodeSent": "Код отправлен на почту {email}",
+  "@emailCodeSent": {
+    "description": "Сообщение об успешной отправке кода на почту",
+    "placeholders": {
+      "email": {
+        "type": "String"
+      }
+    }
+  },
+  "emailCodeFailed": "Не удалось отправить код на email",
+  "@emailCodeFailed": {
+    "description": "Ошибка отправки кода на почту"
   }
 }

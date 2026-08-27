@@ -1,5 +1,7 @@
-import 'dart:math' as math;
 import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
+import 'package:cryptography/cryptography.dart' as crypto;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
@@ -7,17 +9,13 @@ import '../widgets/custom_text_form_field.dart';
 import '../l10n/app_localizations.dart';
 import '../providers/theme_provider.dart';
 import '../providers/scale_provider.dart';
-import '../widgets/glass_card.dart';
-import '../widgets/geometry_3d.dart';
-import '../widgets/advanced_background.dart';
 import '../services/api_service.dart';
 import '../services/crypto_service.dart';
 import '../services/account_service.dart';
 import '../services/logger_service.dart';
 import '../widgets/settings_modal.dart';
 import '../widgets/custom_toast.dart';
-import '../widgets/tfa_verification_dialog.dart';
-import 'register_screen.dart';
+import '../widgets/qr_login_verification_modal.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 /// Экран входа в систему с продвинутыми 3D эффектами
@@ -33,15 +31,48 @@ class _LoginScreenState extends State<LoginScreen>
   final _formKey = GlobalKey<FormState>();
   final _loginController = TextEditingController();
   final _passwordController = TextEditingController();
+  late final Future<int?> _loginOriginUserId;
 
-  bool _isLoading = false;
   bool _hasAccounts = false;
   int _currentStep = 0; // 0: login/username, 1: password or code
-  bool _isQrMode = true; // used when ApiService.isAuthV2 == true
-  
+  bool _isQrMode = true;
+  bool _isLoading = false;
+
   Timer? _qrTimer;
-  int _qrRemainingSeconds = 300;
-  int _qrTimestamp = DateTime.now().millisecondsSinceEpoch;
+  Uint8List? _qrImageBytes;
+  crypto.SimpleKeyPair? _qrEphemeralKeyPair;
+  String? _qrPollSecret;
+  String? _qrWebPublicKey;
+  String? _qrToken;
+  String? _qrPayloadString;
+  bool _isQrApproved = false;
+  bool _isQrAwaitingApproval = false;
+  bool _isQrVerificationModalOpen = false;
+  final GlobalKey _qrVerificationModalKey = GlobalKey();
+
+  // Code mode (Notification login) state
+  crypto.SimpleKeyPair? _codeKeyPair;
+  String? _codePublicKey;
+  String? _codeChallengeId;
+  String? _codePollSecret;
+  Timer? _codePollTimer;
+  int _codeStep = 0;
+  bool _isCodeLoading = false;
+  String? _codeError;
+  bool _allowEmailFallback = false;
+  bool _emailFallbackSent = false;
+  bool _isRequestingEmailFallback = false;
+  bool _emailToastShown = false;
+  int _emailFallbackSeconds = 60;
+  int _passwordFallbackSeconds = 120;
+  bool _allowPasswordFallback = false;
+  bool _isPasswordMode = false;
+  Timer? _emailFallbackTimer;
+  String? _maskedEmail;
+  final TextEditingController _codeTextController = TextEditingController();
+  final FocusNode _codeFocus = FocusNode();
+  final TextEditingController _codePasswordController = TextEditingController();
+  final FocusNode _codePasswordFocus = FocusNode();
 
   late AnimationController _fadeController;
   late AnimationController _slideController;
@@ -56,6 +87,7 @@ class _LoginScreenState extends State<LoginScreen>
   @override
   void initState() {
     super.initState();
+    _loginOriginUserId = AccountService().getActiveUserId();
     _checkAccounts();
 
     _fadeController = AnimationController(
@@ -90,67 +122,233 @@ class _LoginScreenState extends State<LoginScreen>
 
     _fadeController.forward();
     _slideController.forward();
-    
-    if (ApiService.isAuthV2) {
-      _startQrTimer();
+
+    _startQrSession();
+  }
+
+  Future<void> _rollbackFailedLogin() async {
+    final previousUserId = await _loginOriginUserId;
+    await _apiService.logout();
+    await CryptoService().clearKeys();
+    await AccountService().restoreAccount(previousUserId);
+  }
+
+  Future<void> _startQrSession() async {
+    try {
+      final previousToken = _qrToken;
+      final previousPollSecret = _qrPollSecret;
+      _qrTimer?.cancel();
+      _qrToken = null;
+      _qrPollSecret = null;
+      _qrImageBytes = null;
+      _qrPayloadString = null;
+      _isQrAwaitingApproval = false;
+      _dismissQrVerificationModal();
+      if (mounted) setState(() {});
+      if (previousToken != null && previousPollSecret != null) {
+        await _apiService.cancelQrSession(previousToken, previousPollSecret);
+      }
+
+      final algorithm = crypto.X25519();
+      _qrEphemeralKeyPair = await algorithm.newKeyPair();
+      final pubKey = await _qrEphemeralKeyPair!.extractPublicKey();
+      final pubKeyBytes = Uint8List.fromList(pubKey.bytes);
+      final webPubHex = pubKeyBytes
+          .map((b) => b.toRadixString(16).padLeft(2, '0'))
+          .join();
+      _qrWebPublicKey = webPubHex;
+
+      final res = await _apiService.createQrSession(webPubHex);
+      if (res.success && res.data != null && res.data is Map<String, dynamic>) {
+        final data = res.data as Map<String, dynamic>;
+        _qrToken = data['token']?.toString();
+        _qrPollSecret = data['poll_secret']?.toString();
+
+        if (data['qr_image'] != null &&
+            data['qr_image'].toString().startsWith('data:image/')) {
+          try {
+            final b64Str = data['qr_image'].toString().split(',').last;
+            _qrImageBytes = base64Decode(b64Str);
+          } catch (_) {}
+        }
+
+        final qrDataMap = {
+          'type': 'xaneo_qr_login',
+          'version': 2,
+          'token': _qrToken,
+          'web_pub': webPubHex,
+        };
+        _qrPayloadString = jsonEncode(qrDataMap);
+        if (mounted) setState(() {});
+        _startQrPolling();
+      }
+    } catch (e) {
+      Logger.error('LoginScreen', 'Error in _startQrSession: $e', e);
     }
   }
 
-  void _startQrTimer() {
-    _fetchQrStatus();
+  void _startQrPolling() {
     _qrTimer?.cancel();
-    _qrTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!mounted) {
+    _qrTimer = Timer.periodic(const Duration(milliseconds: 1500), (
+      timer,
+    ) async {
+      if (!mounted ||
+          _isQrApproved ||
+          _qrToken == null ||
+          _qrPollSecret == null) {
+        if (!mounted) timer.cancel();
+        return;
+      }
+
+      final res = await _apiService.getQrStatus(_qrToken!, _qrPollSecret!);
+      if (res.success && res.data != null && res.data is Map<String, dynamic>) {
+        final data = res.data as Map<String, dynamic>;
+        final status = data['status']?.toString();
+        if (status == 'scanned') {
+          if (!_isQrAwaitingApproval && mounted) {
+            setState(() => _isQrAwaitingApproval = true);
+            _showQrVerificationModal();
+          }
+        } else if (status == 'pending') {
+          if (_isQrAwaitingApproval && mounted) {
+            setState(() => _isQrAwaitingApproval = false);
+            _dismissQrVerificationModal();
+          }
+        } else if (status == 'approved' && !_isQrApproved) {
+          _isQrApproved = true;
+          timer.cancel();
+          _dismissQrVerificationModal();
+          await _handleQrApproved(data);
+        } else if (status == 'expired' ||
+            status == 'cancelled' ||
+            status == 'consumed') {
+          timer.cancel();
+          _dismissQrVerificationModal();
+          _startQrSession();
+        }
+      } else if (res.statusCode == 404 || res.statusCode == 410) {
         timer.cancel();
-        return;
+        _startQrSession();
       }
-      setState(() {
-        _qrRemainingSeconds--;
-        if (_qrRemainingSeconds <= 0) {
-          _refreshQrCode();
-        }
-      });
     });
   }
 
-  void _refreshQrCode() {
-    setState(() {
-      _qrTimestamp = DateTime.now().millisecondsSinceEpoch;
-    });
-    _fetchQrStatus();
+  void _showQrVerificationModal() {
+    final token = _qrToken;
+    if (!mounted || _isQrVerificationModalOpen || token == null) return;
+    _isQrVerificationModalOpen = true;
+    final code = token.substring(token.length - 6).toUpperCase();
+    unawaited(
+      QrLoginVerificationModal.show(
+        context: context,
+        modalKey: _qrVerificationModalKey,
+        verificationCode: code,
+      ).whenComplete(() => _isQrVerificationModalOpen = false),
+    );
   }
 
-  Future<void> _fetchQrStatus() async {
-    final res = await ApiService().getQrStatus();
-    if (res.success && res.data != null && res.data is Map<String, dynamic>) {
-      final data = res.data as Map<String, dynamic>;
-      if (data['expires_in'] != null) {
-        if (mounted) {
-          setState(() {
-            _qrRemainingSeconds = data['expires_in'] is int 
-              ? data['expires_in'] 
-              : int.tryParse(data['expires_in'].toString()) ?? 300;
-          });
-        }
-        return;
+  void _dismissQrVerificationModal() {
+    if (!_isQrVerificationModalOpen) return;
+    final modalContext = _qrVerificationModalKey.currentContext;
+    final route = modalContext == null ? null : ModalRoute.of(modalContext);
+    if (modalContext != null && route?.isCurrent == true) {
+      Navigator.of(modalContext).pop();
+    }
+  }
+
+  Future<void> _importQrKeys({
+    required dynamic transferPayload,
+    required crypto.SimpleKeyPair? keyPair,
+    required String? token,
+    required String? publicKey,
+  }) async {
+    if (transferPayload is! Map ||
+        keyPair == null ||
+        token == null ||
+        publicKey == null) {
+      throw StateError('Сервер не передал ключи шифрования');
+    }
+
+    final decryptedKeys = await CryptoService().decryptQrTransferPayload(
+      transferPayload: Map<String, dynamic>.from(transferPayload),
+      ephemeralKeyPair: keyPair,
+      token: token,
+      recipientPublicKeyHex: publicKey,
+    );
+    if (decryptedKeys == null ||
+        !await CryptoService().importUserKeysFromPayload(decryptedKeys)) {
+      throw StateError('Не удалось перенести ключи шифрования');
+    }
+    Logger.info(
+      'E2EE-DIAG',
+      'QR keys ready before opening messenger: '
+          'publicFp=${CryptoService().x25519PublicKeyFingerprint}',
+    );
+  }
+
+  Future<void> _handleQrApproved(Map<String, dynamic> data) async {
+    try {
+      Logger.info(
+        'LoginScreen',
+        'QR login approved by mobile app! Processing tokens & keys...',
+      );
+      if (mounted) setState(() => _isLoading = true);
+
+      final accessToken = data['access']?.toString();
+      final refreshToken = data['refresh']?.toString();
+      if (accessToken != null && accessToken.isNotEmpty) {
+        await _apiService.saveAccessToken(accessToken);
+      }
+      if (refreshToken != null && refreshToken.isNotEmpty) {
+        await _apiService.saveRefreshToken(refreshToken);
+      }
+
+      await _importQrKeys(
+        transferPayload: data['transfer_payload'],
+        keyPair: _qrEphemeralKeyPair,
+        token: _qrToken,
+        publicKey: _qrWebPublicKey,
+      );
+
+      final profileRes = await _apiService.getProfile();
+      final saved = profileRes.success && profileRes.data != null
+          ? await AccountService().saveCurrentAccount(profileRes.data!)
+          : false;
+      if (!saved) throw StateError('ACCOUNT_COMMIT_FAILED');
+
+      if (mounted) {
+        setState(() => _isLoading = false);
+        CustomToast.show(
+          context,
+          AppLocalizations.of(context)?.loginApproved ?? 'Вход выполнен',
+          type: ToastType.success,
+        );
+        Navigator.of(context).pushReplacementNamed('/messenger');
+      }
+    } catch (e) {
+      Logger.error('LoginScreen', 'Error in _handleQrApproved: $e', e);
+      await _rollbackFailedLogin();
+      if (mounted) {
+        setState(() => _isLoading = false);
+        CustomToast.show(
+          context,
+          AppLocalizations.of(
+                context,
+              )?.oshibkaVosstanovleniyaKlyucheyNeUdalos_fe7b ??
+              'Не удалось перенести ключи шифрования',
+          type: ToastType.error,
+        );
       }
     }
-    
-    if (mounted) {
-      setState(() {
-        _qrRemainingSeconds = 300;
-      });
-    }
-  }
-
-  String get _qrTimeString {
-    final m = _qrRemainingSeconds ~/ 60;
-    final s = _qrRemainingSeconds % 60;
-    return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
   }
 
   @override
   void dispose() {
+    final token = _qrToken;
+    final pollSecret = _qrPollSecret;
+    if (token != null && pollSecret != null && !_isQrApproved) {
+      unawaited(_apiService.cancelQrSession(token, pollSecret));
+    }
     _fadeController.dispose();
     _slideController.dispose();
     _rotateController.dispose();
@@ -159,12 +357,538 @@ class _LoginScreenState extends State<LoginScreen>
     _passwordController.dispose();
     _loginFocus.dispose();
     _passwordFocus.dispose();
+    _codePollTimer?.cancel();
+    _emailFallbackTimer?.cancel();
+    _codeTextController.dispose();
+    _codeFocus.dispose();
+    _codePasswordController.dispose();
+    _codePasswordFocus.dispose();
     _qrTimer?.cancel();
     super.dispose();
   }
 
   // API сервис
   final _apiService = ApiService();
+
+  // --- Notification / Code Login handlers ---
+  Future<void> _requestCodeLogin() async {
+    final l10n = AppLocalizations.of(context);
+    final identifier = _loginController.text.trim();
+    if (identifier.isEmpty) {
+      setState(() {
+        _codeError =
+            l10n?.enterUsernameErr ?? 'Введите имя пользователя или email';
+      });
+      return;
+    }
+
+    setState(() {
+      _isCodeLoading = true;
+      _codeError = null;
+    });
+
+    try {
+      final keyPair = await crypto.X25519().newKeyPair();
+      final publicKey = await keyPair.extractPublicKey();
+      final publicHex = Uint8List.fromList(
+        publicKey.bytes,
+      ).map((byte) => byte.toRadixString(16).padLeft(2, '0')).join();
+
+      final response = await _apiService.requestNotificationLogin(
+        identifier: identifier,
+        recipientPublicKey: publicHex,
+      );
+
+      if (!mounted) return;
+
+      final data = response.data;
+      if (response.success && data != null) {
+        _codeKeyPair = keyPair;
+        _codePublicKey = publicHex;
+        _codeChallengeId = data['challenge_id']?.toString();
+        _codePollSecret = data['poll_secret']?.toString();
+        setState(() {
+          _isCodeLoading = false;
+          _codeStep = 1;
+          _allowEmailFallback = false;
+          _allowPasswordFallback = false;
+          _emailFallbackSent = false;
+          _maskedEmail = null;
+          _emailFallbackSeconds = 60;
+          _passwordFallbackSeconds = 120;
+          _isPasswordMode = false;
+          _codePasswordController.clear();
+        });
+        _codePollTimer?.cancel();
+        _codePollTimer = Timer.periodic(
+          const Duration(milliseconds: 1500),
+          (_) => _pollCodeLoginStatus(),
+        );
+        _pollCodeLoginStatus();
+
+        _emailFallbackTimer?.cancel();
+        _emailFallbackTimer = Timer.periodic(const Duration(seconds: 1), (
+          timer,
+        ) {
+          if (!mounted) return;
+          setState(() {
+            if (_emailFallbackSeconds > 0) {
+              _emailFallbackSeconds--;
+              if (_emailFallbackSeconds == 0) _allowEmailFallback = true;
+            } else {
+              _allowEmailFallback = true;
+            }
+
+            if (_passwordFallbackSeconds > 0) {
+              _passwordFallbackSeconds--;
+              if (_passwordFallbackSeconds == 0) _allowPasswordFallback = true;
+            } else {
+              _allowPasswordFallback = true;
+            }
+
+            if (_allowEmailFallback && _allowPasswordFallback) {
+              timer.cancel();
+            }
+          });
+        });
+        Future.delayed(const Duration(milliseconds: 100), () {
+          _codeFocus.requestFocus();
+        });
+        CustomToast.show(
+          context,
+          l10n?.codeSentToBot ?? 'Код отправлен в чат «Уведомления Xaneo».',
+          type: ToastType.success,
+        );
+      } else {
+        setState(() {
+          _isCodeLoading = false;
+          _codeError =
+              response.error ??
+              response.data?['message'] as String? ??
+              l10n?.sendCodeFailedErr ??
+              'Не удалось отправить код';
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isCodeLoading = false;
+          _codeError =
+              '${l10n?.sendCodeFailedErr ?? "Не удалось отправить код"}: $e';
+        });
+      }
+    }
+  }
+
+  Future<void> _verifyCodeLogin() async {
+    final l10n = AppLocalizations.of(context);
+    final code = _codeTextController.text.trim();
+    if (code.length != 6 ||
+        _codeChallengeId == null ||
+        _codePollSecret == null) {
+      setState(() {
+        _codeError = l10n?.enterAllDigitsErr ?? 'Введите 6-значный код';
+      });
+      return;
+    }
+
+    setState(() {
+      _isCodeLoading = true;
+      _codeError = null;
+    });
+
+    try {
+      final response = await _apiService.verifyNotificationLogin(
+        challengeId: _codeChallengeId!,
+        pollSecret: _codePollSecret!,
+        code: code,
+      );
+
+      if (!mounted) return;
+
+      if (response.success) {
+        setState(() {
+          _isCodeLoading = false;
+          _codeStep = 2;
+        });
+        _codePollTimer?.cancel();
+        _codePollTimer = Timer.periodic(
+          const Duration(milliseconds: 1500),
+          (_) => _pollCodeLoginStatus(),
+        );
+        await _pollCodeLoginStatus();
+      } else {
+        setState(() {
+          _isCodeLoading = false;
+          _codeError =
+              response.error ??
+              response.data?['message'] as String? ??
+              l10n?.invalidCodeErr ??
+              'Неверный или просроченный код';
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isCodeLoading = false;
+          _codeError =
+              '${l10n?.invalidCodeErr ?? "Неверный или просроченный код"}: $e';
+        });
+      }
+    }
+  }
+
+  Future<void> _verifyCodePasswordLogin() async {
+    final l10n = AppLocalizations.of(context);
+    final password = _codePasswordController.text.trim();
+    if (password.isEmpty ||
+        _codeChallengeId == null ||
+        _codePollSecret == null) {
+      setState(() {
+        _codeError = l10n?.enterPasswordErr ?? 'Введите ваш пароль';
+      });
+      return;
+    }
+
+    _codePollTimer?.cancel();
+
+    setState(() {
+      _isCodeLoading = true;
+      _codeError = null;
+    });
+
+    try {
+      final response = await _apiService.verifyNotificationLoginPassword(
+        challengeId: _codeChallengeId!,
+        pollSecret: _codePollSecret!,
+        password: password,
+      );
+
+      if (!mounted) return;
+
+      if (response.success) {
+        final access = response.data?['access']?.toString();
+        final refresh = response.data?['refresh']?.toString();
+        if (access != null && refresh != null) {
+          await _apiService.saveAccessToken(access);
+          await _apiService.saveRefreshToken(refresh);
+        }
+
+        bool cryptoSetupSuccess = false;
+        try {
+          final keysResponse = await _apiService.getMyKeys();
+          if (keysResponse.success &&
+              keysResponse.data != null &&
+              keysResponse.data!['xsec2'] != null) {
+            final xsec2 = keysResponse.data!['xsec2'] as Map<String, dynamic>;
+            final encryptedBlob =
+                xsec2['encrypted_blob'] as Map<String, dynamic>;
+            cryptoSetupSuccess = await CryptoService().unlockFromBlob(
+              encryptedBlob,
+              password,
+            );
+          } else if (keysResponse.statusCode == 404 ||
+              keysResponse.data?['code'] == 'KEYS_NOT_FOUND') {
+            final newBlob = await CryptoService().generateAndStoreKeys(
+              password,
+            );
+            final upload = await _apiService.uploadKeys(
+              x25519PublicKey: newBlob['pub']['x25519'] as String,
+              ed25519PublicKey: newBlob['pub']['ed25519'] as String,
+              encryptedBlob: newBlob,
+            );
+            cryptoSetupSuccess = upload.success;
+          }
+        } catch (e) {
+          Logger.error(
+            'LoginScreen',
+            'Key setup during password login failed: $e',
+            e,
+          );
+        }
+
+        if (!cryptoSetupSuccess) {
+          await _rollbackFailedLogin();
+          if (mounted) {
+            setState(() => _isCodeLoading = false);
+            CustomToast.show(
+              context,
+              l10n?.oshibkaVosstanovleniyaKlyucheyNeUdalos_fe7b ??
+                  'Не удалось разблокировать ключи шифрования',
+              type: ToastType.error,
+            );
+          }
+          return;
+        }
+
+        final profileRes = await _apiService.getProfile();
+        final saved = profileRes.success && profileRes.data != null
+            ? await AccountService().saveCurrentAccount(profileRes.data!)
+            : false;
+        if (!saved) {
+          await _rollbackFailedLogin();
+          if (mounted) setState(() => _isCodeLoading = false);
+          return;
+        }
+
+        if (mounted) {
+          setState(() => _isCodeLoading = false);
+          CustomToast.show(
+            context,
+            l10n?.loginApproved ?? 'Вход успешно выполнен!',
+            type: ToastType.success,
+          );
+          Navigator.of(context).pushReplacementNamed('/messenger');
+        }
+      } else {
+        if (_codeChallengeId != null && _codePollSecret != null) {
+          _codePollTimer = Timer.periodic(
+            const Duration(milliseconds: 1500),
+            (_) => _pollCodeLoginStatus(),
+          );
+        }
+        final errCode = response.data?['code']?.toString();
+        final errMsg = response.data?['message']?.toString();
+        setState(() {
+          _isCodeLoading = false;
+          if (errCode == 'INVALID_PASSWORD' ||
+              errCode == 'INVALID_CREDENTIALS') {
+            _codeError = l10n?.invalidPasswordErr ?? 'Неверный пароль';
+          } else if (errCode == 'PASSWORD_LOGIN_NOT_AVAILABLE_YET') {
+            _codeError =
+                l10n?.passwordTooSoonErr ?? 'Вход по паролю пока недоступен';
+          } else if (errCode == 'RATE_LIMITED' || response.statusCode == 429) {
+            _codeError =
+                l10n?.rateLimitedErr ??
+                'Слишком много запросов. Повторите позже.';
+          } else {
+            _codeError =
+                response.error ??
+                errMsg ??
+                l10n?.invalidCodeErr ??
+                'Ошибка проверки пароля';
+          }
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isCodeLoading = false;
+          _codeError =
+              '${l10n?.invalidCodeErr ?? "Ошибка проверки пароля"}: $e';
+        });
+      }
+    }
+  }
+
+  Future<void> _pollCodeLoginStatus() async {
+    final l10n = AppLocalizations.of(context);
+    final challenge = _codeChallengeId;
+    final secret = _codePollSecret;
+    if (challenge == null || secret == null) return;
+    var receivedTokens = false;
+
+    try {
+      final response = await _apiService.getNotificationLoginStatus(
+        challenge,
+        secret,
+      );
+      if (!mounted) return;
+
+      final status = response.data?['status']?.toString();
+      if (response.data != null) {
+        final allowFallback = response.data!['allow_email_fallback'] == true;
+        final allowPassFallback =
+            response.data!['allow_password_fallback'] == true;
+        final fallbackSent = response.data!['email_fallback_sent'] == true;
+        final maskedEmail = response.data!['email_masked']?.toString();
+        if (mounted) {
+          setState(() {
+            if (allowFallback) {
+              _allowEmailFallback = true;
+              _emailFallbackSeconds = 0;
+            }
+            if (allowPassFallback) {
+              _allowPasswordFallback = true;
+              _passwordFallbackSeconds = 0;
+            }
+            if (allowFallback && allowPassFallback) {
+              _emailFallbackTimer?.cancel();
+            }
+            if (fallbackSent) _emailFallbackSent = true;
+            if (maskedEmail != null && maskedEmail.isNotEmpty) {
+              _maskedEmail = maskedEmail;
+            }
+          });
+          if (fallbackSent && !_emailToastShown) {
+            _emailToastShown = true;
+            CustomToast.show(
+              context,
+              l10n?.emailCodeSent(_maskedEmail ?? '') ??
+                  'Код отправлен на почту',
+              type: ToastType.success,
+            );
+          }
+        }
+      }
+
+      if (response.success && status == 'approved') {
+        _codePollTimer?.cancel();
+        setState(() => _isCodeLoading = true);
+
+        final access = response.data?['access']?.toString();
+        final refresh = response.data?['refresh']?.toString();
+        if (access == null || refresh == null) {
+          throw StateError('Токены авторизации не получены');
+        }
+
+        await _apiService.saveAccessToken(access);
+        await _apiService.saveRefreshToken(refresh);
+        receivedTokens = true;
+
+        await _importQrKeys(
+          transferPayload: response.data?['transfer_payload'],
+          keyPair: _codeKeyPair,
+          token: challenge,
+          publicKey: _codePublicKey,
+        );
+
+        final profileRes = await _apiService.getProfile();
+        final saved = profileRes.success && profileRes.data != null
+            ? await AccountService().saveCurrentAccount(profileRes.data!)
+            : false;
+        if (!saved) throw StateError('ACCOUNT_COMMIT_FAILED');
+
+        if (mounted) {
+          setState(() => _isCodeLoading = false);
+          CustomToast.show(
+            context,
+            l10n?.loginApproved ?? 'Вход успешно выполнен!',
+            type: ToastType.success,
+          );
+          Navigator.of(context).pushReplacementNamed('/messenger');
+        }
+      } else if (status == 'rejected' ||
+          status == 'expired' ||
+          status == 'cancelled') {
+        _codePollTimer?.cancel();
+        setState(() {
+          _isCodeLoading = false;
+          _codeStep = 1;
+          _codeError =
+              l10n?.requestExpiredErr ??
+              (status == 'rejected' ? 'Запрос отклонён' : 'Сессия истекла');
+        });
+      }
+    } catch (e) {
+      Logger.error('LoginScreen', 'Error polling code login status: $e', e);
+      if (receivedTokens) {
+        await _rollbackFailedLogin();
+      }
+      if (mounted && receivedTokens) {
+        setState(() {
+          _isCodeLoading = false;
+          _codeError =
+              l10n?.oshibkaVosstanovleniyaKlyucheyNeUdalos_fe7b ??
+              'Не удалось перенести ключи шифрования';
+        });
+      }
+    }
+  }
+
+  Future<void> _requestEmailFallbackCode() async {
+    final l10n = AppLocalizations.of(context);
+    final challenge = _codeChallengeId;
+    final secret = _codePollSecret;
+    if (challenge == null || secret == null) return;
+
+    setState(() {
+      _isRequestingEmailFallback = true;
+      _codeError = null;
+    });
+
+    try {
+      final response = await _apiService.requestNotificationEmailFallback(
+        challengeId: challenge,
+        pollSecret: secret,
+      );
+
+      if (!mounted) return;
+
+      if (response.success) {
+        final dataMap = response.data is Map ? (response.data as Map) : {};
+        final emailMasked = dataMap['email_masked']?.toString();
+        setState(() {
+          _isRequestingEmailFallback = false;
+          _emailFallbackSent = true;
+          if (emailMasked != null && emailMasked.isNotEmpty) {
+            _maskedEmail = emailMasked;
+          }
+          _codeStep = 1;
+        });
+        if (!_emailToastShown) {
+          _emailToastShown = true;
+          CustomToast.show(
+            context,
+            l10n?.emailCodeSent(_maskedEmail ?? '') ?? 'Код отправлен на почту',
+            type: ToastType.success,
+          );
+        }
+      } else {
+        final dataMap = response.data is Map ? (response.data as Map) : null;
+        final errorMsg =
+            response.error ??
+            dataMap?['message']?.toString() ??
+            l10n?.emailCodeFailed ??
+            'Не удалось отправить код на email';
+        setState(() {
+          _isRequestingEmailFallback = false;
+          _codeError = errorMsg;
+        });
+        CustomToast.show(context, errorMsg, type: ToastType.error);
+      }
+    } catch (e) {
+      if (mounted) {
+        final errorMsg =
+            '${l10n?.emailCodeFailed ?? "Не удалось отправить код на email"}: $e';
+        setState(() {
+          _isRequestingEmailFallback = false;
+          _codeError = errorMsg;
+        });
+        CustomToast.show(context, errorMsg, type: ToastType.error);
+      }
+    }
+  }
+
+  void _cancelCodeLogin() {
+    _codePollTimer?.cancel();
+    _emailFallbackTimer?.cancel();
+    if (_codeChallengeId != null && _codePollSecret != null) {
+      unawaited(
+        _apiService.cancelNotificationLogin(
+          _codeChallengeId!,
+          _codePollSecret!,
+        ),
+      );
+    }
+    setState(() {
+      _codeStep = 0;
+      _codeChallengeId = null;
+      _codePollSecret = null;
+      _codeError = null;
+      _allowEmailFallback = false;
+      _allowPasswordFallback = false;
+      _emailFallbackSent = false;
+      _isRequestingEmailFallback = false;
+      _emailFallbackSeconds = 60;
+      _passwordFallbackSeconds = 120;
+      _isPasswordMode = false;
+      _codePasswordController.clear();
+      _maskedEmail = null;
+      _isCodeLoading = false;
+      _codeTextController.clear();
+    });
+  }
 
   Future<void> _checkAccounts() async {
     final accounts = await AccountService().getAccounts();
@@ -175,397 +899,6 @@ class _LoginScreenState extends State<LoginScreen>
     }
   }
 
-  void _nextStep() {
-    if (_formKey.currentState!.validate()) {
-      setState(() {
-        _currentStep = 1;
-      });
-      Future.delayed(const Duration(milliseconds: 100), () {
-        _passwordFocus.requestFocus();
-      });
-    }
-  }
-
-  Future<void> _handleLogin() async {
-    final username = _loginController.text.trim();
-    final l10n = AppLocalizations.of(context)!;
-    Logger.info('LoginScreen', 'Login attempt started for user: $username');
-
-    if (_formKey.currentState!.validate()) {
-      setState(() {
-        _isLoading = true;
-      });
-
-      try {
-        final password = _passwordController.text;
-        var authenticatedWithTfa = false;
-
-        // Mobile-login — обязательный preflight: он проверяет credentials и
-        // выдаёт временный challenge для аккаунтов с включённой 2FA.
-        final preflight = await _apiService.mobileLogin(username, password);
-        if (!preflight.success || preflight.data == null) {
-          if (mounted) {
-            setState(() => _isLoading = false);
-            CustomToast.show(
-              context,
-              preflight.error ?? l10n.invalidCredentials,
-              type: ToastType.error,
-            );
-          }
-          return;
-        }
-
-        final preflightData = preflight.data!;
-        final requiresTfa =
-            preflightData['tfa_required'] == true ||
-            preflightData['requires_2fa'] == true;
-        Logger.info(
-          'AuthTrace',
-          'LoginScreen decision: requiresTfa=$requiresTfa '
-              'authSuccess=${preflightData['auth_success']} '
-              'responseTfaEnabled=${preflightData['user_info']?['tfa_enabled']}',
-        );
-        if (requiresTfa) {
-          Logger.info(
-            'AuthTrace',
-            'LoginScreen entering 2FA branch; modal will be requested',
-          );
-          final tfaToken =
-              (preflightData['token'] ?? preflightData['temp_token'])
-                  as String?;
-          if (tfaToken == null || tfaToken.isEmpty) {
-            if (mounted) {
-              setState(() => _isLoading = false);
-              CustomToast.show(
-                context,
-                l10n.serverError,
-                type: ToastType.error,
-              );
-            }
-            return;
-          }
-
-          final sendResult = await _apiService.sendTfaCode(tfaToken);
-          if (!sendResult.success || sendResult.data?['success'] != true) {
-            if (mounted) {
-              setState(() => _isLoading = false);
-              CustomToast.show(
-                context,
-                sendResult.error ??
-                    sendResult.data?['message'] as String? ??
-                    l10n.sendCodeError,
-                type: ToastType.error,
-              );
-            }
-            return;
-          }
-
-          if (mounted) setState(() => _isLoading = false);
-          if (!mounted) return;
-          final tfaJwtIssued = await TfaVerificationDialog.show(
-            context: context,
-            token: tfaToken,
-            apiService: _apiService,
-            emailMasked: preflightData['user_info']?['email'] as String?,
-          );
-          Logger.info(
-            'AuthTrace',
-            '2FA modal completed: cancelled=${tfaJwtIssued == null} '
-                'jwtCameFromVerify=${tfaJwtIssued == true}',
-          );
-          if (tfaJwtIssued == null || !mounted) return;
-          authenticatedWithTfa = tfaJwtIssued;
-          setState(() => _isLoading = true);
-        } else if (preflightData['auth_success'] != true) {
-          if (mounted) {
-            setState(() => _isLoading = false);
-            CustomToast.show(
-              context,
-              preflightData['message'] as String? ?? l10n.invalidCredentials,
-              type: ToastType.error,
-            );
-          }
-          return;
-        } else {
-          Logger.warning(
-            'AuthTrace',
-            'LoginScreen accepted non-2FA branch because server returned '
-                'auth_success=true and no 2FA flag',
-          );
-        }
-
-        // Получаем JWT токен
-        Logger.info('LoginScreen', 'Requesting JWT token for user: $username');
-        final tokenResponse = authenticatedWithTfa
-            ? ApiResponse(success: true)
-            : await _apiService.obtainToken(username, password);
-        Logger.info(
-          'AuthTrace',
-          'JWT decision: skipPasswordTokenEndpoint=$authenticatedWithTfa '
-              'tokenResponseSuccess=${tokenResponse.success}',
-        );
-
-        if (tokenResponse.success) {
-          Logger.info(
-            'LoginScreen',
-            'Token obtained successfully. Fetching E2EE keys from server.',
-          );
-          // Токен получен успешно, теперь настраиваем крипто-ключи (E2EE)
-          final keysResponse = await _apiService.getMyKeys();
-          bool cryptoSetupSuccess = false;
-
-          if (keysResponse.success &&
-              keysResponse.data != null &&
-              keysResponse.data!['xsec2'] != null) {
-            // Ключи есть на сервере, расшифровываем их
-            Logger.info(
-              'LoginScreen',
-              'Keys found on server. Attempting to unlock/decrypt key bundle.',
-            );
-            final xsec2 = keysResponse.data!['xsec2'] as Map<String, dynamic>;
-            final encryptedBlob =
-                xsec2['encrypted_blob'] as Map<String, dynamic>;
-
-            cryptoSetupSuccess = await CryptoService().unlockFromBlob(
-              encryptedBlob,
-              password,
-            );
-            Logger.info(
-              'LoginScreen',
-              'Key bundle decryption result: $cryptoSetupSuccess',
-            );
-
-            if (!cryptoSetupSuccess) {
-              // В случае неудачи (например, старый Argon2id blob с веб-клиента),
-              // генерируем новые ключи в поддерживаемом формате pbkdf2-aes-gcm и загружаем их.
-              Logger.warning(
-                'LoginScreen',
-                'Failed to decrypt server keys. Regenerating new keys under pbkdf2-aes-gcm...',
-              );
-              try {
-                final newBlob = await CryptoService().generateAndStoreKeys(
-                  password,
-                );
-                final uploadResponse = await _apiService.uploadKeys(
-                  x25519PublicKey: newBlob['pub']['x25519'] as String,
-                  ed25519PublicKey: newBlob['pub']['ed25519'] as String,
-                  encryptedBlob: newBlob,
-                );
-                cryptoSetupSuccess = uploadResponse.success;
-                Logger.info(
-                  'LoginScreen',
-                  'Fallback key regeneration and upload success status: $cryptoSetupSuccess',
-                );
-                if (!cryptoSetupSuccess) {
-                  Logger.error(
-                    'LoginScreen',
-                    'Failed to upload regenerated keys: ${uploadResponse.error}',
-                  );
-                  if (mounted) {
-                    CustomToast.show(
-                      context,
-                      uploadResponse.error ??
-                          (AppLocalizations.of(
-                                context,
-                              )?.oshibkaVosstanovleniyaKlyucheyNeUdalos_fe7b ??
-                              'Fallback'),
-                      type: ToastType.error,
-                    );
-                  }
-                }
-              } catch (e) {
-                Logger.error(
-                  'LoginScreen',
-                  'Error during fallback key generation',
-                  e,
-                );
-                if (mounted) {
-                  CustomToast.show(
-                    context,
-                    (AppLocalizations.of(
-                          context,
-                        )?.kriticheskayaOshibkaPriPeresozdaniiKlyuchey_b6d7 ??
-                        'Fallback'),
-                    type: ToastType.error,
-                  );
-                }
-              }
-            }
-          } else if (keysResponse.statusCode == 404 ||
-              (keysResponse.data != null &&
-                  keysResponse.data!['code'] == 'KEYS_NOT_FOUND')) {
-            // Ключей нет на сервере, генерируем новые
-            Logger.info(
-              'LoginScreen',
-              'Keys not found on server (404/KEYS_NOT_FOUND). Generating new keys.',
-            );
-            try {
-              final newBlob = await CryptoService().generateAndStoreKeys(
-                password,
-              );
-              final uploadResponse = await _apiService.uploadKeys(
-                x25519PublicKey: newBlob['pub']['x25519'] as String,
-                ed25519PublicKey: newBlob['pub']['ed25519'] as String,
-                encryptedBlob: newBlob,
-              );
-
-              cryptoSetupSuccess = uploadResponse.success;
-              Logger.info(
-                'LoginScreen',
-                'New key generation and upload success status: $cryptoSetupSuccess',
-              );
-              if (!cryptoSetupSuccess) {
-                Logger.error(
-                  'LoginScreen',
-                  'Failed to upload new keys: ${uploadResponse.error}',
-                );
-                if (mounted) {
-                  CustomToast.show(
-                    context,
-                    uploadResponse.error ??
-                        (AppLocalizations.of(
-                              context,
-                            )?.oshibkaZagruzkiKlyucheyNaServer_ff9b ??
-                            'Fallback'),
-                    type: ToastType.error,
-                  );
-                }
-              }
-            } catch (e) {
-              Logger.error(
-                'LoginScreen',
-                'Error generating and uploading new keys',
-                e,
-              );
-            }
-          } else {
-            // Другая ошибка при получении ключей
-            Logger.error(
-              'LoginScreen',
-              'Failed to fetch keys from server: ${keysResponse.error} (status ${keysResponse.statusCode})',
-            );
-            if (mounted) {
-              CustomToast.show(
-                context,
-                keysResponse.error ??
-                    (AppLocalizations.of(
-                          context,
-                        )?.oshibkaPriPolucheniiKlyucheyShifrovaniya_9bb4 ??
-                        'Fallback'),
-                type: ToastType.error,
-              );
-            }
-          }
-
-          setState(() {
-            _isLoading = false;
-          });
-
-          if (cryptoSetupSuccess) {
-            Logger.info(
-              'LoginScreen',
-              'Crypto keys successfully configured. Fetching user profile...',
-            );
-            final profileRes = await _apiService.getProfile();
-            bool savedSuccess = false;
-            if (profileRes.success && profileRes.data != null) {
-              Logger.info(
-                'LoginScreen',
-                'Profile fetched successfully. Saving current account: ${profileRes.data!['username']}',
-              );
-              savedSuccess = await AccountService().saveCurrentAccount(
-                profileRes.data!,
-              );
-            } else {
-              Logger.error(
-                'LoginScreen',
-                'Failed to fetch user profile: ${profileRes.error}',
-              );
-            }
-
-            if (!savedSuccess) {
-              Logger.error(
-                'LoginScreen',
-                'Failed to save account locally. Exceeded account limit or save error.',
-              );
-              await _apiService.logout();
-              await CryptoService().clearKeys();
-              if (mounted) {
-                CustomToast.show(
-                  context,
-                  (AppLocalizations.of(
-                        context,
-                      )?.prevyshenLimitV5Akkauntov_a6a9 ??
-                      'Fallback'),
-                  type: ToastType.error,
-                );
-              }
-              setState(() {
-                _isLoading = false;
-              });
-              return;
-            }
-
-            if (mounted) {
-              Logger.info(
-                'LoginScreen',
-                'Login flow completed successfully. Navigating to messenger.',
-              );
-              final l10n = AppLocalizations.of(context);
-              if (l10n != null) {
-                CustomToast.show(
-                  context,
-                  l10n.welcomeUser(_loginController.text),
-                  type: ToastType.success,
-                );
-              }
-              // Навигация в мессенджер
-              Navigator.of(context).pushReplacementNamed('/messenger');
-            }
-          }
-        } else {
-          Logger.warning(
-            'LoginScreen',
-            'Token obtain failed: ${tokenResponse.error} (status ${tokenResponse.statusCode})',
-          );
-          setState(() {
-            _isLoading = false;
-          });
-          // Ошибка авторизации
-          if (mounted) {
-            CustomToast.show(
-              context,
-              tokenResponse.error ??
-                  (AppLocalizations.of(context)?.oshibkaAvtorizatsii_9f5c ??
-                      'Fallback'),
-              type: ToastType.error,
-            );
-          }
-        }
-      } catch (e, stack) {
-        Logger.error(
-          'LoginScreen',
-          'Unexpected error during login process',
-          e,
-          stack,
-        );
-        setState(() {
-          _isLoading = false;
-        });
-
-        if (mounted) {
-          CustomToast.show(
-            context,
-            (AppLocalizations.of(context)?.oshibkaPodklyucheniyaKServeru_8b96 ??
-                'Fallback'),
-            type: ToastType.error,
-          );
-        }
-      }
-    } else {
-      Logger.warning('LoginScreen', 'Form validation failed.');
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -611,9 +944,7 @@ class _LoginScreenState extends State<LoginScreen>
                                 opacity: _fadeAnimation,
                                 child: SlideTransition(
                                   position: _slideAnimation,
-                                  child: ApiService.isAuthV2 
-                                    ? _buildAuthV2LeftContent(l10n!, isDark, showRightPanel) 
-                                    : _buildLoginForm(
+                                  child: _buildAuthV2LeftContent(
                                     l10n!,
                                     isDark,
                                     showRightPanel,
@@ -633,58 +964,8 @@ class _LoginScreenState extends State<LoginScreen>
               if (showRightPanel)
                 Expanded(
                   flex: 6,
-                  child: ApiService.isAuthV2 ? _buildAuthV2RightContent(l10n!, isDark) : Container(
-                    decoration: BoxDecoration(
-                      color: isDark
-                          ? const Color(0xFF050505)
-                          : const Color(0xFFF1F0F3),
-                      border: Border(
-                        left: BorderSide(
-                          color: isDark
-                              ? Colors.white.withOpacity(0.04)
-                              : Colors.black.withOpacity(0.04),
-                          width: 1,
-                        ),
-                      ),
-                    ),
-                    child: Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Image.asset(
-                            'assets/logo.png',
-                            width: 120,
-                            height: 120,
-                            color: isDark ? Colors.white : Colors.black,
-                          ),
-                          const SizedBox(height: 28),
-                          Text(
-                            'XANEO',
-                            style: TextStyle(
-                              fontSize: 32,
-                              fontWeight: FontWeight.w700,
-                              color: isDark ? Colors.white : Colors.black,
-                              letterSpacing: 4,
-                              fontFamily: 'Inter',
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            l10n?.secureDesktopCommunicator ??
-                                'secure desktop communicator',
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w300,
-                              color: isDark
-                                  ? Colors.grey.shade600
-                                  : Colors.grey.shade500,
-                              letterSpacing: 2,
-                              fontFamily: 'Inter',
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                  child: _ScaledContent(
+                    child: _buildAuthV2RightContent(l10n!, isDark),
                   ),
                 ),
             ],
@@ -764,169 +1045,6 @@ class _LoginScreenState extends State<LoginScreen>
     );
   }
 
-  Widget _buildLoginForm(
-    AppLocalizations l10n,
-    bool isDark,
-    bool showRightPanel,
-  ) {
-    return Form(
-      key: _formKey,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Logo (if right panel is hidden)
-          if (!showRightPanel) ...[
-            Image.asset(
-              'assets/logo.png',
-              width: 44,
-              height: 44,
-              color: isDark ? Colors.white : Colors.black,
-              fit: BoxFit.contain,
-            ),
-            SizedBox(height: 32),
-          ],
-
-          // Header / Welcome Title (Step-dependent)
-          AnimatedSwitcher(
-            duration: const Duration(milliseconds: 300),
-            transitionBuilder: (child, animation) =>
-                FadeTransition(opacity: animation, child: child),
-            child: KeyedSubtree(
-              key: ValueKey<int>(_currentStep),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    _currentStep == 0
-                        ? (AppLocalizations.of(context)?.voytiVAkkaunt_c439 ??
-                              'Fallback')
-                        : (AppLocalizations.of(context)?.vvediteParol_1370 ??
-                              'Fallback'),
-                    style: TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.w700,
-                      color: isDark ? Colors.white : Colors.black,
-                      fontFamily: 'Inter',
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  _currentStep == 0
-                      ? Text(
-                          (AppLocalizations.of(
-                                context,
-                              )?.vvediteSvoiDannyeDlyaDostupa_319e ??
-                              'Fallback'),
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: isDark
-                                ? Colors.grey.shade500
-                                : Colors.grey.shade600,
-                            fontFamily: 'Inter',
-                          ),
-                        )
-                      : Row(
-                          children: [
-                            Text(
-                              _loginController.text,
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: isDark
-                                    ? Colors.grey.shade300
-                                    : Colors.grey.shade700,
-                                fontFamily: 'Inter',
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            MouseRegion(
-                              cursor: SystemMouseCursors.click,
-                              child: GestureDetector(
-                                onTap: () {
-                                  setState(() {
-                                    _currentStep = 0;
-                                  });
-                                  Future.delayed(
-                                    const Duration(milliseconds: 100),
-                                    () {
-                                      _loginFocus.requestFocus();
-                                    },
-                                  );
-                                },
-                                child: Icon(
-                                  Icons.edit_outlined,
-                                  size: 14,
-                                  color: isDark
-                                      ? Colors.grey.shade500
-                                      : Colors.grey.shade600,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                ],
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 40),
-
-          // Sequential Fields Container with Fade Animation
-          AnimatedSwitcher(
-            duration: const Duration(milliseconds: 300),
-            transitionBuilder: (child, animation) =>
-                FadeTransition(opacity: animation, child: child),
-            child: KeyedSubtree(
-              key: ValueKey<int>(_currentStep),
-              child: _currentStep == 0
-                  ? _buildLoginField(l10n, isDark)
-                  : _buildPasswordField(l10n, isDark),
-            ),
-          ),
-
-          const SizedBox(height: 32),
-
-          // Login Button
-          _buildLoginButton(l10n, isDark),
-
-          const SizedBox(height: 24),
-
-          // Register Link / Back Link
-          AnimatedSwitcher(
-            duration: const Duration(milliseconds: 300),
-            child: _currentStep == 0
-                ? _buildRegisterLink(l10n, isDark)
-                : Center(
-                    child: MouseRegion(
-                      cursor: SystemMouseCursors.click,
-                      child: GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            _currentStep = 0;
-                          });
-                          Future.delayed(const Duration(milliseconds: 100), () {
-                            _loginFocus.requestFocus();
-                          });
-                        },
-                        child: Text(
-                          (AppLocalizations.of(context)?.nazad_2b0b ??
-                              'Fallback'),
-                          style: TextStyle(
-                            color: isDark
-                                ? Colors.grey.shade400
-                                : Colors.grey.shade600,
-                            fontSize: 12,
-                            decoration: TextDecoration.underline,
-                            fontFamily: 'Inter',
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-          ),
-        ],
-      ),
-    );
-  }
 
   Widget _buildLoginField(AppLocalizations? l10n, bool isDark) {
     return CustomTextFormField(
@@ -943,108 +1061,12 @@ class _LoginScreenState extends State<LoginScreen>
     );
   }
 
-  Widget _buildPasswordField(AppLocalizations? l10n, bool isDark) {
-    return CustomTextFormField(
-      controller: _passwordController,
-      focusNode: _passwordFocus,
-      labelText: l10n!.passwordFieldHint,
-      icon: FontAwesomeIcons.lock,
-      isPasswordField: true,
-      validator: (value) {
-        if (value == null || value.isEmpty) {
-          return l10n.fillAllFields;
-        }
-        return null;
-      },
-    );
-  }
 
-  Widget _buildLoginButton(AppLocalizations? l10n, bool isDark) {
-    if (_isLoading) {
-      return Center(
-        child: SizedBox(
-          width: 24,
-          height: 24,
-          child: CircularProgressIndicator(
-            strokeWidth: 2,
-            valueColor: AlwaysStoppedAnimation<Color>(
-              isDark ? Colors.white : Colors.black,
-            ),
-          ),
-        ),
-      );
-    }
-
-    final isNextStep = _currentStep == 0;
-
-    return MouseRegion(
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: isNextStep ? _nextStep : _handleLogin,
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          decoration: BoxDecoration(
-            color: isDark ? Colors.white : Colors.black,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Center(
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  isNextStep
-                      ? (AppLocalizations.of(context)?.dalee_c453 ?? 'Fallback')
-                      : (l10n?.loginButton ??
-                            (AppLocalizations.of(context)?.voyti_63a7 ??
-                                'Fallback')),
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: isDark ? Colors.black : Colors.white,
-                    letterSpacing: 0.5,
-                    fontFamily: 'Inter',
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Icon(
-                  Icons.arrow_forward_rounded,
-                  size: 16,
-                  color: isDark ? Colors.black : Colors.white,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildRegisterLink(AppLocalizations? l10n, bool isDark) {
-    return Center(
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        child: GestureDetector(
-          onTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(builder: (context) => const RegisterScreen()),
-            );
-          },
-          child: Text(
-            l10n!.noAccount,
-            style: TextStyle(
-              color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
-              fontSize: 12,
-              decoration: TextDecoration.underline,
-              fontFamily: 'Inter',
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAuthV2LeftContent(AppLocalizations l10n, bool isDark, bool showRightPanel) {
+  Widget _buildAuthV2LeftContent(
+    AppLocalizations l10n,
+    bool isDark,
+    bool showRightPanel,
+  ) {
     return Form(
       key: _formKey,
       child: Column(
@@ -1074,7 +1096,11 @@ class _LoginScreenState extends State<LoginScreen>
     );
   }
 
-  Widget _buildQrModeInstructions(AppLocalizations l10n, bool isDark, bool showRightPanel) {
+  Widget _buildQrModeInstructions(
+    AppLocalizations l10n,
+    bool isDark,
+    bool showRightPanel,
+  ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1101,10 +1127,14 @@ class _LoginScreenState extends State<LoginScreen>
         Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            color: isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.03),
+            color: isDark
+                ? Colors.white.withOpacity(0.05)
+                : Colors.black.withOpacity(0.03),
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: isDark ? Colors.white.withOpacity(0.1) : Colors.black.withOpacity(0.05),
+              color: isDark
+                  ? Colors.white.withOpacity(0.1)
+                  : Colors.black.withOpacity(0.05),
             ),
           ),
           child: Column(
@@ -1139,17 +1169,10 @@ class _LoginScreenState extends State<LoginScreen>
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(16),
               ),
-              child: Image.network(
-                '${ApiService.baseUrl.replaceAll('/api/v1', '')}/api/auth/qr-code/?t=$_qrTimestamp',
-                width: 200.0,
-                height: 200.0,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => Container(
-                  width: 200.0,
-                  height: 200.0,
-                  color: Colors.grey.shade200,
-                  child: const Center(child: Icon(Icons.qr_code, size: 64, color: Colors.grey)),
-                ),
+              child: _buildQrAuthorizationContent(
+                l10n: l10n,
+                size: 200,
+                preferServerImage: false,
               ),
             ),
           ),
@@ -1164,7 +1187,10 @@ class _LoginScreenState extends State<LoginScreen>
                 _currentStep = 0;
               });
             },
-            icon: Icon(Icons.password, color: isDark ? Colors.black : Colors.white),
+            icon: Icon(
+              Icons.password,
+              color: isDark ? Colors.black : Colors.white,
+            ),
             label: Text(
               l10n.qrCodeLoginBtn,
               style: TextStyle(
@@ -1176,7 +1202,9 @@ class _LoginScreenState extends State<LoginScreen>
             style: ElevatedButton.styleFrom(
               backgroundColor: isDark ? Colors.white : Colors.black,
               padding: const EdgeInsets.symmetric(vertical: 16),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
             ),
           ),
         ),
@@ -1197,6 +1225,15 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   Widget _buildCodeModeForm(AppLocalizations l10n, bool isDark) {
+    String subtitleText;
+    if (_codeStep == 0) {
+      subtitleText = l10n.codeLoginSubtitle;
+    } else if (_codeStep == 1) {
+      subtitleText = l10n.sixDigitCodeSentSub;
+    } else {
+      subtitleText = l10n.confirmOnDeviceSub;
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1211,7 +1248,7 @@ class _LoginScreenState extends State<LoginScreen>
         ),
         const SizedBox(height: 8),
         Text(
-          l10n.codeLoginSubtitle,
+          subtitleText,
           style: TextStyle(
             fontSize: 14,
             color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
@@ -1219,32 +1256,84 @@ class _LoginScreenState extends State<LoginScreen>
           ),
         ),
         const SizedBox(height: 24),
-        
+
         AnimatedSwitcher(
           duration: const Duration(milliseconds: 300),
           child: KeyedSubtree(
-            key: ValueKey<int>(_currentStep),
-            child: _currentStep == 0 ? _buildLoginField(l10n, isDark) : CustomTextFormField(
-              controller: _passwordController,
-              focusNode: _passwordFocus,
-              labelText: l10n.sixDigitCodeLabel,
-              icon: FontAwesomeIcons.key,
-              validator: (value) {
-                if (value == null || value.isEmpty) return l10n.fillAllFields;
-                return null;
-              },
-            ),
+            key: ValueKey<int>(_codeStep),
+            child: _codeStep == 0
+                ? _buildLoginField(l10n, isDark)
+                : _codeStep == 1
+                ? (_isPasswordMode
+                      ? CustomTextFormField(
+                          controller: _codePasswordController,
+                          focusNode: _codePasswordFocus,
+                          labelText: l10n.password,
+                          icon: FontAwesomeIcons.lock,
+                          isPasswordField: true,
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return l10n.enterPasswordErr;
+                            }
+                            return null;
+                          },
+                        )
+                      : CustomTextFormField(
+                          controller: _codeTextController,
+                          focusNode: _codeFocus,
+                          labelText: l10n.sixDigitCodeLabel,
+                          icon: FontAwesomeIcons.key,
+                          validator: (value) {
+                            if (value == null || value.isEmpty) {
+                              return l10n.fillAllFields;
+                            }
+                            if (value.trim().length != 6) {
+                              return l10n.mustBeSixDigits;
+                            }
+                            return null;
+                          },
+                        ))
+                : Center(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 24),
+                      child: Column(
+                        children: [
+                          const CircularProgressIndicator(),
+                          const SizedBox(height: 16),
+                          Text(
+                            l10n.awaitingDeviceApproval,
+                            style: TextStyle(
+                              color: isDark ? Colors.white70 : Colors.black87,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
           ),
         ),
-        
+
+        if (_codeError != null) ...[
+          const SizedBox(height: 12),
+          Text(
+            _codeError!,
+            style: const TextStyle(color: Color(0xFFE57373), fontSize: 13),
+          ),
+        ],
+
         const SizedBox(height: 24),
         Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            color: isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.03),
+            color: isDark
+                ? Colors.white.withOpacity(0.05)
+                : Colors.black.withOpacity(0.03),
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: isDark ? Colors.white.withOpacity(0.1) : Colors.black.withOpacity(0.05),
+              color: isDark
+                  ? Colors.white.withOpacity(0.1)
+                  : Colors.black.withOpacity(0.05),
             ),
           ),
           child: Column(
@@ -1262,7 +1351,13 @@ class _LoginScreenState extends State<LoginScreen>
               ),
               const SizedBox(height: 8),
               Text(
-                l10n.codeInstructionText,
+                _codeStep == 0
+                    ? l10n.codeInstructionText
+                    : _codeStep == 1
+                    ? (_emailFallbackSent
+                          ? l10n.emailCodeSent(_maskedEmail ?? '')
+                          : l10n.codeSentToBot)
+                    : l10n.confirmDeviceRequestText,
                 style: TextStyle(
                   fontSize: 14,
                   color: isDark ? Colors.grey.shade300 : Colors.grey.shade800,
@@ -1273,40 +1368,157 @@ class _LoginScreenState extends State<LoginScreen>
             ],
           ),
         ),
-        
+
+        if (_codeStep == 1) ...[
+          const SizedBox(height: 16),
+          Center(
+            child:
+                (!_allowEmailFallback &&
+                    _emailFallbackSeconds > 0 &&
+                    !_emailFallbackSent)
+                ? Text(
+                    l10n.requestCodeViaEmailIn(_emailFallbackSeconds),
+                    style: TextStyle(
+                      color: isDark
+                          ? Colors.grey.shade500
+                          : Colors.grey.shade600,
+                      fontSize: 13,
+                      fontFamily: 'Inter',
+                    ),
+                  )
+                : MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: GestureDetector(
+                      onTap: _isRequestingEmailFallback
+                          ? null
+                          : _requestEmailFallbackCode,
+                      child: Text(
+                        _emailFallbackSent
+                            ? l10n.resendCodeToEmail
+                            : l10n.cantLoginSendToEmail,
+                        style: TextStyle(
+                          color: isDark
+                              ? const Color(0xFF60A5FA)
+                              : const Color(0xFF2563EB),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          decoration: TextDecoration.underline,
+                          fontFamily: 'Inter',
+                        ),
+                      ),
+                    ),
+                  ),
+          ),
+        ],
+
+        if (_codeStep == 1 && !_isPasswordMode) ...[
+          const SizedBox(height: 8),
+          Center(
+            child: (!_allowPasswordFallback && _passwordFallbackSeconds > 0)
+                ? Text(
+                    l10n.requestCodeViaPasswordIn(
+                      _allowEmailFallback
+                          ? (_passwordFallbackSeconds > 60
+                                ? _passwordFallbackSeconds - 60
+                                : _passwordFallbackSeconds)
+                          : _passwordFallbackSeconds,
+                    ),
+                    style: TextStyle(
+                      color: isDark
+                          ? Colors.grey.shade500
+                          : Colors.grey.shade600,
+                      fontSize: 13,
+                      fontFamily: 'Inter',
+                    ),
+                  )
+                : MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          _isPasswordMode = true;
+                        });
+                        _codePasswordFocus.requestFocus();
+                      },
+                      child: Text(
+                        l10n.loginWithPasswordLink,
+                        style: TextStyle(
+                          color: isDark
+                              ? const Color(0xFF60A5FA)
+                              : const Color(0xFF2563EB),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          decoration: TextDecoration.underline,
+                          fontFamily: 'Inter',
+                        ),
+                      ),
+                    ),
+                  ),
+          ),
+        ],
+
         const SizedBox(height: 32),
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton(
-            onPressed: _currentStep == 0 ? _nextStep : _handleLogin,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: isDark ? Colors.white : Colors.black,
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            ),
-            child: Text(
-              _currentStep == 0 ? l10n.getCodeBtn : l10n.loginButton,
-              style: TextStyle(
-                color: isDark ? Colors.black : Colors.white,
-                fontWeight: FontWeight.w600,
-                fontFamily: 'Inter',
+        if (_codeStep < 2)
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _isCodeLoading
+                  ? null
+                  : (_codeStep == 0
+                        ? _requestCodeLogin
+                        : (_isPasswordMode
+                              ? _verifyCodePasswordLogin
+                              : _verifyCodeLogin)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: isDark ? Colors.white : Colors.black,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
+              child: _isCodeLoading
+                  ? SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: isDark ? Colors.black : Colors.white,
+                      ),
+                    )
+                  : Text(
+                      _codeStep == 0
+                          ? l10n.getCodeBtn
+                          : (_isPasswordMode
+                                ? l10n.submitCodeBtn
+                                : l10n.continueBtn),
+                      style: TextStyle(
+                        color: isDark ? Colors.black : Colors.white,
+                        fontWeight: FontWeight.w600,
+                        fontFamily: 'Inter',
+                      ),
+                    ),
             ),
           ),
-        ),
         const SizedBox(height: 16),
         SizedBox(
           width: double.infinity,
           child: OutlinedButton.icon(
             onPressed: () {
-              setState(() {
-                _isQrMode = true;
-                _currentStep = 0;
-              });
+              if (_codeStep > 0) {
+                _cancelCodeLogin();
+              } else {
+                setState(() {
+                  _isQrMode = true;
+                  _currentStep = 0;
+                });
+              }
             },
-            icon: Icon(Icons.qr_code, color: isDark ? Colors.white : Colors.black),
+            icon: Icon(
+              _codeStep > 0 ? Icons.arrow_back : Icons.qr_code,
+              color: isDark ? Colors.white : Colors.black,
+            ),
             label: Text(
-              l10n.backToQrBtn,
+              _codeStep > 0 ? l10n.backBtn : l10n.backToQrBtn,
               style: TextStyle(
                 color: isDark ? Colors.white : Colors.black,
                 fontWeight: FontWeight.w600,
@@ -1315,12 +1527,18 @@ class _LoginScreenState extends State<LoginScreen>
             ),
             style: OutlinedButton.styleFrom(
               padding: const EdgeInsets.symmetric(vertical: 16),
-              side: BorderSide(color: isDark ? Colors.white.withOpacity(0.2) : Colors.black.withOpacity(0.2)),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              side: BorderSide(
+                color: isDark
+                    ? Colors.white.withOpacity(0.2)
+                    : Colors.black.withOpacity(0.2),
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
             ),
           ),
         ),
-        
+
         if (_currentStep > 0)
           Padding(
             padding: const EdgeInsets.only(top: 24),
@@ -1329,12 +1547,16 @@ class _LoginScreenState extends State<LoginScreen>
                 cursor: SystemMouseCursors.click,
                 child: GestureDetector(
                   onTap: () {
-                    setState(() { _currentStep = 0; });
+                    setState(() {
+                      _currentStep = 0;
+                    });
                   },
                   child: Text(
                     l10n.back,
                     style: TextStyle(
-                      color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                      color: isDark
+                          ? Colors.grey.shade400
+                          : Colors.grey.shade600,
                       fontSize: 13,
                       decoration: TextDecoration.underline,
                       fontFamily: 'Inter',
@@ -1354,7 +1576,9 @@ class _LoginScreenState extends State<LoginScreen>
         color: const Color(0xFF0C0C0C), // Always dark like the web version
         border: Border(
           left: BorderSide(
-            color: isDark ? Colors.white.withOpacity(0.04) : Colors.black.withOpacity(0.04),
+            color: isDark
+                ? Colors.white.withOpacity(0.04)
+                : Colors.black.withOpacity(0.04),
             width: 1,
           ),
         ),
@@ -1376,68 +1600,115 @@ class _LoginScreenState extends State<LoginScreen>
                   ),
                 ],
               ),
-              child: Image.network(
-                '${ApiService.baseUrl.replaceAll('/api/v1', '')}/api/auth/qr-code/?t=$_qrTimestamp',
-                width: 280.0,
-                height: 280.0,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => Container(
-                  width: 280.0,
-                  height: 280.0,
-                  color: Colors.grey.shade200,
-                  child: const Center(child: Icon(Icons.qr_code, size: 64, color: Colors.grey)),
-                ),
-              ),
-            ),
-            const SizedBox(height: 48),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.05),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.white.withOpacity(0.1)),
-              ),
-              child: Column(
-                children: [
-                  Text(
-                    l10n.qrTimerLabel,
-                    style: TextStyle(
-                      color: Colors.grey.shade400,
-                      fontSize: 14,
-                      fontFamily: 'Inter',
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    _qrTimeString,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      fontFamily: 'JetBrains Mono',
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  TextButton.icon(
-                    onPressed: _refreshQrCode,
-                    icon: const Icon(Icons.refresh, color: Colors.white, size: 18),
-                    label: Text(
-                      l10n.refreshQrBtn,
-                      style: const TextStyle(color: Colors.white, fontFamily: 'Inter'),
-                    ),
-                    style: TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      backgroundColor: Colors.white.withOpacity(0.1),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    ),
-                  ),
-                ],
+              child: _buildQrAuthorizationContent(
+                l10n: l10n,
+                size: 280,
+                preferServerImage: true,
               ),
             ),
           ],
         ),
       ),
     );
+  }
+
+  Widget _buildQrAuthorizationContent({
+    required AppLocalizations l10n,
+    required double size,
+    required bool preferServerImage,
+  }) {
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 220),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      transitionBuilder: (child, animation) => FadeTransition(
+        opacity: animation,
+        child: ScaleTransition(
+          scale: Tween<double>(begin: 0.97, end: 1).animate(animation),
+          child: child,
+        ),
+      ),
+      child: _isQrAwaitingApproval
+          ? SizedBox(
+              key: const ValueKey('qr-awaiting-approval'),
+              width: size,
+              height: size,
+              child: Padding(
+                padding: EdgeInsets.all(size >= 260 ? 30 : 18),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      width: size >= 260 ? 56 : 48,
+                      height: size >= 260 ? 56 : 48,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF4F4F5),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: const Color(0xFFE4E4E7)),
+                      ),
+                      child: Icon(
+                        Icons.phonelink_lock_rounded,
+                        color: const Color(0xFF27272A),
+                        size: size >= 260 ? 28 : 24,
+                      ),
+                    ),
+                    SizedBox(height: size >= 260 ? 18 : 14),
+                    Text(
+                      l10n.qrApprovalTitle,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: const Color(0xFF18181B),
+                        fontSize: size >= 260 ? 18 : 15,
+                        fontWeight: FontWeight.w700,
+                        height: 1.2,
+                        fontFamily: 'Inter',
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      l10n.qrApprovalDesc,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: const Color(0xFF71717A),
+                        fontSize: size >= 260 ? 13 : 11.5,
+                        height: 1.4,
+                        fontFamily: 'Inter',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          : SizedBox(
+              key: const ValueKey('qr-code'),
+              width: size,
+              height: size,
+              child: _buildQrImage(size, preferServerImage),
+            ),
+    );
+  }
+
+  Widget _buildQrImage(double size, bool preferServerImage) {
+    if (preferServerImage && _qrImageBytes != null) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Image.memory(
+          _qrImageBytes!,
+          width: size,
+          height: size,
+          fit: BoxFit.contain,
+        ),
+      );
+    }
+    if (_qrPayloadString != null && _qrPayloadString!.isNotEmpty) {
+      return QrImageView(
+        data: _qrPayloadString!,
+        version: QrVersions.auto,
+        size: size,
+        backgroundColor: Colors.white,
+      );
+    }
+    return const Center(child: CircularProgressIndicator(color: Colors.black));
   }
 }
 

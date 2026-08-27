@@ -10,6 +10,7 @@ import 'package:screen_retriever/screen_retriever.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'package:xaneo/main.dart';
+import 'package:xaneo/providers/playback_provider.dart';
 import 'package:xaneo/services/webrtc/call_manager.dart';
 import 'package:xaneo/screens/webrtc/active_call_screen.dart';
 import 'package:xaneo/utils/win32_overlay_helper.dart';
@@ -61,6 +62,23 @@ class NotificationService {
     return false;
   }
 
+  /// Удаление символов разметки (markdown) из текста уведомления
+  static String stripFormatting(String text) {
+    if (text.isEmpty) return text;
+    String clean = text;
+    clean = clean.replaceAllMapped(RegExp(r'```[\s\S]*?```'), (m) => m.group(0)!.replaceAll('```', ''));
+    clean = clean.replaceAllMapped(RegExp(r'`([^`]+)`'), (m) => m.group(1)!);
+    clean = clean.replaceAllMapped(RegExp(r'\[([^\]]+)\]\([^)]+\)'), (m) => m.group(1)!);
+    clean = clean.replaceAllMapped(RegExp(r'!\[([^\]]*)\]\([^)]+\)'), (m) => m.group(1)!);
+    clean = clean.replaceAll(RegExp(r'^#{1,6}\s+', multiLine: true), '');
+    clean = clean.replaceAll(RegExp(r'^\s*>\s+', multiLine: true), '');
+    clean = clean.replaceAllMapped(RegExp(r'(\*{1,3}|_{1,3})(.+?)\1'), (m) => m.group(2)!);
+    clean = clean.replaceAllMapped(RegExp(r'~{1,2}(.+?)~{1,2}'), (m) => m.group(1)!);
+    clean = clean.replaceAllMapped(RegExp(r'\|\|(.+?)\|\|'), (m) => m.group(1)!);
+    clean = clean.replaceAll(RegExp(r'[\*\_\`\~]'), '');
+    return clean.trim();
+  }
+
   /// Показать уведомление о новом сообщении
   Future<void> showMessageNotification({
     required String chatId,
@@ -69,16 +87,19 @@ class NotificationService {
     String? avatar,
     String? gradient,
   }) async {
+    final cleanTitle = stripFormatting(title);
+    final cleanBody = stripFormatting(body);
+
     final now = DateTime.now();
     if (_lastNotifiedChatId == chatId &&
-        _lastNotifiedBody == body &&
+        _lastNotifiedBody == cleanBody &&
         _lastNotifiedTime != null &&
         now.difference(_lastNotifiedTime!).inSeconds < 3) {
       debugPrint('🔔 [DEDUPLICATED] Skipping duplicate notification for chatId: $chatId');
       return;
     }
     _lastNotifiedChatId = chatId;
-    _lastNotifiedBody = body;
+    _lastNotifiedBody = cleanBody;
     _lastNotifiedTime = now;
 
     final prefs = await SharedPreferences.getInstance();
@@ -90,8 +111,8 @@ class NotificationService {
       try {
         await _showCustomOverlay(
           chatId: chatId,
-          title: title,
-          body: body,
+          title: cleanTitle,
+          body: cleanBody,
           avatar: avatar,
           gradient: gradient,
         );
@@ -104,8 +125,8 @@ class NotificationService {
     // Если кастомный оверлей выключен, не поддерживается или упал, используем нативное уведомление ОС
     await _showNativeNotification(
       chatId: chatId,
-      title: title,
-      body: body,
+      title: cleanTitle,
+      body: cleanBody,
     );
   }
 

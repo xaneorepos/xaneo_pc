@@ -11,7 +11,9 @@ import '../models/app_version_info.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'base_custom_modal.dart';
+import 'custom_language_pack_dialogs.dart';
 import '../l10n/app_localizations.dart';
+import '../services/runtime_translations.dart';
 
 // ─── Описание раздела настроек ──────────────────────────────────────────────
 
@@ -50,8 +52,8 @@ List<_SettingsSection> _getAccountSections(BuildContext context) {
     _SettingsSection(
       id: 'privacy',
       title:
-          l10n?.privacyTitle ??
-          (AppLocalizations.of(context)?.privatnost_0899 ?? 'Fallback'),
+          l10n?.privatnost_0899 ??
+          (AppLocalizations.of(context)?.privatnost_0899 ?? 'Конфиденциальность'),
       description:
           l10n?.privacyDesc ??
           (AppLocalizations.of(context)?.ktoMozhetPisatZvonitVidet_1789 ??
@@ -583,10 +585,46 @@ class _XaneoSettingsModalState
     },
   };
 
+  static const Map<String, List<String>> _securityManifestKeys = {
+    'twoFactorTitle': ['auth.2fa.title', 'profile.privacy.twoFactorTitle', 'messenger.settings.securityTitle'],
+    'tfaEnabled': ['auth.2fa.enabled', 'profile.privacy.twoFactorEnabled'],
+    'tfaDisabled': ['auth.2fa.disabled', 'profile.privacy.twoFactorDisabled'],
+    'twoFactorDesc': ['auth.2fa.description', 'messenger.settings.securityDesc'],
+    'disable': ['auth.2fa.disable', 'common.disable'],
+    'enable': ['auth.2fa.enable', 'common.enable'],
+    'confirm': ['auth.2fa.confirm', 'common.confirm'],
+    'activeSessions': ['profile.privacy.activeSessions', 'messenger.settings.securityDesc'],
+    'refresh': ['common.refresh'],
+    'noSessions': ['profile.privacy.noActiveSessions'],
+    'unknownDevice': ['auth.deviceLogin.unknownDevice', 'common.unknownDevice'],
+    'thisDevice': ['profile.privacy.thisDevice'],
+    'active': ['common.active'],
+    'terminate': ['messenger.delete.buttons.leave', 'profile.privacy.terminateSession', 'common.terminate'],
+  };
+
   String _securityText(String key) {
-    final translations = _securityTranslations[key]!;
+    if (RuntimeTranslations.instance.hasActiveCustomPack) {
+      final manifestCandidateKeys = _securityManifestKeys[key];
+      if (manifestCandidateKeys != null) {
+        for (final mk in manifestCandidateKeys) {
+          final val = RuntimeTranslations.instance.get(mk);
+          if (val != mk && val.isNotEmpty) {
+            return val;
+          }
+        }
+      }
+      final customVal = RuntimeTranslations.instance.get(key);
+      if (customVal != key) return customVal;
+      final ruVal = _securityTranslations[key]?['ru'];
+      if (ruVal != null) {
+        final resolved = RuntimeTranslations.instance.resolveByText(ruVal);
+        if (resolved != ruVal) return resolved;
+      }
+    }
+    final translations = _securityTranslations[key];
+    if (translations == null) return key;
     final languageCode = Localizations.localeOf(context).languageCode;
-    return translations[languageCode] ?? translations['en']!;
+    return translations[languageCode] ?? translations['en'] ?? key;
   }
 
   Future<void> _loadSecurity({bool force = false}) async {
@@ -2344,16 +2382,116 @@ class _XaneoSettingsModalState
 
   Widget _buildLanguage(BuildContext context, bool isDark, double scale) {
     final localeProvider = Provider.of<LocaleProvider>(context);
+    final l10n = AppLocalizations.of(context);
     final currentCode = localeProvider.locale?.languageCode ?? 'ru';
+    final hasActiveCustom = localeProvider.hasActiveCustomPack;
+    final activeCustomId = localeProvider.activeCustomPack?.id;
+    final customPacks = localeProvider.installedCustomPacks;
+
     return Column(
-      children: LocaleProvider.availableLanguages.map((lang) {
-        final code = lang['code']!;
-        final name = lang['name']!;
-        return _radioRow(name, code, currentCode, isDark, scale, (v) {
-          localeProvider.setLocale(Locale(code));
-          _savePrefs();
-        });
-      }).toList(),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Official languages
+        ...LocaleProvider.availableLanguages.map((lang) {
+          final code = lang['code']!;
+          final name = lang['name']!;
+          final isSelected = !hasActiveCustom && currentCode == code;
+          return _radioRow(name, code, isSelected ? code : '', isDark, scale, (v) {
+            localeProvider.setLocale(Locale(code));
+            _savePrefs();
+          });
+        }),
+
+        SizedBox(height: 16 * scale),
+        Divider(color: isDark ? Colors.white12 : Colors.black12),
+        SizedBox(height: 12 * scale),
+
+        // Custom Languages Header & Import button
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              RuntimeTranslations.instance.resolveByText('Пользовательские языки'),
+              style: TextStyle(
+                fontSize: 14 * scale,
+                fontWeight: FontWeight.w600,
+                color: isDark ? Colors.white : Colors.black87,
+              ),
+            ),
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: isDark ? const Color(0xFF1E293B) : const Color(0xFFE2E8F0),
+                foregroundColor: isDark ? const Color(0xFF00FFCC) : const Color(0xFF0F766E),
+                elevation: 0,
+                padding: EdgeInsets.symmetric(horizontal: 10 * scale, vertical: 6 * scale),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              icon: Icon(Icons.file_upload_outlined, size: 14 * scale),
+              label: Text(RuntimeTranslations.instance.resolveByText('Импорт .json'), style: TextStyle(fontSize: 12 * scale)),
+              onPressed: () => CustomLanguagePackDialogs.pickAndImportLanguagePack(context),
+            ),
+          ],
+        ),
+        SizedBox(height: 8 * scale),
+
+        if (customPacks.isEmpty) ...[
+          Padding(
+            padding: EdgeInsets.symmetric(vertical: 8 * scale),
+            child: Text(
+              RuntimeTranslations.instance.resolveByText('Нет загруженных языковых пакетов. Вы можете загрузить свой .json файл.'),
+              style: TextStyle(fontSize: 12 * scale, color: isDark ? Colors.white38 : Colors.black38),
+            ),
+          ),
+        ] else ...[
+          ...customPacks.map((pack) {
+            final isSelected = hasActiveCustom && activeCustomId == pack.id;
+            return Container(
+              margin: EdgeInsets.only(bottom: 6 * scale),
+              decoration: BoxDecoration(
+                color: isSelected
+                    ? (isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.04))
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: isSelected
+                      ? (isDark ? const Color(0xFF00FFCC).withOpacity(0.4) : const Color(0xFF0F766E).withOpacity(0.4))
+                      : (isDark ? Colors.white10 : Colors.black12),
+                ),
+              ),
+              child: ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.symmetric(horizontal: 10 * scale),
+                leading: Icon(
+                  isSelected ? Icons.radio_button_checked : Icons.radio_button_off,
+                  size: 18 * scale,
+                  color: isSelected ? const Color(0xFF00FFCC) : (isDark ? Colors.white38 : Colors.black38),
+                ),
+                title: Text(
+                  '${pack.name} (${pack.nativeName})',
+                  style: TextStyle(
+                    fontSize: 13 * scale,
+                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                    color: isDark ? Colors.white : Colors.black87,
+                  ),
+                ),
+                subtitle: Text(
+                  '${pack.locale} • ${pack.stringCount} строк • fallback: ${pack.fallbackLocale}',
+                  style: TextStyle(fontSize: 11 * scale, color: isDark ? Colors.white38 : Colors.black38),
+                ),
+                trailing: IconButton(
+                  icon: Icon(Icons.delete_outline, size: 16 * scale, color: Colors.redAccent.withOpacity(0.8)),
+                  onPressed: () => localeProvider.deleteCustomPack(pack.id),
+                  tooltip: RuntimeTranslations.instance.resolveByText('Удалить пакет'),
+                ),
+                onTap: () {
+                  localeProvider.activateCustomPack(pack.id);
+                  _savePrefs();
+                },
+              ),
+            );
+          }),
+        ],
+      ],
     );
   }
 
@@ -2513,12 +2651,30 @@ class _XaneoSettingsModalState
     final hasAvatar =
         avatar != null &&
         avatar.isNotEmpty &&
+        !avatar.startsWith('data:image/svg+xml') &&
+        !avatar.contains('gradient') &&
         (avatar.startsWith('http') || avatar.startsWith('/'));
+
+    String fullUrl = '';
+    if (hasAvatar) {
+      if (avatar.startsWith('http')) {
+        fullUrl = avatar;
+      } else {
+        try {
+          final uri = Uri.parse(ApiService.baseUrl);
+          final origin =
+              "${uri.scheme}://${uri.host}${uri.hasPort ? ':${uri.port}' : ''}";
+          fullUrl = avatar.startsWith('/') ? "$origin$avatar" : "$origin/$avatar";
+        } catch (_) {
+          fullUrl = 'https://xaneo.ru$avatar';
+        }
+      }
+    }
 
     return ClipOval(
       child: hasAvatar
           ? Image.network(
-              avatar.startsWith('http') ? avatar : 'https://xaneo.ru$avatar',
+              fullUrl,
               width: size,
               height: size,
               fit: BoxFit.cover,
@@ -2547,12 +2703,30 @@ class _XaneoSettingsModalState
     final hasAvatar =
         avatar != null &&
         avatar.isNotEmpty &&
+        !avatar.startsWith('data:image/svg+xml') &&
+        !avatar.contains('gradient') &&
         (avatar.startsWith('http') || avatar.startsWith('/'));
+
+    String fullUrl = '';
+    if (hasAvatar) {
+      if (avatar.startsWith('http')) {
+        fullUrl = avatar;
+      } else {
+        try {
+          final uri = Uri.parse(ApiService.baseUrl);
+          final origin =
+              "${uri.scheme}://${uri.host}${uri.hasPort ? ':${uri.port}' : ''}";
+          fullUrl = avatar.startsWith('/') ? "$origin$avatar" : "$origin/$avatar";
+        } catch (_) {
+          fullUrl = 'https://xaneo.ru$avatar';
+        }
+      }
+    }
 
     Widget avatarWidget = ClipOval(
       child: hasAvatar
           ? Image.network(
-              avatar.startsWith('http') ? avatar : 'https://xaneo.ru$avatar',
+              fullUrl,
               width: 52 * scale,
               height: 52 * scale,
               fit: BoxFit.cover,

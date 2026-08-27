@@ -447,7 +447,7 @@ class AppLocalizationsRu extends AppLocalizations {
   @override
   String get imyaNikneymFotoProfilya_28ac => 'Имя, никнейм, фото профиля';
   @override
-  String get privatnost_0899 => 'Приватность';
+  String get privatnost_0899 => 'Конфиденциальность';
   @override
   String get ktoMozhetPisatZvonitVidet_1789 => 'Кто может писать, звонить, видеть профиль';
   @override
@@ -2190,6 +2190,10 @@ class AppLocalizationsRu extends AppLocalizations {
   @override
   String get noMessagesSubtitle => 'Напишите первыми, чтобы начать общение в Xaneo Connect!';
   @override
+  String get groupWelcome => 'Добро пожаловать в группу! Общайтесь и делитесь файлами.';
+  @override
+  String get channelWelcome => 'Добро пожаловать в канал! Здесь публикуются важные объявления и новости.';
+  @override
   String get closeActionTitle => 'Действие при закрытии окна';
   @override
   String get closeActionDescription => 'Выберите, что делать при закрытии главного окна';
@@ -2227,6 +2231,18 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get qrLoginSubtitle => 'Отсканируйте QR-код из мобильного приложения Xaneo для быстрого и безопасного входа';
+
+  @override
+  String get qrApprovalTitle => 'Подтвердите вход на телефоне';
+
+  @override
+  String get qrApprovalDesc => 'QR-код распознан. Разрешите авторизацию в мобильном приложении Xaneo.';
+
+  @override
+  String get qrVerificationCodeLabel => 'Код проверки';
+
+  @override
+  String get qrVerificationCodeHint => 'Убедитесь, что этот код совпадает с кодом на телефоне.';
 
   @override
   String get qrScanInstructionTitle => 'КАК ВОЙТИ В АККАУНТ:';
@@ -2272,4 +2288,93 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get registrationDisabled => 'Регистрация отключена в данном режиме';
+
+  @override
+  String requestCodeViaEmailIn(int seconds) => 'Запросить код на почту через $seconds сек.';
+
+  @override
+  String requestCodeViaPasswordIn(int seconds) => 'Войти по паролю через $seconds сек.';
+
+  @override
+  String get loginWithPasswordLink => 'Войти с помощью пароля';
+
+  @override
+  String get cantLoginSendToEmail => 'Не получается войти через бота? Отправить код на email';
+
+  @override
+  String get resendCodeToEmail => 'Повторно отправить код на email';
+
+  @override
+  String get codeSentToBot => 'Код отправлен в чат «Уведомления Xaneo».';
+
+  @override
+  String emailCodeSent(String email) =>
+      email.isNotEmpty ? 'Код отправлен на почту $email' : 'Код отправлен на почту';
+
+  @override
+  String get emailCodeFailed => 'Не удалось отправить код на email';
+
+  @override
+  String get enterUsernameErr => 'Введите имя пользователя или email';
+
+  @override
+  String get sendCodeFailedErr => 'Не удалось отправить код. Попробуйте позже.';
+
+  @override
+  String get enterAllDigitsErr => 'Введите все 6 цифр.';
+
+  @override
+  String get invalidCodeErr => 'Код неверен или уже использован.';
+
+  @override
+  String get enterPasswordErr => 'Введите ваш пароль.';
+
+  @override
+  String get invalidPasswordErr => 'Неверный пароль.';
+
+  @override
+  String get passwordTooSoonErr => 'Вход по паролю пока недоступен.';
+
+  @override
+  String get submitCodeBtn => 'Войти';
+
+  @override
+  String get loginApproved => 'Вход подтверждён. Открываем Xaneo…';
+
+  @override
+  String get requestExpiredErr => 'Запрос отклонён или истёк.';
+
+  @override
+  String get rateLimitedErr => 'Слишком много запросов. Повторите позже.';
+
+  @override
+  String get confirmOnDeviceStatus => 'Подтвердите вход на уже авторизованном устройстве.';
+
+  @override
+  String get sixDigitCodeSentSub =>
+      'Введите 6-значный код, отправленный в «Уведомления Xaneo»';
+
+  @override
+  String get confirmOnDeviceSub =>
+      'Подтвердите вход на уже авторизованном устройстве';
+
+  @override
+  String get awaitingDeviceApproval =>
+      'Ожидание подтверждения на устройстве...';
+
+  @override
+  String get mustBeSixDigits => 'Код должен состоять из 6 цифр';
+
+  @override
+  String get continueBtn => 'Продолжить';
+
+  @override
+  String get backBtn => 'Назад';
+
+  @override
+  String get confirmDeviceRequestText =>
+      'На ваше устройство отправлен запрос подтверждения. Подтвердите вход в приложении.';
+
+  @override
+  String get sendingEmailCode => 'Отправляем код на email…';
 }

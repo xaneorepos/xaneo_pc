@@ -400,6 +400,10 @@
   "@qrLoginSubtitle": {
     "description": "Subtitle for QR code login"
   },
+  "qrApprovalTitle": "Confirm the login on your phone",
+  "qrApprovalDesc": "The QR code was recognized. Approve the authorization request in the Xaneo mobile app.",
+  "qrVerificationCodeLabel": "Verification code",
+  "qrVerificationCodeHint": "Make sure this code matches the code shown on your phone.",
   "qrScanInstructionTitle": "HOW TO LOG IN:",
   "@qrScanInstructionTitle": {
     "description": "Title for QR scan instruction step"
@@ -459,5 +463,39 @@
   "registrationDisabled": "Registration is disabled in this mode",
   "@registrationDisabled": {
     "description": "Notice when registration is disabled"
+  },
+  "requestCodeViaEmailIn": "Request code via email in {seconds} sec.",
+  "@requestCodeViaEmailIn": {
+    "description": "Countdown text for requesting code via email",
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "cantLoginSendToEmail": "Can't log in via bot? Send code to email",
+  "@cantLoginSendToEmail": {
+    "description": "Link to send login code via email"
+  },
+  "resendCodeToEmail": "Resend code to email",
+  "@resendCodeToEmail": {
+    "description": "Link to resend code to email"
+  },
+  "codeSentToBot": "Code sent to Xaneo Notifications chat.",
+  "@codeSentToBot": {
+    "description": "Instruction when code is sent to bot"
+  },
+  "emailCodeSent": "Code sent to email {email}",
+  "@emailCodeSent": {
+    "description": "Notice when code is sent to email",
+    "placeholders": {
+      "email": {
+        "type": "String"
+      }
+    }
+  },
+  "emailCodeFailed": "Failed to send code to email",
+  "@emailCodeFailed": {
+    "description": "Error when sending code to email fails"
   }
 }

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import '../services/api_service.dart';
+import '../services/runtime_translations.dart';
 import 'base_custom_modal.dart';
 
 /// Модальное окно глобального поиска для Xaneo PC.
@@ -109,7 +110,6 @@ class _GlobalSearchModalState extends BaseCustomModalState<GlobalSearchModal> {
 
     try {
       final res = await widget.apiService.searchUsers(_query);
-      debugPrint('🔍 GlobalSearch API response success: ${res.success}, data: ${res.data}');
 
       if (mounted) {
         setState(() {
@@ -392,6 +392,9 @@ class _GlobalSearchModalState extends BaseCustomModalState<GlobalSearchModal> {
     IconData iconData = Icons.person_rounded;
     Color iconColor = const Color(0xFF2563EB);
 
+    bool isBot = type == 'bot';
+    bool isSystemBot = false;
+
     if (type == 'favorites') {
       name = _SearchL10n.get('favorites', lang);
       subtitle = _SearchL10n.get('saved_sub', lang);
@@ -407,10 +410,15 @@ class _GlobalSearchModalState extends BaseCustomModalState<GlobalSearchModal> {
       iconData = Icons.person_rounded;
       iconColor = const Color(0xFF2563EB);
     } else if (type == 'bot') {
-      name = item['first_name']?.toString() ?? item['username']?.toString() ?? _SearchL10n.get('bot_label', lang);
+      name = item['display_name']?.toString() ??
+          item['first_name']?.toString() ??
+          item['name']?.toString() ??
+          item['username']?.toString() ??
+          _SearchL10n.get('bot_label', lang);
       subtitle = '@${item['username'] ?? _SearchL10n.get('bot_label', lang).toLowerCase()}';
       iconData = Icons.smart_toy_rounded;
       iconColor = const Color(0xFF10B981);
+      isSystemBot = item['is_system'] == true || item['username'] == 'bot_constructor';
     } else if (type == 'group') {
       name = item['name']?.toString() ?? _SearchL10n.get('group_label', lang);
       final count = item['members_count'] is int ? item['members_count'] as int : int.tryParse(item['members_count']?.toString() ?? '0') ?? 0;
@@ -425,7 +433,9 @@ class _GlobalSearchModalState extends BaseCustomModalState<GlobalSearchModal> {
       iconColor = const Color(0xFFF59E0B);
     }
 
-    final avatarUrl = item['avatar']?.toString() ?? item['avatar_url']?.toString();
+    final avatarUrl = item['custom_avatar']?.toString() ??
+        item['avatar']?.toString() ??
+        item['avatar_url']?.toString();
     final avatarGradient = item['avatar_gradient']?.toString();
 
     return Container(
@@ -459,16 +469,61 @@ class _GlobalSearchModalState extends BaseCustomModalState<GlobalSearchModal> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        name,
-                        style: TextStyle(
-                          color: isDark ? Colors.white : Colors.black87,
-                          fontSize: 13 * scale,
-                          fontWeight: FontWeight.w600,
-                          fontFamily: 'Inter',
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              name,
+                              style: TextStyle(
+                                color: isDark ? Colors.white : Colors.black87,
+                                fontSize: 13 * scale,
+                                fontWeight: FontWeight.w600,
+                                fontFamily: 'Inter',
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (isBot) ...[
+                            Container(
+                              margin: EdgeInsets.only(left: 6 * scale),
+                              padding: EdgeInsets.symmetric(horizontal: 5 * scale, vertical: 1.5 * scale),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF22C55E),
+                                borderRadius: BorderRadius.circular(4 * scale),
+                              ),
+                              child: Text(
+                                'BOT',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 9.5 * scale,
+                                  fontWeight: FontWeight.w800,
+                                  fontFamily: 'Inter',
+                                  letterSpacing: 0.4,
+                                ),
+                              ),
+                            ),
+                            if (isSystemBot)
+                              Container(
+                                margin: EdgeInsets.only(left: 4 * scale),
+                                padding: EdgeInsets.symmetric(horizontal: 5 * scale, vertical: 1.5 * scale),
+                                decoration: BoxDecoration(
+                                  color: isDark ? const Color(0xFF333333) : const Color(0xFFE5E7EB),
+                                  borderRadius: BorderRadius.circular(4 * scale),
+                                ),
+                                child: Text(
+                                  'SYSTEM',
+                                  style: TextStyle(
+                                    color: isDark ? Colors.white70 : const Color(0xFF374151),
+                                    fontSize: 9.5 * scale,
+                                    fontWeight: FontWeight.w700,
+                                    fontFamily: 'Inter',
+                                    letterSpacing: 0.4,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ],
                       ),
                       SizedBox(height: 2 * scale),
                       Text(
@@ -534,9 +589,18 @@ class _GlobalSearchModalState extends BaseCustomModalState<GlobalSearchModal> {
           }
         } catch (_) {}
       } else {
+        String fullUrl = avatarUrl;
+        if (!fullUrl.startsWith('http') && !fullUrl.startsWith('data:')) {
+          try {
+            final uri = Uri.parse(ApiService.baseUrl);
+            fullUrl = '${uri.origin}$avatarUrl';
+          } catch (_) {
+            fullUrl = 'https://xaneo.ru$avatarUrl';
+          }
+        }
         return ClipOval(
           child: Image.network(
-            avatarUrl,
+            fullUrl,
             width: size,
             height: size,
             fit: BoxFit.cover,
@@ -765,7 +829,47 @@ class _SearchL10n {
     },
   };
 
+  static const Map<String, List<String>> _manifestKeys = {
+    'header': ['messenger.search', 'common.search', 'header.search'],
+    'hint': ['messenger.searchPlaceholder', 'messenger.search', 'common.search'],
+    'all': ['messenger.search.all', 'common.all'],
+    'users': ['messenger.searchSection.users', 'messenger.search.users', 'messenger.settings.contactsTitle', 'messenger.chatInfo.user', 'common.users'],
+    'groups': ['messenger.searchSection.groups', 'messenger.chatInfo.groupTitle', 'messenger.createGroup.title', 'common.group'],
+    'channels': ['messenger.searchSection.channels', 'messenger.chatInfo.channelTitle', 'messenger.createChannel.title', 'common.channel'],
+    'bots': ['messenger.searchSection.bots', 'common.bots', 'messenger.status.bot'],
+    'favorites': ['messenger.favorites.title', 'messenger.savedMessages', 'header.savedMessages'],
+    'empty_query': ['messenger.search.emptyQuery', 'messenger.searchPlaceholder'],
+    'nothing_found': ['messenger.search.nothingFound', 'messenger.contacts.empty', 'common.nothingFound'],
+    'sec_favorites': ['messenger.favorites.title', 'messenger.savedMessages'],
+    'sec_bots': ['messenger.searchSection.bots', 'common.bots', 'messenger.status.bot'],
+    'sec_channels': ['messenger.searchSection.channels', 'messenger.chatInfo.channelTitle', 'messenger.createChannel.title'],
+    'sec_groups': ['messenger.searchSection.groups', 'messenger.chatInfo.groupTitle', 'messenger.createGroup.title'],
+    'sec_users': ['messenger.searchSection.users', 'messenger.search.users', 'messenger.settings.contactsTitle', 'messenger.chatInfo.user'],
+    'saved_sub': ['messenger.favorites.emptyDesc', 'messenger.savedMessages.desc'],
+    'bot_label': ['messenger.status.bot', 'common.bot'],
+    'group_label': ['messenger.chatInfo.groupTitle', 'common.group'],
+    'channel_label': ['messenger.chatInfo.channelTitle', 'common.channel'],
+  };
+
   static String get(String key, String lang) {
+    if (RuntimeTranslations.instance.hasActiveCustomPack) {
+      final manifestCandidateKeys = _manifestKeys[key];
+      if (manifestCandidateKeys != null) {
+        for (final mk in manifestCandidateKeys) {
+          final val = RuntimeTranslations.instance.get(mk);
+          if (val != mk && val.isNotEmpty) {
+            return val;
+          }
+        }
+      }
+      final customVal = RuntimeTranslations.instance.get(key);
+      if (customVal != key) return customVal;
+      final ruVal = _map['ru']?[key];
+      if (ruVal != null) {
+        final resolved = RuntimeTranslations.instance.resolveByText(ruVal);
+        if (resolved != ruVal) return resolved;
+      }
+    }
     final l = _map.containsKey(lang) ? lang : 'en';
     return _map[l]?[key] ?? _map['en']?[key] ?? key;
   }

@@ -32,6 +32,8 @@ dependencies:
   
   # Shared preferences for storing app state
   shared_preferences: ^2.2.2
+  # OS credential vault for tokens and private XSEC keys
+  flutter_secure_storage: ^9.2.1
   
   # Provider for state management
   provider: ^6.1.2
@@ -76,6 +78,8 @@ dependencies:
   local_notifier: ^0.1.6
   tray_manager: ^0.5.3
   qr_flutter: ^4.1.0
+  dbus: ^0.7.15
+  smtc_windows: ^1.1.0
 
 dev_dependencies:
   flutter_test:
@@ -85,13 +89,13 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-  generate: true
 
   assets:
     - assets/animations/
     - assets/logo.png
     - assets/tray_icon.ico
     - assets/sounds/
+    - assets/manifest.v1.json
 
   fonts:
     - family: Inter

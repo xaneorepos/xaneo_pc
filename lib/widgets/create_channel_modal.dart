@@ -3,6 +3,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import '../services/api_service.dart';
+import '../services/runtime_translations.dart';
 import 'avatar_cropper.dart';
 import 'base_custom_modal.dart';
 import 'custom_toast.dart';
@@ -18,8 +19,8 @@ class CreateChannelModal extends BaseCustomModal {
     this.isGroup = false,
     this.isEditing = false,
     this.initialData,
-    super.modalTag = 'КАНАЛ',
-    super.title = 'СОЗДАТЬ КАНАЛ',
+    super.modalTag = '',
+    super.title = '',
   });
 
   static Future<void> show({
@@ -76,7 +77,7 @@ class CreateChannelModalState extends BaseCustomModalState<CreateChannelModal> {
   }
 
   @override
-  String getModalTitle(BuildContext context) {
+  String getModalTag(BuildContext context) {
     final lang = Localizations.localeOf(context).languageCode.toLowerCase();
     if (isEditing) {
       return isGroup
@@ -86,6 +87,19 @@ class CreateChannelModalState extends BaseCustomModalState<CreateChannelModal> {
     return isGroup
         ? _ChannelModalL10n.get('create_group_tag', lang).toUpperCase()
         : _ChannelModalL10n.get('create_channel_tag', lang).toUpperCase();
+  }
+
+  @override
+  String getModalTitle(BuildContext context) {
+    final lang = Localizations.localeOf(context).languageCode.toLowerCase();
+    if (isEditing) {
+      return isGroup
+          ? _ChannelModalL10n.get('title_edit_group', lang)
+          : _ChannelModalL10n.get('title_edit_channel', lang);
+    }
+    return isGroup
+        ? _ChannelModalL10n.get('title_create_group', lang)
+        : _ChannelModalL10n.get('title_create_channel', lang);
   }
 
   Future<void> pickAvatar() async {
@@ -343,7 +357,7 @@ class CreateChannelModalState extends BaseCustomModalState<CreateChannelModal> {
 
           // Privacy Type Toggle
           Text(
-            _ChannelModalL10n.get('label_privacy', lang),
+            isGroup ? _ChannelModalL10n.get('label_group_privacy', lang) : _ChannelModalL10n.get('label_channel_privacy', lang),
             style: TextStyle(
               fontSize: 12 * scale,
               fontWeight: FontWeight.w600,
@@ -360,8 +374,8 @@ class CreateChannelModalState extends BaseCustomModalState<CreateChannelModal> {
                   isDark: isDark,
                   scale: scale,
                   selected: !isPrivate,
-                  title: _ChannelModalL10n.get('privacy_public_title', lang),
-                  subtitle: _ChannelModalL10n.get('privacy_public_sub', lang),
+                  title: isGroup ? _ChannelModalL10n.get('group_privacy_public_title', lang) : _ChannelModalL10n.get('channel_privacy_public_title', lang),
+                  subtitle: isGroup ? _ChannelModalL10n.get('group_privacy_public_sub', lang) : _ChannelModalL10n.get('channel_privacy_public_sub', lang),
                   icon: Icons.public_rounded,
                   onTap: () => setState(() => isPrivate = false),
                 ),
@@ -373,8 +387,8 @@ class CreateChannelModalState extends BaseCustomModalState<CreateChannelModal> {
                   isDark: isDark,
                   scale: scale,
                   selected: isPrivate,
-                  title: _ChannelModalL10n.get('privacy_private_title', lang),
-                  subtitle: _ChannelModalL10n.get('privacy_private_sub', lang),
+                  title: isGroup ? _ChannelModalL10n.get('group_privacy_private_title', lang) : _ChannelModalL10n.get('channel_privacy_private_title', lang),
+                  subtitle: isGroup ? _ChannelModalL10n.get('group_privacy_private_sub', lang) : _ChannelModalL10n.get('channel_privacy_private_sub', lang),
                   icon: Icons.lock_outline_rounded,
                   onTap: () => setState(() => isPrivate = true),
                 ),
@@ -387,7 +401,7 @@ class CreateChannelModalState extends BaseCustomModalState<CreateChannelModal> {
           // Public Link / Username (Only if public)
           if (!isPrivate) ...[
             Text(
-              _ChannelModalL10n.get('label_link', lang),
+              isGroup ? _ChannelModalL10n.get('label_group_link', lang) : _ChannelModalL10n.get('label_channel_link', lang),
               style: TextStyle(
                 fontSize: 12 * scale,
                 fontWeight: FontWeight.w600,
@@ -402,7 +416,7 @@ class CreateChannelModalState extends BaseCustomModalState<CreateChannelModal> {
               decoration: InputDecoration(
                 prefixText: '@',
                 prefixStyle: TextStyle(fontSize: 14 * scale, fontWeight: FontWeight.bold, color: textPrimary),
-                hintText: _ChannelModalL10n.get('hint_username', lang),
+                hintText: isGroup ? _ChannelModalL10n.get('hint_group_username', lang) : _ChannelModalL10n.get('hint_channel_username', lang),
                 hintStyle: TextStyle(fontSize: 13 * scale, color: textSecondary.withValues(alpha: 0.6)),
                 filled: true,
                 fillColor: inputBg,
@@ -422,7 +436,7 @@ class CreateChannelModalState extends BaseCustomModalState<CreateChannelModal> {
 
           // Description Field
           Text(
-            _ChannelModalL10n.get('label_description', lang),
+            isGroup ? _ChannelModalL10n.get('label_group_description', lang) : _ChannelModalL10n.get('label_channel_description', lang),
             style: TextStyle(
               fontSize: 12 * scale,
               fontWeight: FontWeight.w600,
@@ -436,7 +450,7 @@ class CreateChannelModalState extends BaseCustomModalState<CreateChannelModal> {
             maxLines: 3,
             style: TextStyle(fontSize: 14 * scale, color: textPrimary, fontFamily: 'Inter'),
             decoration: InputDecoration(
-              hintText: _ChannelModalL10n.get('hint_description', lang),
+              hintText: isGroup ? _ChannelModalL10n.get('hint_group_description', lang) : _ChannelModalL10n.get('hint_channel_description', lang),
               hintStyle: TextStyle(fontSize: 13 * scale, color: textSecondary.withValues(alpha: 0.6)),
               filled: true,
               fillColor: inputBg,
@@ -499,7 +513,9 @@ class CreateChannelModalState extends BaseCustomModalState<CreateChannelModal> {
                     : Text(
                         isEditing
                             ? _ChannelModalL10n.get('save', lang)
-                            : _ChannelModalL10n.get('create', lang),
+                            : (isGroup
+                                ? _ChannelModalL10n.get('create_group_btn', lang)
+                                : _ChannelModalL10n.get('create_channel_btn', lang)),
                         style: TextStyle(
                           fontSize: 13 * scale,
                           fontWeight: FontWeight.w600,
@@ -845,8 +861,124 @@ class _ChannelModalL10n {
     },
   };
 
+  static const Map<String, List<String>> _manifestKeys = {
+    'create_channel_tag': ['messenger.createChannel.title', 'messenger.chatInfo.channelTitle', 'common.channel'],
+    'create_group_tag': ['messenger.createGroup.title', 'messenger.chatInfo.groupTitle', 'common.group'],
+    'edit_channel_tag': ['messenger.editChat.editChannelTitle', 'messenger.context.editChannel'],
+    'edit_group_tag': ['messenger.editChat.editGroupTitle', 'messenger.context.editGroup'],
+    'title_create_channel': ['messenger.createChannel.title'],
+    'title_create_group': ['messenger.createGroup.title'],
+    'title_edit_channel': ['messenger.editChat.editChannelTitle', 'messenger.context.editChannel'],
+    'title_edit_group': ['messenger.editChat.editGroupTitle', 'messenger.context.editGroup'],
+    'label_channel_name': ['messenger.createChannel.name'],
+    'label_group_name': ['messenger.createGroup.name'],
+    'hint_channel_name': ['messenger.createChannel.namePlaceholder'],
+    'hint_group_name': ['messenger.createGroup.namePlaceholder'],
+
+    // Group specific
+    'label_group_privacy': ['messenger.createGroup.type', 'label_privacy'],
+    'group_privacy_public_title': ['messenger.createGroup.public', 'privacy_public_title'],
+    'group_privacy_public_sub': ['messenger.createGroup.typeDescription', 'privacy_public_sub'],
+    'group_privacy_private_title': ['messenger.createGroup.private', 'privacy_private_title'],
+    'group_privacy_private_sub': ['messenger.createGroup.privateDescription', 'messenger.createGroup.privateSub', 'privacy_private_sub'],
+    'label_group_link': ['messenger.createGroup.nickname', 'label_link'],
+    'hint_group_username': ['messenger.createGroup.nicknamePlaceholder', 'hint_username'],
+    'label_group_description': ['messenger.createGroup.description', 'label_description'],
+    'hint_group_description': ['messenger.createGroup.descriptionPlaceholder', 'hint_description'],
+    'create_group_btn': ['messenger.createGroup.title', 'create', 'common.create'],
+
+    // Channel specific
+    'label_channel_privacy': ['messenger.createChannel.type', 'label_privacy'],
+    'channel_privacy_public_title': ['messenger.createChannel.public', 'privacy_public_title'],
+    'channel_privacy_public_sub': ['messenger.createChannel.typeDescription', 'privacy_public_sub'],
+    'channel_privacy_private_title': ['messenger.createChannel.private', 'privacy_private_title'],
+    'channel_privacy_private_sub': ['messenger.createChannel.privateDescription', 'messenger.createChannel.privateSub', 'privacy_private_sub'],
+    'label_channel_link': ['messenger.createChannel.nickname', 'label_link'],
+    'hint_channel_username': ['messenger.createChannel.nicknamePlaceholder', 'hint_username'],
+    'label_channel_description': ['messenger.createChannel.description', 'label_description'],
+    'hint_channel_description': ['messenger.createChannel.descriptionPlaceholder', 'hint_description'],
+    'create_channel_btn': ['messenger.createChannel.title', 'create', 'common.create'],
+
+    // Generic fallbacks
+    'label_privacy': ['messenger.createGroup.type', 'messenger.createChannel.type'],
+    'privacy_public_title': ['messenger.createGroup.public', 'messenger.createChannel.public'],
+    'privacy_public_sub': ['messenger.createGroup.typeDescription', 'messenger.createChannel.typeDescription'],
+    'privacy_private_title': ['messenger.createGroup.private', 'messenger.createChannel.private'],
+    'privacy_private_sub': ['privacy_private_sub'],
+    'label_link': ['messenger.createGroup.nickname', 'messenger.createChannel.nickname'],
+    'hint_username': ['messenger.createGroup.nicknamePlaceholder', 'messenger.createChannel.nicknamePlaceholder'],
+    'label_description': ['messenger.createGroup.description', 'messenger.createChannel.description'],
+    'hint_description': ['messenger.createGroup.descriptionPlaceholder', 'messenger.createChannel.descriptionPlaceholder'],
+
+    'cancel': ['messenger.delete.buttons.cancel', 'common.cancel'],
+    'create': ['common.create'],
+    'save': ['messenger.editChat.editGroupTitle', 'common.save'],
+  };
+
+  static const Map<String, String> _fallbackKeyMap = {
+    'label_group_privacy': 'label_privacy',
+    'label_channel_privacy': 'label_privacy',
+    'group_privacy_public_title': 'privacy_public_title',
+    'channel_privacy_public_title': 'privacy_public_title',
+    'group_privacy_public_sub': 'privacy_public_sub',
+    'channel_privacy_public_sub': 'privacy_public_sub',
+    'group_privacy_private_title': 'privacy_private_title',
+    'channel_privacy_private_title': 'privacy_private_title',
+    'group_privacy_private_sub': 'privacy_private_sub',
+    'channel_privacy_private_sub': 'privacy_private_sub',
+    'label_group_link': 'label_link',
+    'label_channel_link': 'label_link',
+    'hint_group_username': 'hint_username',
+    'hint_channel_username': 'hint_username',
+    'label_group_description': 'label_description',
+    'label_channel_description': 'label_description',
+    'hint_group_description': 'hint_description',
+    'hint_channel_description': 'hint_description',
+    'create_group_btn': 'create',
+    'create_channel_btn': 'create',
+  };
+
   static String get(String key, String lang) {
+    final fallbackKey = _fallbackKeyMap[key];
+    if (RuntimeTranslations.instance.hasActiveCustomPack) {
+      // 1. Попытка разрешить по связанным ключам манифеста
+      final manifestCandidateKeys = _manifestKeys[key];
+      if (manifestCandidateKeys != null) {
+        for (final mk in manifestCandidateKeys) {
+          final val = RuntimeTranslations.instance.get(mk);
+          if (val != mk && val.isNotEmpty) {
+            return val;
+          }
+        }
+      }
+      // 2. Попытка прямого get по ключу
+      final customVal = RuntimeTranslations.instance.get(key);
+      if (customVal != key) return customVal;
+      if (fallbackKey != null) {
+        final customFallbackVal = RuntimeTranslations.instance.get(fallbackKey);
+        if (customFallbackVal != fallbackKey) return customFallbackVal;
+      }
+      // 3. Попытка разрешить по тексту русской фразы
+      final ruMap = _map['ru'];
+      final ruVal = (ruMap != null)
+          ? (ruMap[key] ?? (fallbackKey != null ? ruMap[fallbackKey] : null))
+          : null;
+      if (ruVal != null) {
+        final resolved = RuntimeTranslations.instance.resolveByText(ruVal);
+        if (resolved != ruVal) return resolved;
+      }
+    }
     final l = _map.containsKey(lang) ? lang : 'en';
-    return _map[l]?[key] ?? _map['en']?[key] ?? key;
+    final langMap = _map[l];
+    final enMap = _map['en'];
+    if (langMap != null) {
+      final val = langMap[key] ?? (fallbackKey != null ? langMap[fallbackKey] : null);
+      if (val != null) return val;
+    }
+    if (enMap != null) {
+      final val = enMap[key] ?? (fallbackKey != null ? enMap[fallbackKey] : null);
+      if (val != null) return val;
+    }
+    return key;
   }
 }

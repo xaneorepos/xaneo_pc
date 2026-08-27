@@ -110,6 +110,7 @@ class CallManager extends ChangeNotifier {
       _callType = callType;
       _isMicrophoneMuted = false;
       _isCameraOff = false;
+      _startRingtone(isIncoming: false);
       notifyListeners();
 
       _signalingService.startGroupCall(
@@ -234,6 +235,7 @@ class CallManager extends ChangeNotifier {
       _callType = callType;
       _isMicrophoneMuted = false;
       _isCameraOff = false;
+      _startRingtone(isIncoming: false);
       notifyListeners();
 
       // Отправляем сигнальное сообщение о начале звонка
@@ -413,6 +415,7 @@ class CallManager extends ChangeNotifier {
 
   void _handleCallAnswered(Map<String, dynamic> data) {
     if (_state != CallState.outgoing) return;
+    _stopRingtone();
     _state = CallState.connected;
     notifyListeners();
   }
@@ -511,11 +514,14 @@ class CallManager extends ChangeNotifier {
     }
   }
 
-  void _startRingtone() async {
+  void _startRingtone({bool isIncoming = true}) async {
     try {
-      await _ringtonePlayer.setAsset('assets/sounds/incoming-call.mp3');
+      final assetPath = isIncoming
+          ? 'assets/sounds/incoming-call.mp3'
+          : 'assets/sounds/outgoing-call.mp3';
+      await _ringtonePlayer.setAsset(assetPath);
       await _ringtonePlayer.setLoopMode(LoopMode.one);
-      await _ringtonePlayer.setVolume(0.7);
+      await _ringtonePlayer.setVolume(isIncoming ? 0.7 : 0.6);
       _ringtonePlayer.play();
     } catch (e) {
       debugPrint('CallManager: error playing ringtone: $e');

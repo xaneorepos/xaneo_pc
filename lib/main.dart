@@ -56,7 +56,7 @@ void main(List<String> args) async {
   final originalOnError = FlutterError.onError;
   FlutterError.onError = (FlutterErrorDetails details) {
     final exceptionStr = details.exception.toString();
-    if (exceptionStr.contains('No active stream to cancel') || 
+    if (exceptionStr.contains('No active stream to cancel') ||
         exceptionStr.contains('DiagnosticsProperty')) {
       return;
     }
@@ -65,7 +65,7 @@ void main(List<String> args) async {
 
   PlatformDispatcher.instance.onError = (error, stack) {
     final errorStr = error.toString();
-    if (errorStr.contains('No active stream to cancel') || 
+    if (errorStr.contains('No active stream to cancel') ||
         errorStr.contains('DiagnosticsProperty')) {
       return true; // marked as handled
     }
@@ -86,7 +86,7 @@ void main(List<String> args) async {
   await LocalProxy.start();
 
   HttpOverrides.global = MyHttpOverrides();
-  
+
   // Initialize window manager
   await windowManager.ensureInitialized();
   await windowManager.setPreventClose(true);
@@ -115,7 +115,7 @@ void main(List<String> args) async {
     await windowManager.show();
     await windowManager.focus();
   });
-  
+
   // Устанавливаем предпочтительную ориентацию
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
@@ -222,12 +222,20 @@ class _MyAppState extends State<MyApp> with WindowListener {
         });
 
         // Обновляем системные цвета в зависимости от темы
-        SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
-          statusBarColor: Colors.transparent,
-          statusBarIconBrightness: themeProvider.isDarkMode ? Brightness.light : Brightness.dark,
-          systemNavigationBarColor: themeProvider.isDarkMode ? Colors.black : Colors.white,
-          systemNavigationBarIconBrightness: themeProvider.isDarkMode ? Brightness.light : Brightness.dark,
-        ));
+        SystemChrome.setSystemUIOverlayStyle(
+          SystemUiOverlayStyle(
+            statusBarColor: Colors.transparent,
+            statusBarIconBrightness: themeProvider.isDarkMode
+                ? Brightness.light
+                : Brightness.dark,
+            systemNavigationBarColor: themeProvider.isDarkMode
+                ? Colors.black
+                : Colors.white,
+            systemNavigationBarIconBrightness: themeProvider.isDarkMode
+                ? Brightness.light
+                : Brightness.dark,
+          ),
+        );
 
         return MaterialApp(
           navigatorKey: navigatorKey,
@@ -255,25 +263,23 @@ class _MyAppState extends State<MyApp> with WindowListener {
                 top: 0,
                 left: 0,
                 right: 0,
-                child: SizedBox(
-                  height: 40,
-                  child: CustomTitleBar(),
-                ),
+                child: SizedBox(height: 40, child: CustomTitleBar()),
               ),
             ],
           ),
           routes: {
-            '/onboarding': (context) => const ZoomScope(child: OnboardingScreen()),
+            '/onboarding': (context) =>
+                const ZoomScope(child: OnboardingScreen()),
             '/login': (context) => const ZoomScope(child: LoginScreen()),
             '/register': (context) => const ZoomScope(child: RegisterScreen()),
-            '/messenger': (context) => const ZoomScope(child: MessengerScreen()),
+            '/messenger': (context) =>
+                const ZoomScope(child: MessengerScreen()),
           },
         );
       },
     );
   }
 }
-
 
 /// Custom HttpOverrides to bypass bad certificate issues (e.g. self-signed certificates or IP mismatches)
 /// for trusted Xaneo hosts and set a global User-Agent header for the application.
@@ -282,6 +288,7 @@ class MyHttpOverrides extends HttpOverrides {
   HttpClient createHttpClient(SecurityContext? context) {
     return super.createHttpClient(context)
       ..userAgent = 'XaneoPC/1.0 xaneo-app'
+      ..findProxy = findProxyForConfiguredBackend
       ..badCertificateCallback = validateSslCertificate;
   }
 }
@@ -300,10 +307,7 @@ class NotificationOverlayApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      home: NotificationOverlayScreen(
-        windowId: windowId,
-        arguments: arguments,
-      ),
+      home: NotificationOverlayScreen(windowId: windowId, arguments: arguments),
     );
   }
 }
@@ -327,8 +331,11 @@ Future<bool> _ensureSingleInstance() async {
     return true;
   } catch (_) {
     try {
-      final socket = await Socket.connect(InternetAddress.loopbackIPv4, port,
-          timeout: const Duration(seconds: 1));
+      final socket = await Socket.connect(
+        InternetAddress.loopbackIPv4,
+        port,
+        timeout: const Duration(seconds: 1),
+      );
       socket.write('focus');
       await socket.flush();
       await socket.close();

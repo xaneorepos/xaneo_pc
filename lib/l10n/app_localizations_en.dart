@@ -447,7 +447,7 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get imyaNikneymFotoProfilya_28ac => 'Имя, никнейм, фото профиля';
   @override
-  String get privatnost_0899 => 'Приватность';
+  String get privatnost_0899 => 'Privacy';
   @override
   String get ktoMozhetPisatZvonitVidet_1789 => 'Кто может писать, звонить, видеть профиль';
   @override
@@ -2182,6 +2182,10 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String get noMessagesSubtitle => 'Send a message to start the conversation on Xaneo Connect!';
   @override
+  String get groupWelcome => 'Welcome to the group! Chat and share files with members.';
+  @override
+  String get channelWelcome => 'Welcome to the channel! Important announcements and news are published here.';
+  @override
   String get closeActionTitle => 'Action on window close';
   @override
   String get closeActionDescription => 'Choose what happens when you close the main window';
@@ -2219,6 +2223,18 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get qrLoginSubtitle => 'Scan the QR code using the Xaneo mobile app for fast and secure login';
+
+  @override
+  String get qrApprovalTitle => 'Confirm the login on your phone';
+
+  @override
+  String get qrApprovalDesc => 'The QR code was recognized. Approve the authorization request in the Xaneo mobile app.';
+
+  @override
+  String get qrVerificationCodeLabel => 'Verification code';
+
+  @override
+  String get qrVerificationCodeHint => 'Make sure this code matches the code shown on your phone.';
 
   @override
   String get qrScanInstructionTitle => 'HOW TO LOG IN:';
@@ -2264,4 +2280,93 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get registrationDisabled => 'Registration is disabled in this mode';
+
+  @override
+  String requestCodeViaEmailIn(int seconds) => 'Request code via email in $seconds sec.';
+
+  @override
+  String requestCodeViaPasswordIn(int seconds) => 'Login with password in $seconds sec.';
+
+  @override
+  String get loginWithPasswordLink => 'Login with password';
+
+  @override
+  String get cantLoginSendToEmail => 'Can\'t log in via bot? Send code to email';
+
+  @override
+  String get resendCodeToEmail => 'Resend code to email';
+
+  @override
+  String get codeSentToBot => 'Code sent to Xaneo Notifications chat.';
+
+  @override
+  String emailCodeSent(String email) =>
+      email.isNotEmpty ? 'Code sent to email $email' : 'Code sent to email';
+
+  @override
+  String get emailCodeFailed => 'Failed to send code to email';
+
+  @override
+  String get enterUsernameErr => 'Enter a username or verified email.';
+
+  @override
+  String get sendCodeFailedErr => 'Failed to send code. Try again later.';
+
+  @override
+  String get enterAllDigitsErr => 'Enter all six digits.';
+
+  @override
+  String get invalidCodeErr => 'Invalid or already used code.';
+
+  @override
+  String get enterPasswordErr => 'Please enter your password.';
+
+  @override
+  String get invalidPasswordErr => 'Invalid password.';
+
+  @override
+  String get passwordTooSoonErr => 'Password login is not available yet.';
+
+  @override
+  String get submitCodeBtn => 'Log in';
+
+  @override
+  String get loginApproved => 'Login approved. Opening Xaneo…';
+
+  @override
+  String get requestExpiredErr => 'Request rejected or expired.';
+
+  @override
+  String get rateLimitedErr => 'Too many requests. Try again later.';
+
+  @override
+  String get confirmOnDeviceStatus => 'Confirm login on an already authorized device.';
+
+  @override
+  String get sixDigitCodeSentSub =>
+      'Enter the 6-digit code sent to Xaneo Notifications';
+
+  @override
+  String get confirmOnDeviceSub =>
+      'Confirm login on an already authorized device';
+
+  @override
+  String get awaitingDeviceApproval =>
+      'Awaiting confirmation on device...';
+
+  @override
+  String get mustBeSixDigits => 'Code must consist of 6 digits';
+
+  @override
+  String get continueBtn => 'Continue';
+
+  @override
+  String get backBtn => 'Back';
+
+  @override
+  String get confirmDeviceRequestText =>
+      'A confirmation request has been sent to your device. Confirm login in the app.';
+
+  @override
+  String get sendingEmailCode => 'Sending code to email…';
 }

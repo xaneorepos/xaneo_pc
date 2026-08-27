@@ -9,33 +9,38 @@ class WebSocketService {
   WebSocket? _socket;
   StreamSubscription? _subscription;
   bool _isDisposed = false;
-  
+
   // Callback-функции для событий
   final Function(Map<String, dynamic>) onMessageReceived;
   final Function(Object)? onError;
   final Function()? onDone;
-  
+
   WebSocketService({
     required this.onMessageReceived,
     this.onError,
     this.onDone,
   });
-  
+
   /// Проверить, активно ли соединение
-  bool get isConnected => _socket != null && _socket!.readyState == WebSocket.open;
-  
+  bool get isConnected =>
+      _socket != null && _socket!.readyState == WebSocket.open;
+
   /// Установить соединение по WebSocket URL
-  Future<void> connect(String url) async {
+  Future<void> connect(String url, {required String accessToken}) async {
     if (_isDisposed) return;
     await disconnect();
-    
+
     try {
       // Создаем HttpClient с фильтрованной проверкой SSL сертификатов
       final client = HttpClient();
       client.badCertificateCallback = validateSslCertificate;
-      
-      _socket = await WebSocket.connect(url, customClient: client).timeout(const Duration(seconds: 10));
-      
+
+      _socket = await WebSocket.connect(
+        url,
+        headers: {'Authorization': 'Bearer $accessToken'},
+        customClient: client,
+      ).timeout(const Duration(seconds: 10));
+
       _subscription = _socket!.listen(
         (data) {
           if (_isDisposed) return;
@@ -69,7 +74,7 @@ class WebSocketService {
       rethrow;
     }
   }
-  
+
   /// Отправить JSON-сообщение
   bool sendMessage(Map<String, dynamic> message) {
     if (isConnected) {
@@ -84,7 +89,7 @@ class WebSocketService {
       return false;
     }
   }
-  
+
   /// Закрыть соединение
   Future<void> disconnect() async {
     await _subscription?.cancel();
@@ -94,7 +99,7 @@ class WebSocketService {
     } catch (_) {}
     _socket = null;
   }
-  
+
   /// Уничтожить сервис
   void dispose() {
     _isDisposed = true;

@@ -5,9 +5,10 @@ import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import 'package:cookie_jar/cookie_jar.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'account_service.dart';
 import 'logger_service.dart';
+import 'secure_session_storage.dart';
+import '../utils/qr_request_helper.dart';
 import '../utils/ssl_helper.dart';
 
 /// API сервис для Xaneo PC с поддержкой автоматического сохранения сессионных кук (через Dio)
@@ -18,22 +19,54 @@ class ApiService {
     defaultValue: 'https://xaneo.ru/api/v1',
   );
 
-  static bool get isAuthV2 {
-    const bool authV2Bool = bool.fromEnvironment('AUTH_V2', defaultValue: false);
-    const String authV2Str = String.fromEnvironment('AUTH_V2', defaultValue: 'false');
-    final bool authV2Flag = authV2Bool || authV2Str.toLowerCase() == 'true';
-    return authV2Flag || _baseUrl.contains('192.168.1.113/api/v1');
-  }
-
   // User-Agent для идентификации приложения
   static const String _userAgent = 'XaneoPC/1.0 xaneo-app';
 
-  // Ключи для хранения токенов
-  static const String _accessTokenKey = 'xaneo_access_token';
-  static const String _refreshTokenKey = 'xaneo_refresh_token';
-
   // Future для предотвращения одновременных запросов на обновление токена
   Future<ApiResponse>? _refreshFuture;
+  int? _refreshFutureGeneration;
+  int _sessionGeneration = 0;
+  bool _sessionCommitInProgress = false;
+  final SecureSessionStorage _secureStorage = SecureSessionStorage();
+
+  // Throttling protection
+  DateTime? _throttledUntil;
+
+  /// Проверка, активен ли рейтлимит от сервера
+  bool get isThrottled =>
+      _throttledUntil != null && DateTime.now().isBefore(_throttledUntil!);
+
+  /// Время окончания рейтлимита
+  DateTime? get throttledUntil => _throttledUntil;
+
+  /// Сброс локального статуса троттлинга
+  void clearThrottle() {
+    _throttledUntil = null;
+  }
+
+  Future<void> beginSessionCommit() async {
+    _sessionCommitInProgress = true;
+    final inFlightRefresh = _refreshFuture;
+    invalidateSessionGeneration();
+    if (inFlightRefresh != null) {
+      try {
+        await inFlightRefresh;
+      } catch (_) {
+        // The new session commit still owns the next state even when the old
+        // refresh failed unexpectedly.
+      }
+    }
+  }
+
+  void endSessionCommit() {
+    _sessionCommitInProgress = false;
+  }
+
+  void invalidateSessionGeneration() {
+    _sessionGeneration++;
+    _refreshFuture = null;
+    _refreshFutureGeneration = null;
+  }
 
   // Singleton
   static final ApiService _instance = ApiService._internal();
@@ -44,6 +77,7 @@ class ApiService {
 
   // CookieJar instance
   final CookieJar _cookieJar = CookieJar();
+  String? _qrCsrfToken;
 
   // Геттер для базового URL
   static String get baseUrl => _baseUrl;
@@ -58,17 +92,13 @@ class ApiService {
   }
 
   /// Получить WebSocket URL для чата
-  static String getWebSocketUrl(String chatId, String? token) {
+  static String getWebSocketUrl(String chatId) {
     final uri = Uri.parse(_baseUrl);
     final scheme = uri.scheme == 'https' ? 'wss' : 'ws';
     final host = uri.host;
     final port = uri.hasPort ? ':${uri.port}' : '';
 
-    var wsUrl = '$scheme://$host$port/ws/chat/$chatId/';
-    if (token != null) {
-      wsUrl += '?token=${Uri.encodeComponent(token)}';
-    }
-    return wsUrl;
+    return '$scheme://$host$port/ws/chat/$chatId/';
   }
 
   ApiService._internal() {
@@ -88,6 +118,26 @@ class ApiService {
       InterceptorsWrapper(
         onRequest: (options, handler) async {
           final path = options.path;
+          // Если сервер установил рейтлимит 429, блокируем фоновые запросы локально
+          if (isThrottled) {
+            final isBackgroundPoll =
+                path.contains('/auth/device-login/pending/') ||
+                path.contains('/chats/') ||
+                path.contains('/system/info/');
+            if (isBackgroundPoll) {
+              return handler.resolve(
+                Response(
+                  requestOptions: options,
+                  statusCode: 429,
+                  data: {
+                    'detail':
+                        'Request was throttled locally. Expected available until $_throttledUntil',
+                  },
+                ),
+              );
+            }
+          }
+
           final isInteractiveAuthRequest =
               path.contains('/auth/mobile-login/') ||
               path.contains('/auth/send-tfa-code/') ||
@@ -103,7 +153,9 @@ class ApiService {
               options.headers['Authorization'] = 'Bearer $token';
             }
           }
-          if (isAuthFlowRequest) {
+          if (isAuthFlowRequest &&
+              !path.contains('/auth/qr-status/') &&
+              !path.contains('/auth/device-login/')) {
             Logger.info(
               'AuthTrace',
               'request path=$path interactive=$isInteractiveAuthRequest '
@@ -192,6 +244,7 @@ class ApiService {
     _dio.httpClientAdapter = IOHttpClientAdapter(
       createHttpClient: () {
         final client = HttpClient();
+        client.findProxy = findProxyForConfiguredBackend;
         client.badCertificateCallback = validateSslCertificate;
         return client;
       },
@@ -229,13 +282,75 @@ class ApiService {
 
   // ==================== АВТОРИЗАЦИЯ ====================
 
-  /// Получает статус QR кода
-  Future<ApiResponse> getQrStatus() async {
+  /// Создает сессию QR кода с передачей публичного ключа клиента
+  Future<String?> _ensureQrCsrfToken() async {
+    if (_qrCsrfToken != null) return _qrCsrfToken;
+    final apiUri = Uri.parse(_baseUrl);
+    final origin = '${apiUri.scheme}://${apiUri.authority}';
+    await _dio.get(
+      '$origin/qr-login/',
+      options: Options(headers: {'User-Agent': _userAgent}),
+    );
+    final cookies = await _cookieJar.loadForRequest(Uri.parse('$origin/'));
+    _qrCsrfToken = null;
+    for (final cookie in cookies) {
+      if (cookie.name == 'csrftoken') {
+        _qrCsrfToken = cookie.value;
+        return _qrCsrfToken;
+      }
+    }
+    return null;
+  }
+
+  Options _qrPostOptions(String csrfToken) => Options(
+    headers: buildQrRequestHeaders(
+      baseUrl: _baseUrl,
+      csrfToken: csrfToken,
+      userAgent: _userAgent,
+    ),
+  );
+
+  Future<ApiResponse> createQrSession(String webPub) async {
     try {
-      final base = _baseUrl.replaceAll('/api/v1', '');
-      final response = await _dio.get(
-        '$base/api/auth/qr-status/',
-        options: Options(headers: {'User-Agent': _userAgent}),
+      final csrfToken = await _ensureQrCsrfToken();
+      if (csrfToken == null) {
+        return ApiResponse(success: false, error: 'CSRF bootstrap failed');
+      }
+      final response = await _dio.post(
+        '$_baseUrl/auth/qr-code/',
+        data: {'web_pub': webPub, 'client_type': 'pc'},
+        options: _qrPostOptions(csrfToken),
+      );
+      if (response.statusCode == 200) {
+        Logger.info('AuthTrace', 'createQrSession response status=200');
+        return ApiResponse(success: true, data: response.data);
+      }
+      Logger.warning(
+        'AuthTrace',
+        'createQrSession response status=${response.statusCode}',
+      );
+      return ApiResponse(
+        success: false,
+        error: 'Error: ${response.statusCode}',
+        statusCode: response.statusCode,
+      );
+    } catch (e) {
+      Logger.error('ApiService', 'createQrSession error: $e');
+      return ApiResponse(success: false, error: e.toString());
+    }
+  }
+
+  /// Получает статус QR кода по токену сессии
+  Future<ApiResponse> getQrStatus(String token, String pollSecret) async {
+    try {
+      final csrfToken = await _ensureQrCsrfToken();
+      if (csrfToken == null) {
+        return ApiResponse(success: false, error: 'CSRF bootstrap failed');
+      }
+      final response = await _dio.post(
+        '$_baseUrl/auth/qr-status/',
+        data: {'token': token, 'poll_secret': pollSecret},
+        options: _qrPostOptions(csrfToken),
       );
       if (response.statusCode == 200) {
         return ApiResponse(success: true, data: response.data);
@@ -247,6 +362,162 @@ class ApiService {
       );
     } catch (e) {
       Logger.error('ApiService', 'getQrStatus error: $e');
+      return ApiResponse(success: false, error: e.toString());
+    }
+  }
+
+  Future<void> cancelQrSession(String token, String pollSecret) async {
+    try {
+      final csrfToken = await _ensureQrCsrfToken();
+      if (csrfToken == null) return;
+      await _dio.post(
+        '$_baseUrl/auth/qr-cancel/',
+        data: {'token': token, 'poll_secret': pollSecret},
+        options: _qrPostOptions(csrfToken),
+      );
+    } catch (e) {
+      Logger.warning('ApiService', 'cancelQrSession error: $e');
+    }
+  }
+
+  Future<ApiResponse> requestNotificationLogin({
+    required String identifier,
+    required String recipientPublicKey,
+  }) async {
+    try {
+      final response = await _dio.post(
+        '$_baseUrl/auth/notification-login/request/',
+        data: {
+          'identifier': identifier,
+          'client_type': 'pc',
+          'recipient_public_key': recipientPublicKey,
+          'device_name': Platform.localHostname,
+        },
+        options: _getOptions(contentType: 'application/json'),
+      );
+      return _handleDioResponse(response, isAuthRequest: true);
+    } catch (e) {
+      return ApiResponse(success: false, error: e.toString());
+    }
+  }
+
+  Future<ApiResponse> verifyNotificationLogin({
+    required String challengeId,
+    required String pollSecret,
+    required String code,
+  }) async {
+    try {
+      final response = await _dio.post(
+        '$_baseUrl/auth/notification-login/verify/',
+        data: {
+          'challenge_id': challengeId,
+          'poll_secret': pollSecret,
+          'code': code,
+        },
+        options: _getOptions(contentType: 'application/json'),
+      );
+      return _handleDioResponse(response, isAuthRequest: true);
+    } catch (e) {
+      return ApiResponse(success: false, error: e.toString());
+    }
+  }
+
+  Future<ApiResponse> getNotificationLoginStatus(
+    String challengeId,
+    String pollSecret,
+  ) async {
+    try {
+      final response = await _dio.post(
+        '$_baseUrl/auth/device-login/status/',
+        data: {'challenge_id': challengeId, 'poll_secret': pollSecret},
+        options: _getOptions(contentType: 'application/json'),
+      );
+      return _handleDioResponse(response, isAuthRequest: true);
+    } catch (e) {
+      return ApiResponse(success: false, error: e.toString());
+    }
+  }
+
+  Future<ApiResponse> requestNotificationEmailFallback({
+    required String challengeId,
+    required String pollSecret,
+  }) async {
+    try {
+      final response = await _dio.post(
+        '$_baseUrl/auth/notification-login/fallback-email/',
+        data: {'challenge_id': challengeId, 'poll_secret': pollSecret},
+        options: _getOptions(contentType: 'application/json'),
+      );
+      return _handleDioResponse(response, isAuthRequest: true);
+    } catch (e) {
+      return ApiResponse(success: false, error: e.toString());
+    }
+  }
+
+  Future<ApiResponse> verifyNotificationLoginPassword({
+    required String challengeId,
+    required String pollSecret,
+    required String password,
+  }) async {
+    try {
+      final response = await _dio.post(
+        '$_baseUrl/auth/notification-login/password/',
+        data: {
+          'challenge_id': challengeId,
+          'poll_secret': pollSecret,
+          'password': password,
+        },
+        options: _getOptions(contentType: 'application/json'),
+      );
+      return _handleDioResponse(response, isAuthRequest: true);
+    } catch (e) {
+      return ApiResponse(success: false, error: e.toString());
+    }
+  }
+
+  Future<void> cancelNotificationLogin(
+    String challengeId,
+    String pollSecret,
+  ) async {
+    try {
+      await _dio.post(
+        '$_baseUrl/auth/device-login/cancel/',
+        data: {'challenge_id': challengeId, 'poll_secret': pollSecret},
+        options: _getOptions(contentType: 'application/json'),
+      );
+    } catch (_) {}
+  }
+
+  Future<ApiResponse> getPendingDeviceLogins() async {
+    try {
+      final response = await _dio.get(
+        '$_baseUrl/auth/device-login/pending/',
+        options: await _getAuthOptions(),
+      );
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(success: false, error: e.toString());
+    }
+  }
+
+  Future<ApiResponse> decideDeviceLogin({
+    required String challengeId,
+    required bool confirmed,
+    Map<String, dynamic>? transferPayload,
+  }) async {
+    try {
+      final response = await _dio.post(
+        '$_baseUrl/auth/device-login/decision/',
+        data: {
+          'challenge_id': challengeId,
+          'confirmed': confirmed,
+          if (transferPayload != null) 'transfer_payload': transferPayload,
+          if (confirmed && transferPayload == null) 'no_keys': true,
+        },
+        options: await _getAuthOptions(),
+      );
+      return _handleDioResponse(response);
+    } catch (e) {
       return ApiResponse(success: false, error: e.toString());
     }
   }
@@ -616,7 +887,11 @@ class ApiService {
   /// Обновление access токена
   Future<ApiResponse> refreshToken() async {
     Logger.info('ApiService', 'Starting token refresh process...');
-    if (_refreshFuture != null) {
+    final generation = _sessionGeneration;
+    if (_sessionCommitInProgress) {
+      return ApiResponse(success: false, error: 'Session switch in progress');
+    }
+    if (_refreshFuture != null && _refreshFutureGeneration == generation) {
       Logger.info(
         'ApiService',
         'Token refresh already in progress, sharing future.',
@@ -626,6 +901,7 @@ class ApiService {
 
     final completer = Completer<ApiResponse>();
     _refreshFuture = completer.future;
+    _refreshFutureGeneration = generation;
 
     try {
       final refreshToken = await getRefreshToken();
@@ -658,7 +934,10 @@ class ApiService {
           'ApiService',
           'Token refreshed successfully. Updating tokens locally.',
         );
-        if (newAccess != null) {
+        final currentRefresh = await getRefreshToken();
+        if (newAccess != null &&
+            generation == _sessionGeneration &&
+            currentRefresh == refreshToken) {
           await saveAccessToken(newAccess);
           if (newRefresh != null) {
             await saveRefreshToken(newRefresh);
@@ -688,7 +967,30 @@ class ApiService {
       completer.complete(res);
       return res;
     } finally {
-      _refreshFuture = null;
+      if (_refreshFutureGeneration == generation) {
+        _refreshFuture = null;
+        _refreshFutureGeneration = null;
+      }
+    }
+  }
+
+  /// Refreshes a non-active account without mutating global session state.
+  Future<RefreshedCredentials?> refreshCredentials(String refreshToken) async {
+    try {
+      final response = await _dio.post(
+        '$_baseUrl/auth/token/refresh/',
+        options: _getOptions(contentType: 'application/json'),
+        data: {'refresh': refreshToken},
+      );
+      final result = _handleDioResponse(response);
+      final access = result.data?['access']?.toString();
+      if (!result.success || access == null || access.isEmpty) return null;
+      return RefreshedCredentials(
+        accessToken: access,
+        refreshToken: result.data?['refresh']?.toString() ?? refreshToken,
+      );
+    } catch (_) {
+      return null;
     }
   }
 
@@ -789,6 +1091,40 @@ class ApiService {
       return ApiResponse(
         success: false,
         error: 'Ошибка получения ключа чата: $e',
+      );
+    }
+  }
+
+  /// Получить информацию и ключи текущей эпохи E2EE для группы/канала
+  Future<ApiResponse> getGroupEpochCurrent(String chatId) async {
+    try {
+      final options = await _getAuthOptions();
+      final response = await _dio.get(
+        '$_baseUrl/xsec2/group/$chatId/epoch/current/',
+        options: options,
+      );
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(success: false, error: 'Ошибка получения эпохи: $e');
+    }
+  }
+
+  /// Получить ключи исторической эпохи E2EE для группы/канала
+  Future<ApiResponse> getGroupEpochHistorical(
+    String chatId,
+    int epochId,
+  ) async {
+    try {
+      final options = await _getAuthOptions();
+      final response = await _dio.get(
+        '$_baseUrl/xsec2/group/$chatId/epoch/$epochId/',
+        options: options,
+      );
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(
+        success: false,
+        error: 'Ошибка получения исторической эпохи: $e',
       );
     }
   }
@@ -1019,10 +1355,30 @@ class ApiService {
 
   /// Выход из системы
   Future<void> logout() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_accessTokenKey);
-    await prefs.remove(_refreshTokenKey);
-    await clearCookies();
+    await beginSessionCommit();
+    try {
+      final refresh = await getRefreshToken();
+      if (refresh != null && refresh.isNotEmpty) {
+        await revokeRefreshToken(refresh);
+      }
+      await _secureStorage.clearActiveSession();
+      await clearCookies();
+    } finally {
+      endSessionCommit();
+    }
+  }
+
+  Future<bool> revokeRefreshToken(String refreshToken) async {
+    try {
+      final response = await _dio.post(
+        '$_baseUrl/auth/token/revoke/',
+        options: _getOptions(contentType: 'application/json'),
+        data: {'refresh': refreshToken},
+      );
+      return response.statusCode != null && response.statusCode! < 300;
+    } catch (_) {
+      return false;
+    }
   }
 
   // ==================== ПРОФИЛЬ ====================
@@ -1039,6 +1395,23 @@ class ApiService {
       return _handleDioResponse(response);
     } catch (e) {
       return ApiResponse(success: false, error: 'Ошибка получения профиля: $e');
+    }
+  }
+
+  Future<ApiResponse> getProfileWithAccessToken(String accessToken) async {
+    try {
+      final response = await _dio.get(
+        '$_baseUrl/user/profile/',
+        options: _getOptions(
+          extraHeaders: {'Authorization': 'Bearer $accessToken'},
+        ),
+      );
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(
+        success: false,
+        error: 'Profile validation failed: $e',
+      );
     }
   }
 
@@ -1120,32 +1493,48 @@ class ApiService {
 
   /// Сохранить access токен
   Future<void> saveAccessToken(String token) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_accessTokenKey, token);
+    final current = await _secureStorage.readActiveSession();
+    await _secureStorage.writeActiveSession(
+      (current ??
+              const SessionSecrets(
+                accessToken: '',
+                refreshToken: '',
+                x25519Private: '',
+                ed25519Private: '',
+              ))
+          .copyWith(accessToken: token),
+    );
   }
 
   /// Получить access токен
   Future<String?> getAccessToken() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_accessTokenKey);
+    return (await _secureStorage.readActiveSession())?.accessToken;
   }
 
   /// Сохранить refresh токен
   Future<void> saveRefreshToken(String token) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_refreshTokenKey, token);
+    final current = await _secureStorage.readActiveSession();
+    await _secureStorage.writeActiveSession(
+      (current ??
+              const SessionSecrets(
+                accessToken: '',
+                refreshToken: '',
+                x25519Private: '',
+                ed25519Private: '',
+              ))
+          .copyWith(refreshToken: token),
+    );
   }
 
   /// Получить refresh токен
   Future<String?> getRefreshToken() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_refreshTokenKey);
+    return (await _secureStorage.readActiveSession())?.refreshToken;
   }
 
   /// Проверить, авторизован ли пользователь
   Future<bool> isAuthenticated() async {
     final token = await getAccessToken();
-    return token != null;
+    return token != null && token.isNotEmpty;
   }
 
   /// Обработка ответа сервера
@@ -1218,6 +1607,29 @@ class ApiService {
         break;
       case 404:
         errorMessage = 'Ресурс не найден';
+        break;
+      case 429:
+        errorMessage = errorMessage != 'Неизвестная ошибка'
+            ? errorMessage
+            : 'Слишком много запросов (429)';
+        // Извлекаем время блокировки (в секундах)
+        int throttleSeconds = 30;
+        final match = RegExp(r'(\d+)\s*seconds?').firstMatch(errorMessage);
+        if (match != null) {
+          throttleSeconds = int.tryParse(match.group(1) ?? '') ?? 30;
+        } else {
+          final retryAfterHeader = response.headers.value('retry-after');
+          if (retryAfterHeader != null) {
+            throttleSeconds = int.tryParse(retryAfterHeader) ?? 30;
+          }
+        }
+        _throttledUntil = DateTime.now().add(
+          Duration(seconds: throttleSeconds),
+        );
+        Logger.warning(
+          'ApiService',
+          'Rate limit hit (429). Pausing background requests for ${throttleSeconds}s until $_throttledUntil',
+        );
         break;
       case 500:
         errorMessage = 'Ошибка сервера';
@@ -1458,6 +1870,16 @@ class ApiService {
       );
     }
   }
+}
+
+class RefreshedCredentials {
+  final String accessToken;
+  final String refreshToken;
+
+  const RefreshedCredentials({
+    required this.accessToken,
+    required this.refreshToken,
+  });
 }
 
 /// Результат API запроса

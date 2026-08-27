@@ -10,8 +10,8 @@ class CreateGroupModal extends CreateChannelModal {
     super.initialData,
   }) : super(
           isGroup: true,
-          modalTag: 'ГРУППА',
-          title: 'СОЗДАТЬ ГРУППУ',
+          modalTag: '',
+          title: '',
         );
 
   static Future<void> show({

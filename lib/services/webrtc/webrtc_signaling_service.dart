@@ -38,7 +38,7 @@ class WebRTCSignalingService {
   void Function(Map<String, dynamic>)? onGroupParticipantLeft;
 
   WebRTCSignalingService({ApiService? apiService})
-      : _apiService = apiService ?? ApiService();
+    : _apiService = apiService ?? ApiService();
 
   Future<void> connect(String userId) async {
     if (_currentUserId == userId && _socket != null) return;
@@ -60,16 +60,18 @@ class WebRTCSignalingService {
     }
 
     if (token == null || token.isEmpty || isExpired) {
-      debugPrint('WebRTC WS: Auth token missing or expired. Connection aborted.');
+      debugPrint(
+        'WebRTC WS: Auth token missing or expired. Connection aborted.',
+      );
       return;
     }
 
-    final uri = _buildWsUri(userId, token);
+    final uri = _buildWsUri(userId);
 
     isConnected.value = false;
 
     try {
-      _socket = await _openSocketWithFallback(uri);
+      _socket = await _openSocketWithFallback(uri, token);
       _subscription = _socket!.listen(
         _handleRawEvent,
         onError: (error) {
@@ -87,13 +89,9 @@ class WebRTCSignalingService {
     }
   }
 
-  Future<WebSocket> _openSocketWithFallback(Uri uri) async {
+  Future<WebSocket> _openSocketWithFallback(Uri uri, String token) async {
     final customClient = _buildDebugHttpClientForSelfSigned(uri);
-    final token = uri.queryParameters['token'];
-    final headers = <String, dynamic>{
-      if (token != null && token.isNotEmpty)
-        'Authorization': 'Bearer $token',
-    };
+    final headers = <String, dynamic>{'Authorization': 'Bearer $token'};
 
     try {
       return await WebSocket.connect(
@@ -106,10 +104,17 @@ class WebRTCSignalingService {
       final isTlsCertIssue = e.toString().contains('CERTIFICATE_VERIFY_FAILED');
       final isPrivate = _isPrivateIp(uri.host);
 
-      if ((!kReleaseMode || isPrivate) && isIpHost && uri.scheme == 'wss' && isTlsCertIssue) {
+      if ((!kReleaseMode || isPrivate) &&
+          isIpHost &&
+          uri.scheme == 'wss' &&
+          isTlsCertIssue) {
         final fallbackUri = uri.replace(scheme: 'ws');
-        final safeFallbackUri = fallbackUri.replace(queryParameters: {'token': '***'});
-        debugPrint('WebRTC WS: TLS failed, trying fallback to $safeFallbackUri');
+        final safeFallbackUri = fallbackUri.replace(
+          queryParameters: {'token': '***'},
+        );
+        debugPrint(
+          'WebRTC WS: TLS failed, trying fallback to $safeFallbackUri',
+        );
 
         return await WebSocket.connect(
           fallbackUri.toString(),
@@ -145,7 +150,11 @@ class WebRTCSignalingService {
     socket.add(jsonEncode(payload));
   }
 
-  void startCall({required String targetUserId, required String callType, required String callerName}) {
+  void startCall({
+    required String targetUserId,
+    required String callType,
+    required String callerName,
+  }) {
     send({
       'type': 'call_offer',
       'target_user_id': int.tryParse(targetUserId) ?? 0,
@@ -155,10 +164,7 @@ class WebRTCSignalingService {
     });
   }
 
-  void startGroupCall({
-    required String groupId,
-    required String callType,
-  }) {
+  void startGroupCall({required String groupId, required String callType}) {
     send({
       'type': 'group_call_offer',
       'group_id': int.tryParse(groupId) ?? groupId,
@@ -167,13 +173,10 @@ class WebRTCSignalingService {
   }
 
   void acceptGroupCall(String groupCallId) {
-    send({
-      'type': 'group_call_accept',
-      'group_call_id': groupCallId,
-    });
+    send({'type': 'group_call_accept', 'group_call_id': groupCallId});
   }
 
-  void rejectGroupCall(String groupCallId, {String reason = 'Отклонено'}) {
+  void rejectGroupCall(String groupCallId, {String reason = 'rejected'}) {
     send({
       'type': 'group_call_reject',
       'group_call_id': groupCallId,
@@ -181,7 +184,7 @@ class WebRTCSignalingService {
     });
   }
 
-  void leaveGroupCall(String groupCallId, {String reason = 'Покинул звонок'}) {
+  void leaveGroupCall(String groupCallId, {String reason = 'left'}) {
     send({
       'type': 'group_call_leave',
       'group_call_id': groupCallId,
@@ -190,27 +193,15 @@ class WebRTCSignalingService {
   }
 
   void acceptCall(String callId) {
-    send({
-      'type': 'call_answer',
-      'call_id': callId,
-      'answer': 'livekit',
-    });
+    send({'type': 'call_answer', 'call_id': callId, 'answer': 'livekit'});
   }
 
-  void rejectCall(String callId, {String reason = 'Звонок отклонен'}) {
-    send({
-      'type': 'call_reject',
-      'call_id': callId,
-      'reason': reason,
-    });
+  void rejectCall(String callId, {String reason = 'rejected'}) {
+    send({'type': 'call_reject', 'call_id': callId, 'reason': reason});
   }
 
-  void endCall(String callId, {String reason = 'Звонок завершен'}) {
-    send({
-      'type': 'call_end',
-      'call_id': callId,
-      'reason': reason,
-    });
+  void endCall(String callId, {String reason = 'ended'}) {
+    send({'type': 'call_end', 'call_id': callId, 'reason': reason});
   }
 
   Future<void> dispose() async {
@@ -218,18 +209,15 @@ class WebRTCSignalingService {
     await _eventsController.close();
   }
 
-  Uri _buildWsUri(String userId, String token) {
+  Uri _buildWsUri(String userId) {
     final apiUri = Uri.parse(ApiService.baseUrl);
     final shouldUseInsecureWs = apiUri.scheme != 'https';
     final wsScheme = shouldUseInsecureWs ? 'ws' : 'wss';
-    final query = <String, String>{'token': token};
-
     return Uri(
       scheme: wsScheme,
       host: apiUri.host,
       port: apiUri.hasPort ? apiUri.port : null,
       path: '/ws/webrtc/signal/$userId/',
-      queryParameters: query,
     );
   }
 
@@ -254,7 +242,11 @@ class WebRTCSignalingService {
       if (parts.length == 4 && parts[0] != null) {
         if (parts[0] == 10) return true;
         if (parts[0] == 192 && parts[1] == 168) return true;
-        if (parts[0] == 172 && parts[1] != null && parts[1]! >= 16 && parts[1]! <= 31) return true;
+        if (parts[0] == 172 &&
+            parts[1] != null &&
+            parts[1]! >= 16 &&
+            parts[1]! <= 31)
+          return true;
       }
     }
     return false;
@@ -327,7 +319,9 @@ class WebRTCSignalingService {
     final baseDelaySeconds = 1 << exponent;
     final jitterMs = Random().nextInt(1000);
     final delay = Duration(milliseconds: baseDelaySeconds * 1000 + jitterMs);
-    debugPrint('WebRTC WS: reconnect in ${baseDelaySeconds}s + ${jitterMs}ms (attempt $_reconnectAttempt)');
+    debugPrint(
+      'WebRTC WS: reconnect in ${baseDelaySeconds}s + ${jitterMs}ms (attempt $_reconnectAttempt)',
+    );
 
     _reconnectTimer = Timer(delay, () {
       final userId = _currentUserId;
@@ -340,7 +334,7 @@ class WebRTCSignalingService {
     try {
       final parts = token.split('.');
       if (parts.length != 3) return true;
-      
+
       final payload = parts[1];
       var normalized = payload.replaceAll('-', '+').replaceAll('_', '/');
       final pad = normalized.length % 4;
@@ -352,11 +346,16 @@ class WebRTCSignalingService {
       final decodedBytes = base64Decode(normalized);
       final decodedString = utf8.decode(decodedBytes);
       final jsonMap = jsonDecode(decodedString) as Map<String, dynamic>;
-      
+
       if (jsonMap.containsKey('exp')) {
         final exp = jsonMap['exp'] as int;
-        final expiry = DateTime.fromMillisecondsSinceEpoch(exp * 1000, isUtc: true);
-        return DateTime.now().toUtc().isAfter(expiry.subtract(const Duration(minutes: 5)));
+        final expiry = DateTime.fromMillisecondsSinceEpoch(
+          exp * 1000,
+          isUtc: true,
+        );
+        return DateTime.now().toUtc().isAfter(
+          expiry.subtract(const Duration(minutes: 5)),
+        );
       }
       return true;
     } catch (e) {

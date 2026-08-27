@@ -13,6 +13,7 @@ import 'app_localizations_zh.dart';
 import 'app_localizations_ja.dart';
 import 'app_localizations_ko.dart';
 import 'app_localizations_ar.dart';
+import 'dynamic_app_localizations.dart';
 
 // ignore_for_file: type=lint
 
@@ -1521,6 +1522,8 @@ abstract class AppLocalizations {
   String get secureDesktopCommunicator;
   String get noMessagesTitle;
   String get noMessagesSubtitle;
+  String get groupWelcome;
+  String get channelWelcome;
 
   String get closeActionMinimizeToTraySubtitle;
   String get closeActionMinimizeToTaskbarSubtitle;
@@ -1543,6 +1546,10 @@ abstract class AppLocalizations {
 
   String get qrLoginTitle;
   String get qrLoginSubtitle;
+  String get qrApprovalTitle;
+  String get qrApprovalDesc;
+  String get qrVerificationCodeLabel;
+  String get qrVerificationCodeHint;
   String get qrScanInstructionTitle;
   String get qrStep1;
   String get qrStep2;
@@ -1558,6 +1565,34 @@ abstract class AppLocalizations {
   String get qrTimerLabel;
   String get refreshQrBtn;
   String get registrationDisabled;
+  String requestCodeViaEmailIn(int seconds);
+  String requestCodeViaPasswordIn(int seconds);
+  String get loginWithPasswordLink;
+  String get cantLoginSendToEmail;
+  String get resendCodeToEmail;
+  String get codeSentToBot;
+  String emailCodeSent(String email);
+  String get emailCodeFailed;
+  String get enterUsernameErr;
+  String get sendCodeFailedErr;
+  String get enterAllDigitsErr;
+  String get invalidCodeErr;
+  String get enterPasswordErr;
+  String get invalidPasswordErr;
+  String get passwordTooSoonErr;
+  String get submitCodeBtn;
+  String get loginApproved;
+  String get requestExpiredErr;
+  String get rateLimitedErr;
+  String get confirmOnDeviceStatus;
+  String get sixDigitCodeSentSub;
+  String get confirmOnDeviceSub;
+  String get awaitingDeviceApproval;
+  String get mustBeSixDigits;
+  String get continueBtn;
+  String get backBtn;
+  String get confirmDeviceRequestText;
+  String get sendingEmailCode;
 }
 
 class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> {
@@ -1572,28 +1607,23 @@ class _AppLocalizationsDelegate extends LocalizationsDelegate<AppLocalizations> 
   bool isSupported(Locale locale) => <String>['ru', 'en', 'fr', 'es', 'zh', 'ja', 'ko', 'ar'].contains(locale.languageCode);
 
   @override
-  bool shouldReload(_AppLocalizationsDelegate old) => false;
+  bool shouldReload(_AppLocalizationsDelegate old) => true;
 }
 
 AppLocalizations lookupAppLocalizations(Locale locale) {
-
-
+  AppLocalizations base;
   // Lookup logic when only language code is specified.
   switch (locale.languageCode) {
-    case 'ru': return AppLocalizationsRu();
-    case 'en': return AppLocalizationsEn();
-    case 'fr': return AppLocalizationsFr();
-    case 'es': return AppLocalizationsEs();
-    case 'zh': return AppLocalizationsZh();
-    case 'ja': return AppLocalizationsJa();
-    case 'ko': return AppLocalizationsKo();
-    case 'ar': return AppLocalizationsAr();
+    case 'ru': base = AppLocalizationsRu(); break;
+    case 'en': base = AppLocalizationsEn(); break;
+    case 'fr': base = AppLocalizationsFr(); break;
+    case 'es': base = AppLocalizationsEs(); break;
+    case 'zh': base = AppLocalizationsZh(); break;
+    case 'ja': base = AppLocalizationsJa(); break;
+    case 'ko': base = AppLocalizationsKo(); break;
+    case 'ar': base = AppLocalizationsAr(); break;
+    default: base = AppLocalizationsRu(); break;
   }
 
-  throw FlutterError(
-    'AppLocalizations.delegate failed to load unsupported locale "$locale". This is likely '
-    'an issue with the localizations generation tool. Please file an issue '
-    'on GitHub with a reproducible sample app and the gen-l10n configuration '
-    'that was used.'
-  );
+  return DynamicAppLocalizations(base, locale.languageCode);
 }

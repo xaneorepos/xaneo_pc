@@ -2652,6 +2652,8 @@ class _XaneoSettingsModalState
         avatar != null &&
         avatar.isNotEmpty &&
         !avatar.startsWith('data:image/svg+xml') &&
+        !avatar.split('?').first.toLowerCase().endsWith('.svg') &&
+        !avatar.contains('/svg_avatars/') &&
         !avatar.contains('gradient') &&
         (avatar.startsWith('http') || avatar.startsWith('/'));
 
@@ -2704,6 +2706,8 @@ class _XaneoSettingsModalState
         avatar != null &&
         avatar.isNotEmpty &&
         !avatar.startsWith('data:image/svg+xml') &&
+        !avatar.split('?').first.toLowerCase().endsWith('.svg') &&
+        !avatar.contains('/svg_avatars/') &&
         !avatar.contains('gradient') &&
         (avatar.startsWith('http') || avatar.startsWith('/'));
 

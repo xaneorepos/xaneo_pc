@@ -552,6 +552,14 @@ class _GlobalSearchModalState extends BaseCustomModalState<GlobalSearchModal> {
     );
   }
 
+  /// Ссылка на сгенерированную бэкендом SVG-аватарку (буква+градиент/призрак),
+  /// когда бэкенд отдаёт её обычным URL на CDN, а не data: URI.
+  bool _isGeneratedSvgAvatarUrl(String avatar) {
+    if (avatar.contains('/svg_avatars/')) return true;
+    final withoutQuery = avatar.split('?').first;
+    return withoutQuery.toLowerCase().endsWith('.svg');
+  }
+
   Widget _buildAvatarWidget(
     String? avatarUrl,
     String displayName,
@@ -588,6 +596,11 @@ class _GlobalSearchModalState extends BaseCustomModalState<GlobalSearchModal> {
             );
           }
         } catch (_) {}
+      } else if (_isGeneratedSvgAvatarUrl(avatarUrl)) {
+        // Сгенерированная бэкендом SVG-аватарка ссылкой на CDN (S3 настроен) —
+        // разметки нет, показываем инициалы+градиент вместо попытки декодировать
+        // SVG через Image.network (который SVG не умеет).
+        return _buildFallbackAvatar(initials, iconColor, size, scale, avatarGradient: avatarGradient);
       } else {
         String fullUrl = avatarUrl;
         if (!fullUrl.startsWith('http') && !fullUrl.startsWith('data:')) {

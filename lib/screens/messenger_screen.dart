@@ -2442,9 +2442,19 @@ class _MessengerScreenState extends State<MessengerScreen> {
     if (avatar == null) return false;
     final str = avatar.toString().trim();
     if (str.isEmpty || str == 'null' || str == 'None') return false;
-    if (str.startsWith('data:image/svg+xml')) return false;
+    if (_isGeneratedSvgAvatar(str)) return false;
     if (str.contains('gradient')) return false;
     return true;
+  }
+
+  /// Проверяет, является ли строка сгенерированной бэкендом SVG-аватаркой
+  /// (буква+градиент/призрак) — либо в виде data: URI (локальный бэкенд без S3),
+  /// либо в виде обычной ссылки на CDN (svg_avatars/xxx.svg, когда настроен S3).
+  bool _isGeneratedSvgAvatar(String avatar) {
+    if (avatar.startsWith('data:image/svg+xml')) return true;
+    if (avatar.contains('/svg_avatars/')) return true;
+    final withoutQuery = avatar.split('?').first;
+    return withoutQuery.toLowerCase().endsWith('.svg');
   }
 
   /// Формирует полный URL для аватара
@@ -7495,6 +7505,21 @@ class _MessengerScreenState extends State<MessengerScreen> {
       }
     }
 
+    if (_isGeneratedSvgAvatar(effectiveAvatar)) {
+      // Сгенерированная бэкендом SVG-аватарка, отданная ссылкой на CDN (S3
+      // настроен на бэкенде) — самой разметки SVG у нас нет, поэтому просто
+      // рисуем инициалы+градиент нативно (то же самое, что раньше делалось
+      // при разборе data: URI с <text> — SvgPicture плохо центрирует текст).
+      return _buildInitialsAvatar(
+        initials,
+        radius,
+        scale,
+        isDark,
+        avatarGradient: avatarGradient,
+        borderRadius: borderRadius,
+      );
+    }
+
     final fullUrl = _formatAvatarUrl(effectiveAvatar);
 
     return ClipRRect(
@@ -9290,6 +9315,16 @@ class _MessengerScreenState extends State<MessengerScreen> {
             ),
           );
         } catch (_) {}
+      } else if (_isGeneratedSvgAvatar(effectiveAvatar)) {
+        // Сгенерированная бэкендом SVG-аватарка ссылкой на CDN — разметки нет,
+        // рисуем инициалы+градиент нативно (как раньше при <text> в data: URI).
+        return _buildInitialsAvatar(
+          initials,
+          size / 2,
+          scale,
+          isDark,
+          avatarGradient: avatarGradient,
+        );
       } else {
         final fullUrl = _formatAvatarUrl(effectiveAvatar);
 
@@ -11750,11 +11785,19 @@ class _MessengerScreenState extends State<MessengerScreen> {
     );
   }
 
-  Map<String, String>? _getAuthHeader() {
-    if (_apiAccessToken != null && _apiAccessToken!.isNotEmpty) {
-      return {'Authorization': 'Bearer $_apiAccessToken'};
+  /// Заголовок с JWT-токеном — только для запросов к нашему API. Медиа теперь
+  /// может отдаваться напрямую с CDN/S3 (cdn.xaneo.ru, s3.cloud.ru), и токен
+  /// туда отправлять не нужно (и небезопасно — лишняя утечка на чужой хост).
+  Map<String, String>? _getAuthHeader([String? url]) {
+    if (_apiAccessToken == null || _apiAccessToken!.isEmpty) return null;
+    if (url != null) {
+      try {
+        final targetHost = Uri.parse(url).host;
+        final apiHost = Uri.parse(ApiService.baseUrl).host;
+        if (targetHost.isNotEmpty && targetHost != apiHost) return null;
+      } catch (_) {}
     }
-    return null;
+    return {'Authorization': 'Bearer $_apiAccessToken'};
   }
 
   bool _isImageFile(String fileName, String mimeType) {
@@ -12174,7 +12217,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                     if (mediaUrl.isNotEmpty)
                                       Image.network(
                                         mediaUrl,
-                                        headers: _getAuthHeader(),
+                                        headers: _getAuthHeader(mediaUrl),
                                         fit: BoxFit.contain,
                                         errorBuilder: (_, __, ___) => Center(
                                           child: Column(
@@ -12506,7 +12549,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
               if (url.isNotEmpty)
                 Image.network(
                   url,
-                  headers: _getAuthHeader(),
+                  headers: _getAuthHeader(url),
                   fit: BoxFit.cover,
                   errorBuilder: (_, __, ___) => Container(
                     color: isDark
@@ -12639,7 +12682,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
               if (url.isNotEmpty)
                 Image.network(
                   url,
-                  headers: _getAuthHeader(),
+                  headers: _getAuthHeader(url),
                   fit: BoxFit.contain,
                   errorBuilder: (_, __, ___) => Container(
                     height: 180 * scale,

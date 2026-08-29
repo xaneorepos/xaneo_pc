@@ -22,9 +22,9 @@ class AdvancedBackground extends StatefulWidget {
 
 class _AdvancedBackgroundState extends State<AdvancedBackground>
     with TickerProviderStateMixin {
-  late AnimationController _particleController;
-  late AnimationController _shapeController;
-  late AnimationController _pulseController;
+  AnimationController? _particleController;
+  AnimationController? _shapeController;
+  AnimationController? _pulseController;
   final List<Particle3D> _particles = [];
   final math.Random _random = math.Random();
 
@@ -32,22 +32,30 @@ class _AdvancedBackgroundState extends State<AdvancedBackground>
   void initState() {
     super.initState();
 
-    _particleController = AnimationController(
-      duration: const Duration(seconds: 20),
-      vsync: this,
-    )..repeat();
+    // Контроллеры создаются и запускаются только для включённых эффектов,
+    // иначе они бы бесконечно планировали кадры (scheduleFrame) без
+    // какой-либо видимой отдачи, нагружая GPU/композитор впустую.
+    if (widget.enableParticles) {
+      _particleController = AnimationController(
+        duration: const Duration(seconds: 20),
+        vsync: this,
+      )..repeat();
+      _initializeParticles();
+    }
 
-    _shapeController = AnimationController(
-      duration: const Duration(seconds: 15),
-      vsync: this,
-    )..repeat();
+    if (widget.enableGeometricShapes) {
+      _shapeController = AnimationController(
+        duration: const Duration(seconds: 15),
+        vsync: this,
+      )..repeat();
+    }
 
-    _pulseController = AnimationController(
-      duration: const Duration(seconds: 3),
-      vsync: this,
-    )..repeat(reverse: true);
-
-    _initializeParticles();
+    if (widget.enableGrid) {
+      _pulseController = AnimationController(
+        duration: const Duration(seconds: 3),
+        vsync: this,
+      )..repeat(reverse: true);
+    }
   }
 
   void _initializeParticles() {
@@ -67,9 +75,9 @@ class _AdvancedBackgroundState extends State<AdvancedBackground>
 
   @override
   void dispose() {
-    _particleController.dispose();
-    _shapeController.dispose();
-    _pulseController.dispose();
+    _particleController?.dispose();
+    _shapeController?.dispose();
+    _pulseController?.dispose();
     super.dispose();
   }
 
@@ -100,13 +108,13 @@ class _AdvancedBackgroundState extends State<AdvancedBackground>
         if (widget.enableGrid)
           Positioned.fill(
             child: AnimatedBuilder(
-              animation: _pulseController,
+              animation: _pulseController!,
               builder: (context, child) {
                 return CustomPaint(
                   painter: Grid3DPainter(
                     color: widget.isDark ? Colors.white : Colors.black,
-                    opacity: 0.03 + _pulseController.value * 0.02,
-                    perspective: _pulseController.value * 0.1,
+                    opacity: 0.03 + _pulseController!.value * 0.02,
+                    perspective: _pulseController!.value * 0.1,
                   ),
                   size: Size.infinite,
                 );
@@ -118,7 +126,7 @@ class _AdvancedBackgroundState extends State<AdvancedBackground>
         if (widget.enableParticles)
           Positioned.fill(
             child: AnimatedBuilder(
-              animation: _particleController,
+              animation: _particleController!,
               builder: (context, child) {
                 _updateParticles();
                 return CustomPaint(
@@ -136,12 +144,12 @@ class _AdvancedBackgroundState extends State<AdvancedBackground>
         if (widget.enableGeometricShapes)
           Positioned.fill(
             child: AnimatedBuilder(
-              animation: _shapeController,
+              animation: _shapeController!,
               builder: (context, child) {
                 return CustomPaint(
                   painter: GeometricShapesPainter(
                     color: widget.isDark ? Colors.white : Colors.black,
-                    animation: _shapeController.value,
+                    animation: _shapeController!.value,
                   ),
                   size: Size.infinite,
                 );

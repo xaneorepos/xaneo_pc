@@ -5,6 +5,7 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:file_picker/file_picker.dart';
 import 'package:dio/dio.dart';
+import 'package:dio/io.dart';
 import 'package:record/record.dart';
 import 'package:camera/camera.dart';
 import 'package:path_provider/path_provider.dart';
@@ -6511,10 +6512,12 @@ class _MessengerScreenState extends State<MessengerScreen> {
                         ),
                       ),
                     ),
-                    child: ClipRect(
-                      child: BackdropFilter(
-                        filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
-                        child: _buildChatListPanel(isDark, scale),
+                    child: RepaintBoundary(
+                      child: ClipRect(
+                        child: BackdropFilter(
+                          filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+                          child: _buildChatListPanel(isDark, scale),
+                        ),
                       ),
                     ),
                   ),
@@ -6872,31 +6875,33 @@ class _MessengerScreenState extends State<MessengerScreen> {
                       ),
                       // 2. Blurred glass layer
                       Positioned.fill(
-                        child: ClipRRect(
-                          borderRadius: radius,
-                          child: BackdropFilter(
-                            filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                borderRadius: radius,
-                                border: Border.all(
-                                  color: isDark
-                                      ? Colors.white.withOpacity(0.12)
-                                      : Colors.black.withOpacity(0.06),
-                                  width: 1,
-                                ),
-                                gradient: LinearGradient(
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                  colors: isDark
-                                      ? [
-                                          Colors.white.withOpacity(0.08),
-                                          Colors.white.withOpacity(0.02),
-                                        ]
-                                      : [
-                                          Colors.white.withOpacity(0.4),
-                                          Colors.white.withOpacity(0.15),
-                                        ],
+                        child: RepaintBoundary(
+                          child: ClipRRect(
+                            borderRadius: radius,
+                            child: BackdropFilter(
+                              filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  borderRadius: radius,
+                                  border: Border.all(
+                                    color: isDark
+                                        ? Colors.white.withOpacity(0.12)
+                                        : Colors.black.withOpacity(0.06),
+                                    width: 1,
+                                  ),
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                    colors: isDark
+                                        ? [
+                                            Colors.white.withOpacity(0.08),
+                                            Colors.white.withOpacity(0.02),
+                                          ]
+                                        : [
+                                            Colors.white.withOpacity(0.4),
+                                            Colors.white.withOpacity(0.15),
+                                          ],
+                                  ),
                                 ),
                               ),
                             ),
@@ -12116,8 +12121,6 @@ class _MessengerScreenState extends State<MessengerScreen> {
     double scale,
   ) {
     final l10n = AppLocalizations.of(context);
-    final downloadLabel =
-        l10n?.downloadVersion ?? (l10n?.sohranitFaylKak_0f93 ?? 'Download');
     final defaultAuthor = l10n?.polzovatel_f154 ?? 'User';
 
     showDialog(
@@ -12166,7 +12169,6 @@ class _MessengerScreenState extends State<MessengerScreen> {
             final authorName =
                 currentItem['author_name']?.toString() ?? defaultAuthor;
             final fileName = currentItem['file_name']?.toString() ?? '';
-            final fileId = currentItem['file_id']?.toString() ?? '';
             final fileSize = (currentItem['file_size'] as int?) ?? 0;
             final caption = (currentItem['caption'] as String?) ?? '';
             final formattedTime = formatMediaTime(
@@ -12191,6 +12193,52 @@ class _MessengerScreenState extends State<MessengerScreen> {
                       final item = items[index];
                       final mediaUrl = _getMediaUrl(item);
                       final isVid = item['media_type'] == 'video';
+
+                      if (isVid) {
+                        final fId = item['file_id']?.toString() ?? '';
+                        final fName =
+                            item['file_name']?.toString() ?? 'video.mp4';
+                        // Видео занимает всю область галереи. BoxFit.contain
+                        // внутри media_kit сам сохранит пропорции, а прежний
+                        // height=0.82 больше не создаёт искусственный отступ
+                        // сверху и не поднимает панель управления.
+                        return SizedBox.expand(
+                          child: mediaUrl.isNotEmpty
+                              ? _FullVideoPlayer(
+                                  key: ValueKey('video_$fId'),
+                                  videoUrl: mediaUrl,
+                                  fileName: fName,
+                                  fileSize: item['file_size'] is num
+                                      ? (item['file_size'] as num).toInt()
+                                      : int.tryParse(
+                                              item['file_size']?.toString() ??
+                                                  '',
+                                            ) ??
+                                            0,
+                                  headers: _getAuthHeader(mediaUrl),
+                                )
+                              : Center(
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.movie_rounded,
+                                        color: Colors.white60,
+                                        size: 48 * scale,
+                                      ),
+                                      SizedBox(height: 12 * scale),
+                                      Text(
+                                        fName,
+                                        style: TextStyle(
+                                          color: Colors.white70,
+                                          fontSize: 14 * scale,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                        );
+                      }
 
                       return Listener(
                         onPointerSignal: (pointerSignal) {
@@ -12224,10 +12272,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                             mainAxisSize: MainAxisSize.min,
                                             children: [
                                               Icon(
-                                                isVid
-                                                    ? Icons.movie_rounded
-                                                    : Icons
-                                                          .broken_image_rounded,
+                                                Icons.broken_image_rounded,
                                                 color: Colors.white60,
                                                 size: 48 * scale,
                                               ),
@@ -12243,24 +12288,6 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                             ],
                                           ),
                                         ),
-                                      ),
-                                    if (isVid)
-                                      IconButton(
-                                        iconSize: 64 * scale,
-                                        icon: const Icon(
-                                          Icons.play_circle_fill_rounded,
-                                          color: Colors.white,
-                                        ),
-                                        onPressed: () {
-                                          final fId =
-                                              item['file_id']?.toString() ?? '';
-                                          final fName =
-                                              item['file_name']?.toString() ??
-                                              'video.mp4';
-                                          if (fId.isNotEmpty) {
-                                            _downloadFile(fId, fName);
-                                          }
-                                        },
                                       ),
                                   ],
                                 ),
@@ -12375,31 +12402,14 @@ class _MessengerScreenState extends State<MessengerScreen> {
                       ),
                     ),
 
-                  // Bottom Bar Overlay
+                  // Compact media metadata; controls occupy the bottom centre.
                   Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    child: Container(
-                      padding: EdgeInsets.fromLTRB(
-                        20 * scale,
-                        24 * scale,
-                        20 * scale,
-                        20 * scale,
-                      ),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            Colors.transparent,
-                            Colors.black.withOpacity(0.65),
-                            Colors.black.withOpacity(0.92),
-                          ],
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                        ),
-                      ),
-                      child: SafeArea(
-                        top: false,
+                    left: 24 * scale,
+                    bottom: 18 * scale,
+                    child: SafeArea(
+                      top: false,
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(maxWidth: 380 * scale),
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -12412,91 +12422,40 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                   fontSize: 14.5 * scale,
                                   fontWeight: FontWeight.w400,
                                   height: 1.35,
+                                  shadows: const [
+                                    Shadow(color: Colors.black, blurRadius: 8),
+                                  ],
                                 ),
                                 maxLines: 4,
                                 overflow: TextOverflow.ellipsis,
                               ),
                               SizedBox(height: 8 * scale),
                             ],
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text(
-                                        authorName,
-                                        style: TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 14 * scale,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      SizedBox(height: 2 * scale),
-                                      Text(
-                                        '${fileName.isNotEmpty ? "$fileName • " : ""}$formattedSize${(formattedSize.isNotEmpty && formattedTime.isNotEmpty) ? ' • ' : ''}$formattedTime',
-                                        style: TextStyle(
-                                          color: Colors.white60,
-                                          fontSize: 11.5 * scale,
-                                        ),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                if (fileId.isNotEmpty)
-                                  Material(
-                                    color: Colors.transparent,
-                                    child: InkWell(
-                                      borderRadius: BorderRadius.circular(
-                                        20 * scale,
-                                      ),
-                                      onTap: () =>
-                                          _downloadFile(fileId, fileName),
-                                      child: Container(
-                                        padding: EdgeInsets.symmetric(
-                                          horizontal: 14 * scale,
-                                          vertical: 8 * scale,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: Colors.white.withOpacity(0.18),
-                                          borderRadius: BorderRadius.circular(
-                                            20 * scale,
-                                          ),
-                                          border: Border.all(
-                                            color: Colors.white.withOpacity(
-                                              0.25,
-                                            ),
-                                          ),
-                                        ),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(
-                                              Icons.download_rounded,
-                                              color: Colors.white,
-                                              size: 16 * scale,
-                                            ),
-                                            SizedBox(width: 6 * scale),
-                                            Text(
-                                              downloadLabel,
-                                              style: TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 12.5 * scale,
-                                                fontWeight: FontWeight.w500,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                              ],
+                            Text(
+                              authorName,
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 14 * scale,
+                                fontWeight: FontWeight.bold,
+                                shadows: const [
+                                  Shadow(color: Colors.black, blurRadius: 8),
+                                ],
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            SizedBox(height: 2 * scale),
+                            Text(
+                              '${fileName.isNotEmpty ? "$fileName • " : ""}$formattedSize${(formattedSize.isNotEmpty && formattedTime.isNotEmpty) ? ' • ' : ''}$formattedTime',
+                              style: TextStyle(
+                                color: Colors.white60,
+                                fontSize: 11.5 * scale,
+                                shadows: const [
+                                  Shadow(color: Colors.black, blurRadius: 8),
+                                ],
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ],
                         ),
@@ -12546,7 +12505,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              if (url.isNotEmpty)
+              if (url.isNotEmpty && !isVideo)
                 Image.network(
                   url,
                   headers: _getAuthHeader(url),
@@ -12557,7 +12516,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                         : const Color(0xFFE5E5E5),
                     child: Center(
                       child: Icon(
-                        isVideo ? Icons.movie_rounded : Icons.image_rounded,
+                        Icons.image_rounded,
                         color: isDark ? Colors.white38 : Colors.black38,
                         size: 28 * scale,
                       ),
@@ -12665,6 +12624,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
       collageBody = GestureDetector(
         onTap: () => _openMediaGallery(item, scale),
         child: Container(
+          // width обязателен: раньше Container опирался только на
+          // maxWidth-constraint, и если Image.network падал в errorBuilder
+          // (например для видео, которое не декодируется как картинка),
+          // Stack схлопывался до ширины иконки-заглушки.
+          width: maxCollageWidth,
           constraints: BoxConstraints(
             maxHeight: 340 * scale,
             maxWidth: maxCollageWidth,
@@ -12679,13 +12643,36 @@ class _MessengerScreenState extends State<MessengerScreen> {
           child: Stack(
             alignment: Alignment.center,
             children: [
-              if (url.isNotEmpty)
+              // Видеофайлы не декодируются как изображение — для них сразу
+              // показываем заглушку с кнопкой воспроизведения.
+              if (url.isNotEmpty && !isVideo)
                 Image.network(
                   url,
                   headers: _getAuthHeader(url),
+                  width: maxCollageWidth,
                   fit: BoxFit.contain,
-                  errorBuilder: (_, __, ___) => Container(
+                  errorBuilder: (_, __, ___) => SizedBox(
+                    width: maxCollageWidth,
                     height: 180 * scale,
+                    child: Container(
+                      color: isDark
+                          ? const Color(0xFF1E1E1E)
+                          : const Color(0xFFE5E5E5),
+                      child: Center(
+                        child: Icon(
+                          Icons.image_rounded,
+                          color: isDark ? Colors.white38 : Colors.black38,
+                          size: 32 * scale,
+                        ),
+                      ),
+                    ),
+                  ),
+                )
+              else
+                SizedBox(
+                  width: maxCollageWidth,
+                  height: 180 * scale,
+                  child: Container(
                     color: isDark
                         ? const Color(0xFF1E1E1E)
                         : const Color(0xFFE5E5E5),
@@ -12697,24 +12684,16 @@ class _MessengerScreenState extends State<MessengerScreen> {
                       ),
                     ),
                   ),
-                )
-              else
-                Container(
-                  height: 180 * scale,
-                  color: isDark
-                      ? const Color(0xFF1E1E1E)
-                      : const Color(0xFFE5E5E5),
-                  child: Center(
-                    child: Icon(
-                      isVideo ? Icons.movie_rounded : Icons.image_rounded,
-                      color: isDark ? Colors.white38 : Colors.black38,
-                      size: 32 * scale,
-                    ),
-                  ),
                 ),
 
               if (isVideo)
                 Center(
+                  // widthFactor/heightFactor: 1 заставляют Center принять
+                  // размер своего ребёнка, а не растягиваться на весь
+                  // допустимый максимум Stack'а (что "раздувало" бейдж
+                  // VIDEO и оставляло пустое место над/под превью).
+                  widthFactor: 1,
+                  heightFactor: 1,
                   child: Container(
                     width: 48 * scale,
                     height: 48 * scale,
@@ -15795,6 +15774,742 @@ class _VideoRecordingPreviewState extends State<_VideoRecordingPreview>
                 ),
               );
             },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Полноценный видеоплеер со стандартными desktop-контролами. Небольшие MP4
+/// с API предварительно помещаются во временный кэш, остальные URL стримятся.
+class _FullVideoPlayer extends StatefulWidget {
+  final String videoUrl;
+  final String fileName;
+  final int fileSize;
+  final Map<String, String>? headers;
+
+  const _FullVideoPlayer({
+    super.key,
+    required this.videoUrl,
+    required this.fileName,
+    this.fileSize = 0,
+    this.headers,
+  });
+
+  @override
+  State<_FullVideoPlayer> createState() => _FullVideoPlayerState();
+}
+
+class _FullVideoPlayerState extends State<_FullVideoPlayer> {
+  static const _maxPrefetchBytes = 64 * 1024 * 1024;
+
+  Player? _player;
+  VideoController? _videoController;
+  bool _isLoading = true;
+  String? _error;
+  StreamSubscription? _errorSub;
+  CancelToken? _downloadCancelToken;
+  Dio? _downloadDio;
+  double? _downloadProgress;
+
+  @override
+  void initState() {
+    super.initState();
+    _init();
+  }
+
+  Future<void> _init() async {
+    try {
+      // MP4 от API может иметь moov-atom в конце. В таком случае libavformat
+      // до первого кадра делает как минимум три range-запроса (начало → конец
+      // → начало). Через системный HTTP/VPN-прокси каждый такой seek создаёт
+      // новое медленное соединение. Один последовательный download через Dio
+      // обходит сетевой стек ffmpeg; после него mpv работает с локальным
+      // файлом. Прямые CDN-ссылки по-прежнему стримятся без предзагрузки.
+      final playUrl = await _preparePlayUrl();
+      if (!mounted) return;
+
+      final player = Player(
+        configuration: const PlayerConfiguration(bufferSize: 32 * 1024 * 1024),
+      );
+      final controller = VideoController(player);
+
+      if (!mounted) {
+        player.dispose();
+        return;
+      }
+
+      _player = player;
+      _videoController = controller;
+
+      // Эти параметры нужны только для fallback на сеть. demuxer-lavf-o с
+      // HTTP-параметрами здесь намеренно не используется: в данной сборке
+      // ffmpeg они относятся не к demuxer'у и отвергаются как AVOption.
+      if (playUrl == widget.videoUrl) {
+        try {
+          final platform = player.platform as dynamic;
+          await platform.setProperty('cache', 'yes');
+          await platform.setProperty('cache-secs', '30');
+          await platform.setProperty('demuxer-max-bytes', '32MiB');
+          await platform.setProperty('demuxer-readahead-secs', '10');
+        } catch (_) {}
+      }
+
+      _errorSub = player.stream.error.listen((e) {
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+            _error = e.toString();
+          });
+        }
+      });
+
+      await player.setVolume(100.0);
+      // Open paused and start playback only once the Video widget below has
+      // actually mounted its texture — autoplaying inside open() races the
+      // native H/W video-output surface creation on Linux and can leave the
+      // decoder stuck right after the texture ID is assigned.
+      await player.open(
+        Media(
+          playUrl,
+          httpHeaders: playUrl == widget.videoUrl ? widget.headers : null,
+        ),
+        play: false,
+      );
+
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _player?.play();
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _error = e.toString();
+        });
+      }
+    }
+  }
+
+  bool get _isApiDownloadUrl {
+    try {
+      final videoUri = Uri.parse(widget.videoUrl);
+      final apiUri = Uri.parse(ApiService.baseUrl);
+      return videoUri.host == apiUri.host &&
+          videoUri.path.contains('/api/files/download/');
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<String> _preparePlayUrl() async {
+    if (!_isApiDownloadUrl || widget.fileSize > _maxPrefetchBytes) {
+      return widget.videoUrl;
+    }
+
+    File? partialFile;
+    try {
+      final uri = Uri.parse(widget.videoUrl);
+      final match = RegExp(r'/api/files/download/([^/]+)').firstMatch(uri.path);
+      final rawId = match?.group(1) ?? uri.pathSegments.last;
+      final safeId = rawId.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+      final cacheDir = Directory(
+        '${(await getTemporaryDirectory()).path}/xaneo_video_cache',
+      );
+      await cacheDir.create(recursive: true);
+
+      final cachedFile = File('${cacheDir.path}/$safeId.mp4');
+      if (await cachedFile.exists() && await cachedFile.length() > 0) {
+        return cachedFile.path;
+      }
+
+      partialFile = File('${cachedFile.path}.part');
+      if (await partialFile.exists()) await partialFile.delete();
+
+      final cancelToken = CancelToken();
+      final dio = Dio(
+        BaseOptions(
+          connectTimeout: const Duration(seconds: 15),
+          receiveTimeout: const Duration(minutes: 5),
+        ),
+      );
+      // В окружении пользователя HTTP(S)_PROXY указывает на локальный VPN.
+      // Для одного доверенного API-host делаем direct: это убирает лишний
+      // proxy RTT. При недоступном direct запрос упадёт и код ниже вернётся к
+      // обычному mpv streaming через системный proxy.
+      dio.httpClientAdapter = IOHttpClientAdapter(
+        createHttpClient: () {
+          final client = HttpClient();
+          client.findProxy = (_) => 'DIRECT';
+          return client;
+        },
+      );
+      _downloadCancelToken = cancelToken;
+      _downloadDio = dio;
+
+      final response = await dio.download(
+        widget.videoUrl,
+        partialFile.path,
+        cancelToken: cancelToken,
+        deleteOnError: true,
+        options: Options(
+          headers: {
+            ...?widget.headers,
+            // Не просим content-coding: сохранённый в S3 metadata
+            // `aws-chunked` несовместим с частью сборок libavformat.
+            'Accept-Encoding': 'identity',
+          },
+        ),
+        onReceiveProgress: (received, total) {
+          if (!mounted || total <= 0) return;
+          final progress = received / total;
+          if (_downloadProgress == null ||
+              (progress - _downloadProgress!).abs() >= 0.01) {
+            setState(() => _downloadProgress = progress);
+          }
+        },
+      );
+
+      if (response.statusCode != 200 || await partialFile.length() == 0) {
+        throw StateError('video download returned ${response.statusCode}');
+      }
+      await partialFile.rename(cachedFile.path);
+      return cachedFile.path;
+    } catch (_) {
+      if (partialFile != null && await partialFile.exists()) {
+        await partialFile.delete();
+      }
+      return widget.videoUrl;
+    } finally {
+      _downloadCancelToken = null;
+      _downloadDio?.close(force: true);
+      _downloadDio = null;
+      if (mounted) setState(() => _downloadProgress = null);
+    }
+  }
+
+  @override
+  void dispose() {
+    _downloadCancelToken?.cancel('video player disposed');
+    _downloadDio?.close(force: true);
+    _errorSub?.cancel();
+    _player?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_error != null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.error_outline_rounded,
+              color: Colors.white60,
+              size: 48,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              widget.fileName,
+              style: const TextStyle(color: Colors.white70),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Не удалось воспроизвести видео',
+              style: TextStyle(color: Colors.white38, fontSize: 12),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_isLoading || _videoController == null) {
+      final progress = _downloadProgress;
+      return Center(
+        child: CircularProgressIndicator(color: Colors.white, value: progress),
+      );
+    }
+
+    return Video(
+      controller: _videoController!,
+      controls: (videoState) =>
+          _XaneoVideoControls(player: _player!, videoState: videoState),
+    );
+  }
+}
+
+class _XaneoVideoControls extends StatefulWidget {
+  final Player player;
+  final VideoState videoState;
+
+  const _XaneoVideoControls({required this.player, required this.videoState});
+
+  @override
+  State<_XaneoVideoControls> createState() => _XaneoVideoControlsState();
+}
+
+class _XaneoVideoControlsState extends State<_XaneoVideoControls> {
+  static const _accent = Color(0xFFF2F2F2);
+
+  final FocusNode _focusNode = FocusNode(debugLabel: 'XaneoVideoControls');
+  final List<StreamSubscription<dynamic>> _subscriptions = [];
+  Timer? _hideTimer;
+
+  late Duration _position;
+  late Duration _duration;
+  late bool _playing;
+  late bool _buffering;
+  late double _volume;
+  bool _controlsVisible = true;
+  bool _isSeeking = false;
+  bool _isFullscreen = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final state = widget.player.state;
+    _position = state.position;
+    _duration = state.duration;
+    _playing = state.playing;
+    _buffering = state.buffering;
+    _volume = state.volume;
+    _isFullscreen = widget.videoState.isFullscreen();
+
+    _subscriptions.addAll([
+      widget.player.stream.position.listen((value) {
+        if (mounted && !_isSeeking) setState(() => _position = value);
+      }),
+      widget.player.stream.duration.listen((value) {
+        if (mounted) setState(() => _duration = value);
+      }),
+      widget.player.stream.playing.listen((value) {
+        if (!mounted) return;
+        setState(() {
+          _playing = value;
+          if (!value) _controlsVisible = true;
+        });
+        if (value) _scheduleHide();
+      }),
+      widget.player.stream.buffering.listen((value) {
+        if (mounted) setState(() => _buffering = value);
+      }),
+      widget.player.stream.volume.listen((value) {
+        if (mounted) setState(() => _volume = value);
+      }),
+    ]);
+    _scheduleHide();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focusNode.requestFocus();
+    });
+  }
+
+  @override
+  void dispose() {
+    _hideTimer?.cancel();
+    for (final subscription in _subscriptions) {
+      subscription.cancel();
+    }
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _showControls() {
+    if (!_controlsVisible && mounted) {
+      setState(() => _controlsVisible = true);
+    }
+    _scheduleHide();
+  }
+
+  void _scheduleHide() {
+    _hideTimer?.cancel();
+    if (!_playing || _isSeeking) return;
+    _hideTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted && _playing && !_isSeeking) {
+        setState(() => _controlsVisible = false);
+      }
+    });
+  }
+
+  Future<void> _togglePlayback() async {
+    _showControls();
+    await widget.player.playOrPause();
+  }
+
+  void _handleSurfaceTap() {
+    if (_controlsVisible) {
+      _togglePlayback();
+    } else {
+      _showControls();
+    }
+  }
+
+  Future<void> _seekRelative(Duration offset) async {
+    final target = _position + offset;
+    final upper = _duration > Duration.zero ? _duration : target;
+    await widget.player.seek(
+      target < Duration.zero
+          ? Duration.zero
+          : target > upper
+          ? upper
+          : target,
+    );
+    _showControls();
+  }
+
+  Future<void> _toggleMute() async {
+    await widget.player.setVolume(_volume <= 0 ? 80 : 0);
+    _showControls();
+  }
+
+  Future<void> _toggleFullscreen() async {
+    _showControls();
+    await widget.videoState.toggleFullscreen();
+    if (mounted) {
+      setState(() => _isFullscreen = widget.videoState.isFullscreen());
+    }
+  }
+
+  KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    if (event.logicalKey == LogicalKeyboardKey.space) {
+      _togglePlayback();
+    } else if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+      _seekRelative(const Duration(seconds: -5));
+    } else if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+      _seekRelative(const Duration(seconds: 5));
+    } else if (event.logicalKey == LogicalKeyboardKey.keyM) {
+      _toggleMute();
+    } else if (event.logicalKey == LogicalKeyboardKey.keyF) {
+      _toggleFullscreen();
+    } else {
+      return KeyEventResult.ignored;
+    }
+    return KeyEventResult.handled;
+  }
+
+  String _formatDuration(Duration duration) {
+    final totalSeconds = duration.inSeconds.clamp(0, 359999);
+    final hours = totalSeconds ~/ 3600;
+    final minutes = (totalSeconds % 3600) ~/ 60;
+    final seconds = totalSeconds % 60;
+    if (hours > 0) {
+      return '$hours:${minutes.toString().padLeft(2, '0')}:'
+          '${seconds.toString().padLeft(2, '0')}';
+    }
+    return '$minutes:${seconds.toString().padLeft(2, '0')}';
+  }
+
+  Widget _controlButton({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback onPressed,
+    double size = 21,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      waitDuration: const Duration(milliseconds: 450),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(12),
+          hoverColor: Colors.white.withValues(alpha: 0.12),
+          child: SizedBox(
+            width: 34,
+            height: 34,
+            child: Icon(icon, color: Colors.white, size: size),
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final durationMs = max(1, _duration.inMilliseconds).toDouble();
+    final positionMs = _position.inMilliseconds
+        .clamp(0, durationMs.toInt())
+        .toDouble();
+
+    return Focus(
+      focusNode: _focusNode,
+      onKeyEvent: _handleKeyEvent,
+      child: MouseRegion(
+        cursor: _controlsVisible
+            ? SystemMouseCursors.basic
+            : SystemMouseCursors.none,
+        onHover: (_) => _showControls(),
+        onExit: (_) => _scheduleHide(),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: _handleSurfaceTap,
+          onDoubleTap: _toggleFullscreen,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              IgnorePointer(
+                ignoring: !_controlsVisible,
+                child: AnimatedOpacity(
+                  opacity: _controlsVisible ? 1 : 0,
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOutCubic,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      const DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.transparent,
+                              Colors.transparent,
+                              Color(0xE6000000),
+                            ],
+                            stops: [0, 0.62, 1],
+                          ),
+                        ),
+                      ),
+                      if (!_buffering)
+                        Center(
+                          child: AnimatedScale(
+                            scale: _controlsVisible ? 1 : 0.86,
+                            duration: const Duration(milliseconds: 220),
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: _togglePlayback,
+                                customBorder: const CircleBorder(),
+                                child: Ink(
+                                  width: 68,
+                                  height: 68,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    gradient: const LinearGradient(
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                      colors: [
+                                        Color(0xF2252525),
+                                        Color(0xFA080808),
+                                      ],
+                                    ),
+                                    border: Border.all(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.62,
+                                      ),
+                                    ),
+                                    boxShadow: const [
+                                      BoxShadow(
+                                        color: Color(0x38FFFFFF),
+                                        blurRadius: 24,
+                                        spreadRadius: 1,
+                                      ),
+                                    ],
+                                  ),
+                                  child: Icon(
+                                    _playing
+                                        ? Icons.pause_rounded
+                                        : Icons.play_arrow_rounded,
+                                    color: Colors.white,
+                                    size: 38,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      Positioned(
+                        left: 12,
+                        right: 12,
+                        bottom: 10,
+                        child: Center(
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 640),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(14),
+                              child: BackdropFilter(
+                                filter: ImageFilter.blur(
+                                  sigmaX: 16,
+                                  sigmaY: 16,
+                                ),
+                                child: Container(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    10,
+                                    3,
+                                    6,
+                                    4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xCC090909),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.12,
+                                      ),
+                                    ),
+                                  ),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      SizedBox(
+                                        height: 24,
+                                        child: SliderTheme(
+                                          data: SliderTheme.of(context).copyWith(
+                                            trackHeight: 2.5,
+                                            activeTrackColor: _accent,
+                                            inactiveTrackColor: Colors.white24,
+                                            thumbColor: Colors.white,
+                                            overlayColor: _accent.withValues(
+                                              alpha: 0.18,
+                                            ),
+                                            thumbShape:
+                                                const RoundSliderThumbShape(
+                                                  enabledThumbRadius: 5,
+                                                ),
+                                            overlayShape:
+                                                const RoundSliderOverlayShape(
+                                                  overlayRadius: 13,
+                                                ),
+                                          ),
+                                          child: Slider(
+                                            min: 0,
+                                            max: durationMs,
+                                            value: positionMs,
+                                            onChangeStart: (_) {
+                                              _hideTimer?.cancel();
+                                              setState(() => _isSeeking = true);
+                                            },
+                                            onChanged: (value) {
+                                              setState(
+                                                () => _position = Duration(
+                                                  milliseconds: value.round(),
+                                                ),
+                                              );
+                                            },
+                                            onChangeEnd: (value) {
+                                              widget.player.seek(
+                                                Duration(
+                                                  milliseconds: value.round(),
+                                                ),
+                                              );
+                                              setState(
+                                                () => _isSeeking = false,
+                                              );
+                                              _scheduleHide();
+                                            },
+                                          ),
+                                        ),
+                                      ),
+                                      Row(
+                                        children: [
+                                          _controlButton(
+                                            icon: _playing
+                                                ? Icons.pause_rounded
+                                                : Icons.play_arrow_rounded,
+                                            tooltip: _playing
+                                                ? 'Пауза'
+                                                : 'Играть',
+                                            onPressed: _togglePlayback,
+                                          ),
+                                          const SizedBox(width: 2),
+                                          Text(
+                                            '${_formatDuration(_position)}  /  '
+                                            '${_formatDuration(_duration)}',
+                                            style: const TextStyle(
+                                              color: Colors.white70,
+                                              fontFamily: 'Inter',
+                                              fontSize: 11,
+                                              fontFeatures: [
+                                                FontFeature.tabularFigures(),
+                                              ],
+                                            ),
+                                          ),
+                                          const Spacer(),
+                                          _controlButton(
+                                            icon: _volume <= 0
+                                                ? Icons.volume_off_rounded
+                                                : _volume < 50
+                                                ? Icons.volume_down_rounded
+                                                : Icons.volume_up_rounded,
+                                            tooltip: _volume <= 0
+                                                ? 'Включить звук'
+                                                : 'Выключить звук',
+                                            onPressed: _toggleMute,
+                                          ),
+                                          SizedBox(
+                                            width: 64,
+                                            child: SliderTheme(
+                                              data: SliderTheme.of(context).copyWith(
+                                                trackHeight: 2,
+                                                activeTrackColor: Colors.white,
+                                                inactiveTrackColor:
+                                                    Colors.white24,
+                                                thumbColor: Colors.white,
+                                                overlayColor: _accent
+                                                    .withValues(alpha: 0.15),
+                                                thumbShape:
+                                                    const RoundSliderThumbShape(
+                                                      enabledThumbRadius: 4,
+                                                    ),
+                                                overlayShape:
+                                                    const RoundSliderOverlayShape(
+                                                      overlayRadius: 12,
+                                                    ),
+                                              ),
+                                              child: Slider(
+                                                min: 0,
+                                                max: 100,
+                                                value: _volume.clamp(0, 100),
+                                                onChanged:
+                                                    widget.player.setVolume,
+                                              ),
+                                            ),
+                                          ),
+                                          _controlButton(
+                                            icon: _isFullscreen
+                                                ? Icons.fullscreen_exit_rounded
+                                                : Icons.fullscreen_rounded,
+                                            tooltip: _isFullscreen
+                                                ? 'Выйти из полноэкранного режима'
+                                                : 'На весь экран',
+                                            onPressed: _toggleFullscreen,
+                                            size: 23,
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              if (_buffering)
+                const IgnorePointer(
+                  child: Center(
+                    child: SizedBox(
+                      width: 32,
+                      height: 32,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                        strokeWidth: 2.5,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
           ),
         ),
       ),

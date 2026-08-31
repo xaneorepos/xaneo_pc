@@ -46,8 +46,7 @@ class DesktopMediaSessionService {
       _dbusClient = DBusClient.session();
       _mprisObject = _XaneoMprisObject(this);
       await _dbusClient!.registerObject(_mprisObject!);
-      final res = await _dbusClient!.requestName('org.mpris.MediaPlayer2.xaneo');
-      debugPrint('🎵 [MPRIS] DBus registered on org.mpris.MediaPlayer2.xaneo: $res');
+      await _dbusClient!.requestName('org.mpris.MediaPlayer2.xaneo');
     } catch (e) {
       debugPrint('❌ [MPRIS] Failed to initialize MPRIS on Linux: $e');
     }

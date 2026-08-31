@@ -53,6 +53,8 @@ dependencies:
   # Image picker for avatar selection
   image_picker: ^1.0.7
   file_picker: ^11.0.2
+  # Client-side image resize/compression before sending as a chat photo
+  image: ^4.3.0
   
   # URL launcher for opening links
   url_launcher: ^6.1.10

@@ -1683,6 +1683,45 @@ class ApiService {
     }
   }
 
+  /// Нажатие на inline-кнопку бота под сообщением (callback_data-кнопка).
+  /// Эндпоинт живёт под /api/bots/, а не /api/v1/ — отрезаем /v1 как в getLiveKitToken.
+  Future<ApiResponse> activateBotCallback(int messageId, String buttonId) async {
+    try {
+      final options = await _getAuthOptions();
+      final baseUrlWithoutV1 = _baseUrl.replaceAll('/v1', '');
+      final response = await _dio.post(
+        '$baseUrlWithoutV1/bots/callbacks/activate/',
+        options: options,
+        data: {'message_id': messageId, 'button_id': buttonId},
+      );
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(
+        success: false,
+        error: 'Не удалось выполнить действие: $e',
+      );
+    }
+  }
+
+  /// Список зарегистрированных команд бота для меню рядом с полем ввода.
+  Future<ApiResponse> getBotCommands(String username) async {
+    try {
+      final options = await _getAuthOptions();
+      final baseUrlWithoutV1 = _baseUrl.replaceAll('/v1', '');
+      final encodedUsername = Uri.encodeComponent(username);
+      final response = await _dio.get(
+        '$baseUrlWithoutV1/bots/$encodedUsername/commands/',
+        options: options,
+      );
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(
+        success: false,
+        error: 'Не удалось загрузить команды бота: $e',
+      );
+    }
+  }
+
   /// Создать новый канал (POST /api/v1/channels/create/)
   Future<ApiResponse> createChannel({
     required String name,

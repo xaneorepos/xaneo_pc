@@ -3,7 +3,9 @@ import 'dart:io';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
+import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
+import 'package:image/image.dart' as img_lib;
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import 'package:record/record.dart';
@@ -44,6 +46,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import '../widgets/custom_toast.dart';
 import '../widgets/custom_context_menu.dart';
 import '../widgets/chat_action_confirmation_modal.dart';
+import '../widgets/compress_image_modal.dart';
 import '../widgets/device_auth_approval_modal.dart';
 import '../utils/local_proxy.dart';
 import '../services/webrtc/call_manager.dart';
@@ -70,10 +73,12 @@ class _MessengerScreenState extends State<MessengerScreen> {
   final GlobalKey<SettingsButtonState> _settingsKey =
       GlobalKey<SettingsButtonState>();
   final GlobalKey _attachmentKey = GlobalKey();
+  final GlobalKey _botCommandsKey = GlobalKey();
   Map<String, dynamic>? _attachedFile;
   final Map<String, Map<String, dynamic>> _fileMetadataCache = {};
   final Set<String> _fetchingFileMetadata = {};
-
+  final Map<String, List<Map<String, String>>> _botCommandsCache = {};
+  List<Map<String, String>> _currentBotCommands = const [];
   List<dynamic> _chats = [];
   List<dynamic> _archivedChats = [];
   bool _viewingArchive = false;
@@ -556,12 +561,6 @@ class _MessengerScreenState extends State<MessengerScreen> {
         }
       }
     }
-    Logger.info(
-      'E2EE-DIAG',
-      'Messenger crypto initialized: hasKeys=${_cryptoService.hasKeys}, '
-          'publicFp=${_cryptoService.x25519PublicKeyFingerprint}',
-    );
-
     // 2. Load profile & save current account to switcher list
     final token = await _apiService.getAccessToken();
     final profileRes = await _apiService.getProfile();
@@ -1556,7 +1555,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
               } else {
                 _messages.insert(0, data);
                 _messagesToAnimate.add(msgId);
-                _scrollToBottom();
+                _scrollToBottom(animate: !_hasBotInlineKeyboard(data));
               }
               final chatIndex = _chats.indexWhere(
                 (c) => _areSameChat(c['chat_id']?.toString(), msgChatId),
@@ -2869,11 +2868,6 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
     if (res.success && res.data != null) {
       final rawList = res.data!['results'] as List? ?? [];
-      Logger.info(
-        'E2EE-DIAG',
-        'Messages loaded from API: chat=$chatId, count=${rawList.length}, '
-            'responseFields=${res.data!.keys.toList()}',
-      );
       final msgList = rawList
           .where((m) => m is Map<String, dynamic> && !_isMessageDeleted(m))
           .cast<Map<String, dynamic>>()
@@ -3032,11 +3026,6 @@ class _MessengerScreenState extends State<MessengerScreen> {
           cachedKey == myPubKeyHex) {
         _peerPublicKeys.remove(targetUserIdStr);
       } else {
-        Logger.info(
-          'E2EE-DIAG',
-          'Peer key selected from cache: chat=$chatId, myId=$myIdStr, '
-              'peerId=$targetUserIdStr, keyPrefix=${cachedKey == null || cachedKey.length < 12 ? 'missing' : cachedKey.substring(0, 12)}',
-        );
         return cachedKey;
       }
     }
@@ -3048,12 +3037,6 @@ class _MessengerScreenState extends State<MessengerScreen> {
         ? peerUsername
         : targetUserIdStr;
     final res = await _apiService.getUserPublicKey(lookup);
-    Logger.info(
-      'E2EE-DIAG',
-      'Peer key API response: chat=$chatId, myId=$myIdStr, '
-          'peerId=$targetUserIdStr, lookup=$lookup, success=${res.success}, '
-          'status=${res.statusCode}, fields=${res.data?.keys.toList()}',
-    );
     if (res.success && res.data != null) {
       if (res.data!['is_bot'] == true) {
         _peerPublicKeys[targetUserIdStr] = 'bot';
@@ -3062,12 +3045,6 @@ class _MessengerScreenState extends State<MessengerScreen> {
       }
       final key = res.data!['x25519_public_key'] as String?;
       if (key != null) {
-        Logger.info(
-          'E2EE-DIAG',
-          'Peer key received: chat=$chatId, peerId=$targetUserIdStr, '
-              'keyPrefix=${key.length < 12 ? 'invalid-length-${key.length}' : key.substring(0, 12)}, '
-              'matchesOwn=${myPubKeyHex != null && key == myPubKeyHex}',
-        );
         if (myPubKeyHex != null && key == myPubKeyHex) {
           print(
             "WARNING: API returned own public key for peer $targetUserIdStr",
@@ -3137,11 +3114,6 @@ class _MessengerScreenState extends State<MessengerScreen> {
     Map<String, dynamic>? otherUser,
   ) async {
     final looksEncrypted = _isBase64(encryptedText);
-    Logger.info(
-      'E2EE-DIAG',
-      'Decrypt dispatch: chat=$chatId, inputChars=${encryptedText.length}, '
-          'isBase64=$looksEncrypted, hasKeys=${_cryptoService.hasKeys}',
-    );
     if (!looksEncrypted) {
       Logger.warning(
         'E2EE-DIAG',
@@ -3488,18 +3460,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
       String decrypted;
       try {
-        Logger.info(
-          'E2EE-DIAG',
-          'Decrypting message: chat=$chatId, messageId=$id, '
-              'author=${msg['author_id'] ?? msg['sender_id']}, '
-              'inputChars=${encryptedText.length}, isBase64=${_isBase64(encryptedText)}',
-        );
         decrypted = await _decryptForChat(encryptedText, chatId, otherUser);
-        Logger.info(
-          'E2EE-DIAG',
-          'Message decrypt result: chat=$chatId, messageId=$id, '
-              'success=${decrypted != '[Ошибка дешифрования]' && !decrypted.contains('Ошибка дешифрования')}',
-        );
       } catch (error, stackTrace) {
         Logger.error(
           'E2EE-DIAG',
@@ -3555,9 +3516,14 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
     String plaintextToEncrypt = text;
     String? fileIdToSend;
+    final attachedFile = _attachedFile == null
+        ? null
+        : Map<String, dynamic>.from(_attachedFile!);
+    final bool attachedIsCompressedImage =
+        attachedFile?['send_as_image'] == true;
 
-    if (_attachedFile != null) {
-      fileIdToSend = _attachedFile!['file_id'] as String;
+    if (attachedFile != null) {
+      fileIdToSend = attachedFile['file_id'] as String;
       if (text.isEmpty) {
         plaintextToEncrypt = '';
       }
@@ -3654,7 +3620,14 @@ class _MessengerScreenState extends State<MessengerScreen> {
       sentViaWs = _webSocketService!.sendMessage({
         'type': 'encrypted_message',
         'encrypted_text': encryptedText,
-        if (fileIdToSend != null) 'file_id': fileIdToSend,
+        // Сжатое фото уходит как картинка (images-массив, как на вебе), иначе —
+        // как обычное файловое вложение (file_id).
+        if (fileIdToSend != null && attachedIsCompressedImage)
+          'images': [
+            {'file_id': fileIdToSend},
+          ],
+        if (fileIdToSend != null && !attachedIsCompressedImage)
+          'file_id': fileIdToSend,
         if (replyToId != null) 'reply_to_id': replyToId,
       });
     }
@@ -3675,6 +3648,22 @@ class _MessengerScreenState extends State<MessengerScreen> {
         'reply_text': _replyingToMessage?['reply_text'],
         'is_read': false,
         'chat_id': chatId,
+        if (attachedFile != null) ...{
+          'file_id': fileIdToSend,
+          'attached_file_id': fileIdToSend,
+          'attached_file_name': attachedFile['file_name'],
+          'attached_file_size': attachedFile['file_size'] ?? 0,
+          'attached_file_type': attachedFile['file_type'],
+          if (attachedIsCompressedImage)
+            'images': [
+              {
+                'file_id': fileIdToSend,
+                'file_name': attachedFile['file_name'],
+                'file_size': attachedFile['file_size'] ?? 0,
+                'mime_type': attachedFile['file_type'],
+              },
+            ],
+        },
       };
 
       _decryptedMessages[tempId] = plaintextToEncrypt;
@@ -3732,14 +3721,18 @@ class _MessengerScreenState extends State<MessengerScreen> {
     }
   }
 
-  void _scrollToBottom() {
+  void _scrollToBottom({bool animate = true}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) {
-        _scrollController.animateTo(
-          0.0,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        );
+        if (animate) {
+          _scrollController.animateTo(
+            0.0,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOut,
+          );
+        } else {
+          _scrollController.jumpTo(0.0);
+        }
       }
     });
   }
@@ -3948,12 +3941,107 @@ class _MessengerScreenState extends State<MessengerScreen> {
       _messagesToAnimate.clear();
       _isMessagesLoading = true;
     });
+    _loadBotCommandsForChat(fullChat);
     if (chatId == null || chatId.isEmpty) return;
     _loadMessages(chatId);
     _connectWebSocket(chatId);
     _markChatAsRead(chatId);
     _scrollToBottom();
     _prefetchUserProfile(chat);
+  }
+
+  String? _botUsernameForChat(Map<String, dynamic>? chat) {
+    if (chat == null || chat['chat_type'] != 'personal') return null;
+    final otherUser = chat['other_user'] as Map<String, dynamic>?;
+    if (otherUser == null) return null;
+    final username = otherUser['username']?.toString().trim() ?? '';
+    if (username.isEmpty) return null;
+    final normalized = username.toLowerCase();
+    final isBot = otherUser['is_bot'] == true ||
+        otherUser['bot'] == true ||
+        normalized == 'bot_constructor' ||
+        normalized.startsWith('bot_') ||
+        normalized.endsWith('bot');
+    return isBot ? username : null;
+  }
+
+  Future<void> _loadBotCommandsForChat(Map<String, dynamic> chat) async {
+    final username = _botUsernameForChat(chat);
+    if (username == null) {
+      if (mounted && _currentBotCommands.isNotEmpty) {
+        setState(() => _currentBotCommands = const []);
+      }
+      return;
+    }
+
+    final cached = _botCommandsCache[username];
+    if (cached != null) {
+      if (mounted && _botUsernameForChat(_selectedChat) == username) {
+        setState(() => _currentBotCommands = cached);
+      }
+      return;
+    }
+
+    if (mounted &&
+        _botUsernameForChat(_selectedChat) == username &&
+        _currentBotCommands.isNotEmpty) {
+      setState(() => _currentBotCommands = const []);
+    }
+
+    final response = await _apiService.getBotCommands(username);
+    if (!response.success) return;
+    final rawCommands = response.data?['result'];
+    final commands = rawCommands is List
+        ? rawCommands.whereType<Map>().map((item) {
+            return {
+              'command': item['command']?.toString() ?? '',
+              'description': item['description']?.toString() ?? '',
+            };
+          }).where((item) => item['command']!.isNotEmpty).toList()
+        : <Map<String, String>>[];
+    _botCommandsCache[username] = commands;
+
+    if (mounted && _botUsernameForChat(_selectedChat) == username) {
+      setState(() => _currentBotCommands = commands);
+    }
+  }
+
+  void _sendBotCommand(String command) {
+    _messageController.text = '/$command';
+    _messageController.selection = TextSelection.collapsed(
+      offset: _messageController.text.length,
+    );
+    _showSendButton = true;
+    _sendMessage();
+  }
+
+  void _showBotCommandsMenu(double scale) {
+    final renderBox =
+        _botCommandsKey.currentContext?.findRenderObject() as RenderBox?;
+    if (renderBox == null || _currentBotCommands.isEmpty) return;
+    final position = renderBox.localToGlobal(Offset.zero);
+    final menuHeight = min(
+          _currentBotCommands.fold<double>(8, (height, command) {
+            final description = command['description']?.trim() ?? '';
+            return height + (description.isEmpty ? 44 : 64);
+          }),
+          320.0,
+        ) *
+        scale;
+
+    CustomContextMenu.show(
+      context: context,
+      position: Offset(position.dx - 80 * scale, position.dy - menuHeight),
+      items: _currentBotCommands.map((command) {
+        final name = command['command'] ?? '';
+        final description = command['description'] ?? '';
+        return CustomContextMenuItem(
+          label: '/$name',
+          subtitle: description.isEmpty ? null : description,
+          onTap: () => _sendBotCommand(name),
+        );
+      }).toList(),
+    );
   }
 
   /// Заранее подгружает профиль собеседника (для личных чатов), чтобы модалка
@@ -4054,6 +4142,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
         'first_name': displayName,
         'avatar_url': user['avatar_url'] ?? user['avatar'],
         'avatar_gradient': user['avatar_gradient'] ?? '',
+        'is_bot': user['is_bot'] == true || user['bot'] == true,
       },
     };
 
@@ -4066,6 +4155,8 @@ class _MessengerScreenState extends State<MessengerScreen> {
       _messagesToAnimate.clear();
       _isMessagesLoading = true;
     });
+
+    _loadBotCommandsForChat(newChat);
 
     _loadMessages(chatId);
     _connectWebSocket(chatId);
@@ -7998,6 +8089,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                             : int.tryParse(rawId.toString());
                         final isNewMessage =
                             msgId != null && _messagesToAnimate.contains(msgId);
+                        final hasInlineKeyboard = _hasBotInlineKeyboard(msg);
 
                         bool showDateDivider = false;
                         String? dateDividerText;
@@ -8022,6 +8114,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                         final bubbleWidget = NewMessageAnimator(
                           key: ValueKey('anim_${msgId ?? index}'),
                           animate: isNewMessage,
+                          animateSize: !hasInlineKeyboard,
                           onStartAnimating: isNewMessage
                               ? () {
                                   if (msgId != null) {
@@ -8836,6 +8929,69 @@ class _MessengerScreenState extends State<MessengerScreen> {
         isReplyFieldValid(msg['reply_to']) ||
         isReplyFieldValid(msg['reply_text']);
     final mediaItems = _getMediaItemsFromMsg(msg, customPayload);
+    final trimmedText = decryptedText.trim();
+    final hasMediaCaption =
+        trimmedText.isNotEmpty && !trimmedText.startsWith('{');
+    final isOnlyMedia =
+        mediaItems.isNotEmpty && !hasMediaCaption && !hasReply;
+
+    Widget buildTimestampWidget({bool overlay = false}) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            timeStr,
+            style: TextStyle(
+              color: overlay
+                  ? Colors.white
+                  : ((isMe && !isChannel) ? Colors.white60 : Colors.grey),
+              fontSize: 10,
+            ),
+          ),
+          if (isMe && !isChannel && customPayload?['type'] != 'call') ...[
+            const SizedBox(width: 4),
+            Builder(
+              builder: (context) {
+                final isPending =
+                    msg['is_pending'] == true ||
+                    msg['id'].toString().startsWith('temp_');
+                final isRead =
+                    msg['is_read'] == true ||
+                    msg['is_read_by_recipient'] == true;
+                return FaIcon(
+                  isPending
+                      ? FontAwesomeIcons.clock
+                      : (isRead
+                            ? FontAwesomeIcons.checkDouble
+                            : FontAwesomeIcons.check),
+                  size: 10 * scale,
+                  color: isPending
+                      ? (overlay
+                            ? Colors.white70
+                            : (isDark ? Colors.white38 : Colors.black38))
+                      : (isRead
+                            ? const Color(0xFF4ADE80)
+                            : (overlay
+                                  ? Colors.white
+                                  : (isDark
+                                        ? Colors.white60
+                                        : Colors.black54))),
+                );
+              },
+            ),
+          ] else if (customPayload?['type'] != 'call') ...[
+            const SizedBox(width: 4),
+            FaIcon(
+              FontAwesomeIcons.lock,
+              size: 9 * scale,
+              color: overlay
+                  ? Colors.white70
+                  : (isMe ? Colors.white60 : Colors.grey),
+            ),
+          ],
+        ],
+      );
+    }
 
     final bubbleContent = GestureDetector(
       onTap: () {
@@ -8847,45 +9003,53 @@ class _MessengerScreenState extends State<MessengerScreen> {
           _showMessageContextMenu(msg, details.globalPosition, scale, isDark),
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        padding: isOnlyMedia
+            ? EdgeInsets.zero
+            : const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
         constraints: BoxConstraints(
           maxWidth: min(
             520.0 * scale,
             MediaQuery.of(context).size.width * 0.65,
           ),
         ),
-        decoration: BoxDecoration(
-          gradient: (isMe && !isChannel)
-              ? const LinearGradient(
-                  colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                )
-              : LinearGradient(
-                  colors: isDark
-                      ? [
-                          Colors.white.withOpacity(0.08),
-                          Colors.white.withOpacity(0.12),
-                        ]
-                      : [
-                          Colors.black.withOpacity(0.03),
-                          Colors.black.withOpacity(0.06),
-                        ],
+        decoration: isOnlyMedia
+            ? null
+            : BoxDecoration(
+                gradient: (isMe && !isChannel)
+                    ? const LinearGradient(
+                        colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      )
+                    : LinearGradient(
+                        colors: isDark
+                            ? [
+                                Colors.white.withOpacity(0.08),
+                                Colors.white.withOpacity(0.12),
+                              ]
+                            : [
+                                Colors.black.withOpacity(0.03),
+                                Colors.black.withOpacity(0.06),
+                              ],
+                      ),
+                borderRadius: BorderRadius.only(
+                  topLeft: const Radius.circular(16),
+                  topRight: const Radius.circular(16),
+                  bottomLeft: Radius.circular(
+                    (isMe && !isChannel) ? 16 : 2,
+                  ),
+                  bottomRight: Radius.circular(
+                    (isMe && !isChannel) ? 2 : 16,
+                  ),
                 ),
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(16),
-            topRight: const Radius.circular(16),
-            bottomLeft: Radius.circular((isMe && !isChannel) ? 16 : 2),
-            bottomRight: Radius.circular((isMe && !isChannel) ? 2 : 16),
-          ),
-          border: Border.all(
-            color: (isMe && !isChannel)
-                ? Colors.transparent
-                : (isDark
-                      ? Colors.white.withOpacity(0.1)
-                      : Colors.black.withOpacity(0.05)),
-          ),
-        ),
+                border: Border.all(
+                  color: (isMe && !isChannel)
+                      ? Colors.transparent
+                      : (isDark
+                            ? Colors.white.withOpacity(0.1)
+                            : Colors.black.withOpacity(0.05)),
+                ),
+              ),
         child: IntrinsicWidth(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -8908,7 +9072,34 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
               // Decrypted Plaintext or Media Collage / Attachments
               if (mediaItems.isNotEmpty) ...[
-                _buildMediaCollageWidget(mediaItems, isMe, isDark, scale),
+                if (isOnlyMedia)
+                  Stack(
+                    children: [
+                      _buildMediaCollageWidget(
+                        mediaItems,
+                        isMe,
+                        isDark,
+                        scale,
+                      ),
+                      Positioned(
+                        right: 8 * scale,
+                        bottom: 8 * scale,
+                        child: Container(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: 6 * scale,
+                            vertical: 3 * scale,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.52),
+                            borderRadius: BorderRadius.circular(10 * scale),
+                          ),
+                          child: buildTimestampWidget(overlay: true),
+                        ),
+                      ),
+                    ],
+                  )
+                else
+                  _buildMediaCollageWidget(mediaItems, isMe, isDark, scale),
                 if (decryptedText.trim().isNotEmpty &&
                     !decryptedText.trim().startsWith('{')) ...[
                   const SizedBox(height: 8),
@@ -9079,97 +9270,63 @@ class _MessengerScreenState extends State<MessengerScreen> {
                   ),
                 ),
 
-              const SizedBox(height: 4),
+              if (!isOnlyMedia ||
+                  (msg['reactions'] != null &&
+                      (msg['reactions'] as List).isNotEmpty))
+                const SizedBox(height: 4),
               // Reactions and Timestamp/Status
-              Builder(
-                builder: (context) {
-                  final hasReactions =
-                      msg['reactions'] != null &&
-                      (msg['reactions'] as List).isNotEmpty;
-                  final timestampWidget = Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        timeStr,
-                        style: TextStyle(
-                          color: (isMe && !isChannel)
-                              ? Colors.white60
-                              : Colors.grey,
-                          fontSize: 10,
-                        ),
-                      ),
-                      if (isMe &&
-                          !isChannel &&
-                          customPayload?['type'] != 'call') ...[
-                        const SizedBox(width: 4),
-                        Builder(
-                          builder: (context) {
-                            final isPending =
-                                msg['is_pending'] == true ||
-                                msg['id'].toString().startsWith('temp_');
-                            final isRead =
-                                msg['is_read'] == true ||
-                                msg['is_read_by_recipient'] == true;
-                            return FaIcon(
-                              isPending
-                                  ? FontAwesomeIcons.clock
-                                  : (isRead
-                                        ? FontAwesomeIcons.checkDouble
-                                        : FontAwesomeIcons.check),
-                              size: 10 * scale,
-                              color: isPending
-                                  ? (isDark ? Colors.white38 : Colors.black38)
-                                  : (isRead
-                                        ? const Color(0xFF4ADE80)
-                                        : (isDark
-                                              ? Colors.white60
-                                              : Colors.black54)),
-                            );
-                          },
-                        ),
-                      ] else if (customPayload?['type'] != 'call') ...[
-                        const SizedBox(width: 4),
-                        FaIcon(
-                          FontAwesomeIcons.lock,
-                          size: 9 * scale,
-                          color: isMe ? Colors.white60 : Colors.grey,
-                        ),
-                      ],
-                    ],
-                  );
+              if (!isOnlyMedia ||
+                  (msg['reactions'] != null &&
+                      (msg['reactions'] as List).isNotEmpty))
+                Builder(
+                  builder: (context) {
+                    final hasReactions =
+                        msg['reactions'] != null &&
+                        (msg['reactions'] as List).isNotEmpty;
+                    final timestampWidget = buildTimestampWidget();
 
-                  if (hasReactions) {
-                    return Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        Flexible(
-                          child: _buildReactionsRow(msg, isMe, isDark, scale),
-                        ),
-                        const SizedBox(width: 8),
-                        timestampWidget,
-                      ],
+                    if (hasReactions) {
+                      return Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Flexible(
+                            child: _buildReactionsRow(
+                              msg,
+                              isMe,
+                              isDark,
+                              scale,
+                            ),
+                          ),
+                          if (!isOnlyMedia) ...[
+                            const SizedBox(width: 8),
+                            timestampWidget,
+                          ],
+                        ],
+                      );
+                    }
+
+                    return Align(
+                      alignment: Alignment.centerRight,
+                      child: timestampWidget,
                     );
-                  }
-
-                  return Align(
-                    alignment: Alignment.centerRight,
-                    child: timestampWidget,
-                  );
-                },
-              ),
+                  },
+                ),
             ],
           ),
         ),
       ),
     );
 
+    final bubbleWithKeyboard =
+        _wrapBubbleWithKeyboard(bubbleContent, msg, isMe, isDark, scale);
+
     if (isChannel) {
       return Align(
         alignment: Alignment.centerLeft,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 8),
-          child: bubbleContent,
+          child: bubbleWithKeyboard,
         ),
       );
     }
@@ -9194,7 +9351,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                     msg['username']?.toString(),
               ),
               const SizedBox(width: 6),
-              bubbleContent,
+              bubbleWithKeyboard,
             ],
           ),
         ),
@@ -9205,8 +9362,43 @@ class _MessengerScreenState extends State<MessengerScreen> {
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 8),
-        child: bubbleContent,
+        child: bubbleWithKeyboard,
       ),
+    );
+  }
+
+  /// Ставит inline-клавиатуру бота ПОД баблом сообщения (отдельным блоком,
+  /// а не внутри декорированного контейнера самого бабла) — как в вебе,
+  /// где .bot-inline-keyboard — сиблинг .message-content, а не его часть.
+  Widget _wrapBubbleWithKeyboard(
+    Widget bubble,
+    Map<String, dynamic> msg,
+    bool isMe,
+    bool isDark,
+    double scale,
+  ) {
+    if (!_hasBotInlineKeyboard(msg)) return bubble;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment:
+          isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      children: [
+        bubble,
+        ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: min(
+              320.0 * scale,
+              MediaQuery.of(context).size.width * 0.55,
+            ),
+          ),
+          child: _BotInlineKeyboard(
+            message: msg,
+            scale: scale,
+            onButtonTap: _handleBotInlineButtonTap,
+          ),
+        ),
+      ],
     );
   }
 
@@ -9361,6 +9553,66 @@ class _MessengerScreenState extends State<MessengerScreen> {
       scale,
       isDark,
       avatarGradient: avatarGradient,
+    );
+  }
+
+  // ==================== BOT INLINE KEYBOARD ====================
+
+  bool _hasBotInlineKeyboard(Map<String, dynamic> msg) {
+    final messageData = msg['message_data'] as Map<String, dynamic>?;
+    final replyMarkup = messageData?['reply_markup'] as Map<String, dynamic>?;
+    final rawRows = replyMarkup?['inline_keyboard'] as List?;
+    return rawRows != null && rawRows.any((row) => row is List && row.isNotEmpty);
+  }
+
+  Future<void> _handleBotInlineButtonTap(
+    Map<String, dynamic> item,
+    int messageId,
+    String buttonId,
+    String? action,
+  ) async {
+    if (action == 'url') {
+      final urlStr = item['url']?.toString();
+      Uri? uri;
+      if (urlStr != null) {
+        try {
+          uri = Uri.parse(urlStr);
+        } catch (_) {
+          uri = null;
+        }
+      }
+      if (uri == null || uri.scheme != 'https') {
+        _showBotButtonError('Ссылка недоступна');
+        return;
+      }
+      final confirmed = await ChatActionConfirmationModal.confirm(
+        context: context,
+        title: 'Перейти по ссылке?',
+        message: uri.host,
+        confirmLabel: 'Перейти',
+      );
+      if (confirmed) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+      return;
+    }
+
+    if (action != 'callback') return;
+
+    try {
+      final result = await _apiService.activateBotCallback(messageId, buttonId);
+      if (!result.success) {
+        _showBotButtonError(result.error ?? 'Не удалось выполнить действие');
+      }
+    } catch (e) {
+      _showBotButtonError('Не удалось выполнить действие: $e');
+    }
+  }
+
+  void _showBotButtonError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), backgroundColor: Colors.red.shade700),
     );
   }
 
@@ -10937,6 +11189,39 @@ class _MessengerScreenState extends State<MessengerScreen> {
                               ),
                             ),
                             SizedBox(width: 4),
+                            if (_currentBotCommands.isNotEmpty) ...[
+                              Tooltip(
+                                message: 'Команды бота',
+                                child: Material(
+                                  key: _botCommandsKey,
+                                  color: Colors.transparent,
+                                  shape: const CircleBorder(),
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(
+                                      18 * scale,
+                                    ),
+                                    onTap: () => _showBotCommandsMenu(scale),
+                                    child: SizedBox(
+                                      width: 30 * scale,
+                                      height: 30 * scale,
+                                      child: Center(
+                                      child: Transform.rotate(
+                                        angle: pi / 6,
+                                        child: FaIcon(
+                                          FontAwesomeIcons.slash,
+                                          color: isDark
+                                              ? Colors.white70
+                                              : Colors.black54,
+                                          size: 14 * scale,
+                                        ),
+                                      ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              SizedBox(width: 2 * scale),
+                            ],
                             // Attach button with dropdown menu (TODO and POLL options), positioned next to send button
                             Tooltip(
                               message:
@@ -11983,17 +12268,17 @@ class _MessengerScreenState extends State<MessengerScreen> {
   }
 
   String _getMediaUrl(Map<String, dynamic> item) {
+    final apiUri = Uri.parse(ApiService.baseUrl);
+    final port = apiUri.hasPort ? ':${apiUri.port}' : '';
+    final apiOrigin = '${apiUri.scheme}://${apiUri.host}$port';
     final url = item['url']?.toString();
     if (url != null && url.isNotEmpty) {
       if (url.startsWith('http')) return url;
-      if (url.startsWith('/')) return 'https://xaneo.ru$url';
+      return '$apiOrigin${url.startsWith('/') ? '' : '/'}$url';
     }
     final fileId = item['file_id']?.toString();
     if (fileId != null && fileId.isNotEmpty) {
-      final uri = Uri.parse(ApiService.baseUrl);
-      final port = uri.hasPort ? ':${uri.port}' : '';
-      final host = '${uri.scheme}://${uri.host}$port';
-      return '$host/api/files/download/$fileId/';
+      return '$apiOrigin/api/files/download/$fileId/';
     }
     return '';
   }
@@ -12114,6 +12399,20 @@ class _MessengerScreenState extends State<MessengerScreen> {
     _showMediaGalleryModal(context, allMedia, targetIndex, scale);
   }
 
+  String _mediaUrlForLog(String url) {
+    if (url.isEmpty) return '<empty>';
+    try {
+      final uri = Uri.parse(url);
+      final port = uri.hasPort ? ':${uri.port}' : '';
+      final origin = uri.host.isEmpty
+          ? ''
+          : '${uri.scheme}://${uri.host}$port';
+      return '$origin${uri.path}';
+    } catch (_) {
+      return '<invalid-url>';
+    }
+  }
+
   void _showMediaGalleryModal(
     BuildContext context,
     List<Map<String, dynamic>> items,
@@ -12130,6 +12429,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
       builder: (context) {
         int currentIndex = initialIndex;
         final pageController = PageController(initialPage: initialIndex);
+        final loggedErrors = <String>{};
 
         String formatBytes(int bytes, int decimals) {
           if (bytes <= 0) return '';
@@ -12193,6 +12493,8 @@ class _MessengerScreenState extends State<MessengerScreen> {
                       final item = items[index];
                       final mediaUrl = _getMediaUrl(item);
                       final isVid = item['media_type'] == 'video';
+                      final logKey =
+                          '${item['file_id'] ?? item['file_name'] ?? index}|$mediaUrl';
 
                       if (isVid) {
                         final fId = item['file_id']?.toString() ?? '';
@@ -12267,27 +12569,39 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                         mediaUrl,
                                         headers: _getAuthHeader(mediaUrl),
                                         fit: BoxFit.contain,
-                                        errorBuilder: (_, __, ___) => Center(
-                                          child: Column(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Icon(
-                                                Icons.broken_image_rounded,
-                                                color: Colors.white60,
-                                                size: 48 * scale,
-                                              ),
-                                              SizedBox(height: 12 * scale),
-                                              Text(
-                                                item['file_name']?.toString() ??
-                                                    '',
-                                                style: TextStyle(
-                                                  color: Colors.white70,
-                                                  fontSize: 14 * scale,
+                                        errorBuilder: (_, error, stackTrace) {
+                                          if (loggedErrors.add(logKey)) {
+                                            Logger.error(
+                                              'MEDIA-VIEWER',
+                                              'Image load failed: index=$index, '
+                                                  'url=${_mediaUrlForLog(mediaUrl)}',
+                                              error,
+                                              stackTrace,
+                                            );
+                                          }
+                                          return Center(
+                                            child: Column(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(
+                                                  Icons.broken_image_rounded,
+                                                  color: Colors.white60,
+                                                  size: 48 * scale,
                                                 ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
+                                                SizedBox(height: 12 * scale),
+                                                Text(
+                                                  item['file_name']
+                                                          ?.toString() ??
+                                                      '',
+                                                  style: TextStyle(
+                                                    color: Colors.white70,
+                                                    fontSize: 14 * scale,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          );
+                                        },
                                       ),
                                   ],
                                 ),
@@ -12480,6 +12794,25 @@ class _MessengerScreenState extends State<MessengerScreen> {
     final count = items.length;
     final maxCollageWidth = 320.0 * scale;
 
+    Widget buildImagePlaceholder({double? width, double? height}) {
+      return SizedBox(
+        width: width,
+        height: height,
+        child: ColoredBox(
+          color: isDark
+              ? const Color(0xFF242428)
+              : const Color(0xFFE8E8EC),
+          child: Center(
+            child: Icon(
+              Icons.image_outlined,
+              color: isDark ? Colors.white30 : Colors.black26,
+              size: 30 * scale,
+            ),
+          ),
+        ),
+      );
+    }
+
     Widget buildCell(
       Map<String, dynamic> item,
       int index, {
@@ -12510,6 +12843,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
                   url,
                   headers: _getAuthHeader(url),
                   fit: BoxFit.cover,
+                  loadingBuilder: (_, child, progress) => progress == null
+                      ? child
+                      : buildImagePlaceholder(),
                   errorBuilder: (_, __, ___) => Container(
                     color: isDark
                         ? const Color(0xFF1E1E1E)
@@ -12651,6 +12987,12 @@ class _MessengerScreenState extends State<MessengerScreen> {
                   headers: _getAuthHeader(url),
                   width: maxCollageWidth,
                   fit: BoxFit.contain,
+                  loadingBuilder: (_, child, progress) => progress == null
+                      ? child
+                      : buildImagePlaceholder(
+                          width: maxCollageWidth,
+                          height: 180 * scale,
+                        ),
                   errorBuilder: (_, __, ___) => SizedBox(
                     width: maxCollageWidth,
                     height: 180 * scale,
@@ -13009,6 +13351,35 @@ class _MessengerScreenState extends State<MessengerScreen> {
     }
   }
 
+  /// Диалог "сжать фото перед отправкой?" — тот же выбор, что и на вебе
+  /// (compressImage checkbox в imagePreviewModal): сжатое фото уходит как
+  /// картинка в чате (images: [{file_id}]), несжатое — как обычный файл.
+  /// Возвращает true (сжать), false (отправить как файл) или null (отмена).
+  Future<bool?> _showCompressImageDialog() {
+    return CompressImageModal.show(context);
+  }
+
+  /// Пережимает фото до 800px по большей стороне (JPEG) — как canvas-ресайз
+  /// в веб-клиенте (xc-files.js: compressAndAddImage, maxSize = 800).
+  Future<Uint8List?> _compressImageBytes(File file) async {
+    try {
+      final bytes = await file.readAsBytes();
+      final decoded = img_lib.decodeImage(bytes);
+      if (decoded == null) return null;
+      const maxSize = 800;
+      img_lib.Image resized = decoded;
+      if (decoded.width > maxSize || decoded.height > maxSize) {
+        resized = decoded.width >= decoded.height
+            ? img_lib.copyResize(decoded, width: maxSize)
+            : img_lib.copyResize(decoded, height: maxSize);
+      }
+      return Uint8List.fromList(img_lib.encodeJpg(resized, quality: 85));
+    } catch (e) {
+      Logger.error('MessengerScreen', 'Ошибка сжатия изображения', e);
+      return null;
+    }
+  }
+
   Future<void> _pickAndStageFile() async {
     if (_selectedChat == null) return;
 
@@ -13016,14 +13387,15 @@ class _MessengerScreenState extends State<MessengerScreen> {
       final result = await FilePicker.pickFiles(allowMultiple: false);
       if (result == null || result.files.single.path == null) return;
 
-      final path = result.files.single.path!;
-      final file = File(path);
-      final fileName = result.files.single.name;
-      final fileSize = result.files.single.size;
+      var path = result.files.single.path!;
+      var file = File(path);
+      var fileName = result.files.single.name;
+      var fileSize = result.files.single.size;
 
       // Determine file type based on extension
       String fileType = 'document';
       final lowerName = fileName.toLowerCase();
+      final isAnimatedGif = lowerName.endsWith('.gif');
       if (lowerName.endsWith('.jpg') ||
           lowerName.endsWith('.jpeg') ||
           lowerName.endsWith('.png') ||
@@ -13043,6 +13415,25 @@ class _MessengerScreenState extends State<MessengerScreen> {
           lowerName.endsWith('.m4a') ||
           lowerName.endsWith('.flac')) {
         fileType = 'audio';
+      }
+
+      bool sendAsImage = false;
+      if (fileType == 'image' && !isAnimatedGif) {
+        final shouldCompress = await _showCompressImageDialog();
+        if (shouldCompress == null) return; // Отменено пользователем
+        if (shouldCompress) {
+          final compressedBytes = await _compressImageBytes(file);
+          if (compressedBytes != null) {
+            final tempDir = await getTemporaryDirectory();
+            final tempPath =
+                '${tempDir.path}/compressed_${DateTime.now().millisecondsSinceEpoch}.jpg';
+            file = await File(tempPath).writeAsBytes(compressedBytes);
+            path = tempPath;
+            fileName = fileName.replaceAll(RegExp(r'\.[^.]+$'), '.jpg');
+            fileSize = compressedBytes.length;
+            sendAsImage = true;
+          }
+        }
       }
 
       if (mounted) {
@@ -13072,6 +13463,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
             'file_name': fileName,
             'file_size': fileSize,
             'file_type': fileType,
+            if (sendAsImage) 'send_as_image': true,
           };
           _showSendButton = true;
         });
@@ -15222,15 +15614,176 @@ class _TypingState {
   });
 }
 
+class _BotInlineKeyboard extends StatefulWidget {
+  final Map<String, dynamic> message;
+  final double scale;
+  final Future<void> Function(
+    Map<String, dynamic> item,
+    int messageId,
+    String buttonId,
+    String? action,
+  ) onButtonTap;
+
+  const _BotInlineKeyboard({
+    required this.message,
+    required this.scale,
+    required this.onButtonTap,
+  });
+
+  @override
+  State<_BotInlineKeyboard> createState() => _BotInlineKeyboardState();
+}
+
+class _BotInlineKeyboardState extends State<_BotInlineKeyboard> {
+  final Set<String> _pendingIds = {};
+  late List<List<Map<String, dynamic>>> _rows;
+  late int? _messageId;
+
+  @override
+  void initState() {
+    super.initState();
+    _readKeyboard();
+  }
+
+  @override
+  void didUpdateWidget(covariant _BotInlineKeyboard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.message, widget.message)) {
+      _readKeyboard();
+    }
+  }
+
+  void _readKeyboard() {
+    final rawId = widget.message['id'];
+    _messageId = rawId is int ? rawId : int.tryParse(rawId.toString());
+    final messageData = widget.message['message_data'] as Map<String, dynamic>?;
+    final replyMarkup = messageData?['reply_markup'] as Map<String, dynamic>?;
+    final rawRows = replyMarkup?['inline_keyboard'] as List? ?? const [];
+    _rows = rawRows
+        .whereType<List>()
+        .map((row) => row
+            .whereType<Map>()
+            .map((item) => Map<String, dynamic>.from(item))
+            .toList())
+        .where((row) => row.isNotEmpty)
+        .toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_messageId == null || _rows.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: _rows.map((row) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Row(
+              children: [
+                for (int i = 0; i < row.length; i++) ...[
+                  if (i > 0) const SizedBox(width: 6),
+                  Expanded(child: _buildButton(row[i])),
+                ],
+              ],
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildButton(Map<String, dynamic> item) {
+    final text = item['text']?.toString() ?? '';
+    final buttonId = item['id']?.toString();
+    final action = item['action']?.toString();
+    if (text.isEmpty || buttonId == null) return const SizedBox.shrink();
+
+    final bgColor =
+        _parseHexColor(item['color']?.toString()) ?? const Color(0xFF426B63);
+    final fgColor =
+        bgColor.computeLuminance() > 0.5 ? Colors.black : Colors.white;
+    final isPending = _pendingIds.contains(buttonId);
+
+    return SizedBox(
+      height: 40 * widget.scale,
+      child: ElevatedButton(
+        onPressed: isPending
+            ? null
+            : () => _handleTap(item, buttonId, action),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: bgColor,
+          foregroundColor: fgColor,
+          disabledBackgroundColor: bgColor.withOpacity(0.7),
+          disabledForegroundColor: fgColor.withOpacity(0.7),
+          padding: EdgeInsets.symmetric(horizontal: 8 * widget.scale),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          elevation: 0,
+        ),
+        child: isPending
+            ? SizedBox(
+                width: 16 * widget.scale,
+                height: 16 * widget.scale,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: fgColor,
+                ),
+              )
+            : Text(
+                text,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 13 * widget.scale,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+      ),
+    );
+  }
+
+  Future<void> _handleTap(
+    Map<String, dynamic> item,
+    String buttonId,
+    String? action,
+  ) async {
+    if (action != 'callback') {
+      await widget.onButtonTap(item, _messageId!, buttonId, action);
+      return;
+    }
+
+    setState(() => _pendingIds.add(buttonId));
+    try {
+      await widget.onButtonTap(item, _messageId!, buttonId, action);
+    } finally {
+      if (mounted) setState(() => _pendingIds.remove(buttonId));
+    }
+  }
+
+  Color? _parseHexColor(String? hex) {
+    if (hex == null) return null;
+    final match = RegExp(r'^#([0-9A-Fa-f]{6})$').firstMatch(hex);
+    if (match == null) return null;
+    return Color(int.parse('FF${match.group(1)}', radix: 16));
+  }
+}
+
 class NewMessageAnimator extends StatefulWidget {
   final Widget child;
   final bool animate;
+  final bool animateSize;
   final VoidCallback? onStartAnimating;
 
   const NewMessageAnimator({
     super.key,
     required this.child,
     required this.animate,
+    this.animateSize = true,
     this.onStartAnimating,
   });
 
@@ -15289,13 +15842,17 @@ class _NewMessageAnimatorState extends State<NewMessageAnimator>
 
   @override
   Widget build(BuildContext context) {
+    final animatedChild = FadeTransition(
+      opacity: _fadeAnimation,
+      child: SlideTransition(position: _slideAnimation, child: widget.child),
+    );
+
+    if (!widget.animateSize) return animatedChild;
+
     return SizeTransition(
       sizeFactor: _sizeAnimation,
-      axisAlignment: 1.0,
-      child: FadeTransition(
-        opacity: _fadeAnimation,
-        child: SlideTransition(position: _slideAnimation, child: widget.child),
-      ),
+      alignment: Alignment.bottomCenter,
+      child: animatedChild,
     );
   }
 }

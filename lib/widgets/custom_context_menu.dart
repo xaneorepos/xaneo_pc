@@ -6,11 +6,13 @@ import '../providers/scale_provider.dart';
 class CustomContextMenuItem {
   final Widget? icon;
   final String label;
+  final String? subtitle;
   final VoidCallback onTap;
 
   CustomContextMenuItem({
     this.icon,
     required this.label,
+    this.subtitle,
     required this.onTap,
   });
 }
@@ -36,8 +38,10 @@ class CustomContextMenu {
       pageBuilder: (context, animation, secondaryAnimation) {
         final screenSize = MediaQuery.of(context).size;
         final menuWidth = 200.0 * scale;
-        // Estimate height based on item height (approx 44) plus padding
-        final estimatedHeight = (items.length * 44.0 + 8.0) * scale;
+        final estimatedHeight = (items.fold<double>(8, (height, item) {
+          final hasSubtitle = item.subtitle?.trim().isNotEmpty ?? false;
+          return height + (hasSubtitle ? 64 : 44);
+        })) * scale;
 
         double left = position.dx;
         double top = position.dy;
@@ -168,6 +172,8 @@ class _CustomContextMenuItemWidgetState extends State<_CustomContextMenuItemWidg
 
     final basePadding = 16.0 * scale;
     final hoverPadding = 20.0 * scale;
+    final subtitle = widget.item.subtitle?.trim();
+    final hasSubtitle = subtitle?.isNotEmpty ?? false;
 
     return MouseRegion(
       onEnter: (_) => setState(() => _isHovered = true),
@@ -182,7 +188,7 @@ class _CustomContextMenuItemWidgetState extends State<_CustomContextMenuItemWidg
           duration: const Duration(milliseconds: 150),
           curve: Curves.easeOutCubic,
           width: 200 * scale,
-          padding: EdgeInsets.symmetric(vertical: 12 * scale),
+          padding: EdgeInsets.symmetric(vertical: (hasSubtitle ? 9 : 12) * scale),
           decoration: BoxDecoration(
             color: _isHovered
                 ? (isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.06))
@@ -214,18 +220,44 @@ class _CustomContextMenuItemWidgetState extends State<_CustomContextMenuItemWidg
                 SizedBox(width: 12 * scale),
               ],
               Expanded(
-                child: Text(
-                  widget.item.label,
-                  style: TextStyle(
-                    color: _isHovered
-                        ? (isDark ? Colors.white : Colors.black)
-                        : (isDark ? Colors.white.withOpacity(0.9) : Colors.black87),
-                    fontSize: 14 * scale,
-                    fontWeight: FontWeight.w500,
-                    fontFamily: 'Inter',
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.item.label,
+                      style: TextStyle(
+                        color: _isHovered
+                            ? (isDark ? Colors.white : Colors.black)
+                            : (isDark
+                                ? Colors.white.withOpacity(0.9)
+                                : Colors.black87),
+                        fontSize: 14 * scale,
+                        fontWeight:
+                            hasSubtitle ? FontWeight.w600 : FontWeight.w500,
+                        fontFamily: 'Inter',
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    if (hasSubtitle) ...[
+                      SizedBox(height: 3 * scale),
+                      Text(
+                        subtitle!,
+                        style: TextStyle(
+                          color: isDark
+                              ? Colors.white.withOpacity(0.58)
+                              : Colors.black.withOpacity(0.55),
+                          fontSize: 12 * scale,
+                          fontWeight: FontWeight.w400,
+                          fontFamily: 'Inter',
+                          height: 1.2,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ],
                 ),
               ),
               SizedBox(width: 16 * scale),

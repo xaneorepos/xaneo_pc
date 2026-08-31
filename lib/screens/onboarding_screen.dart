@@ -137,19 +137,15 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   }
 
   Future<void> _checkAuthAndRedirect() async {
-    Logger.info('OnboardingScreen', 'Checking auth status during app startup...');
     final apiService = ApiService();
     final cryptoService = CryptoService();
     
     // Check if user is authenticated and has keys
     final authenticated = await apiService.isAuthenticated();
-    Logger.info('OnboardingScreen', 'Is user authenticated? $authenticated');
     if (authenticated) {
       final hasKeys = await cryptoService.init();
-      Logger.info('OnboardingScreen', 'Do we have valid E2EE keys loaded? $hasKeys');
       if (hasKeys) {
         if (mounted) {
-          Logger.info('OnboardingScreen', 'Auth and keys verified. Redirecting to messenger.');
           Navigator.of(context).pushReplacementNamed('/messenger');
           return;
         }
@@ -161,14 +157,10 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     // Otherwise, check if onboarding is already completed
     final prefs = await SharedPreferences.getInstance();
     final hasSeenOnboarding = prefs.getBool('has_seen_onboarding') ?? false;
-    Logger.info('OnboardingScreen', 'Has user completed onboarding? $hasSeenOnboarding');
     if (hasSeenOnboarding) {
       if (mounted) {
-        Logger.info('OnboardingScreen', 'Onboarding completed. Redirecting to login.');
         Navigator.of(context).pushReplacementNamed('/login');
       }
-    } else {
-      Logger.info('OnboardingScreen', 'User needs onboarding first.');
     }
   }
 

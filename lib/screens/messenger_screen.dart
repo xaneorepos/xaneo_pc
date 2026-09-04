@@ -82,6 +82,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
   Map<String, dynamic>? _attachedFile;
   final Map<String, Map<String, dynamic>> _fileMetadataCache = {};
   final Set<String> _fetchingFileMetadata = {};
+  final Set<int> _loggedRestoredVideoFileIds = {};
   final Map<String, List<Map<String, String>>> _botCommandsCache = {};
   List<Map<String, String>> _currentBotCommands = const [];
   List<dynamic> _chats = [];
@@ -9100,11 +9101,62 @@ class _MessengerScreenState extends State<MessengerScreen> {
         }
       } catch (_) {}
     }
+
+    Map<dynamic, dynamic>? firstAttachmentMap() {
+      for (final candidate in [
+        msg['attached_file'],
+        msg['attachment'],
+        msg['file'],
+        if (msg['message_data'] is Map)
+          (msg['message_data'] as Map)['attached_file'],
+        if (msg['message_data'] is Map)
+          (msg['message_data'] as Map)['attachment'],
+        if (msg['message_data'] is Map) (msg['message_data'] as Map)['file'],
+        if (msg['message_data'] is Map) msg['message_data'],
+      ]) {
+        if (candidate is Map) return candidate;
+      }
+      for (final candidate in [msg['files'], msg['attachments']]) {
+        if (candidate is List) {
+          for (final item in candidate) {
+            if (item is Map) return item;
+          }
+        }
+      }
+      return null;
+    }
+
+    String? firstNonEmpty(Iterable<dynamic> values) {
+      for (final value in values) {
+        if (value == null) continue;
+        final text = value.toString().trim();
+        if (text.isNotEmpty && text != 'null' && text != 'None') return text;
+      }
+      return null;
+    }
+
+    final attachment = firstAttachmentMap();
+    final attachedFileId = firstNonEmpty([
+      customPayload?['file_id'],
+      customPayload?['attached_file_id'],
+      msg['attached_file_id'],
+      msg['file_id'],
+      attachment?['file_id'],
+      attachment?['id'],
+    ]);
+    final attachedFileUrl = firstNonEmpty([
+      customPayload?['file_url'],
+      customPayload?['url'],
+      msg['attached_file_url'],
+      msg['file_url'],
+      attachment?['file_url'],
+      attachment?['url'],
+    ]);
     final hasFiles =
-        (msg['attached_file_id'] != null) ||
-        (msg['file_id'] != null) ||
-        (msg['files'] != null && (msg['files'] as List).isNotEmpty) ||
-        (msg['images'] != null && (msg['images'] as List).isNotEmpty);
+        attachedFileId != null ||
+        attachedFileUrl != null ||
+        (msg['files'] is List && (msg['files'] as List).isNotEmpty) ||
+        (msg['images'] is List && (msg['images'] as List).isNotEmpty);
 
     if (customPayload != null) {
       final type = customPayload['type'];
@@ -9119,8 +9171,26 @@ class _MessengerScreenState extends State<MessengerScreen> {
         customPayload = null;
       }
     }
-    final attachedFileId =
-        msg['attached_file_id']?.toString() ?? msg['file_id']?.toString();
+
+    if (customPayload != null && attachedFileId != null) {
+      final payloadFileId = firstNonEmpty([customPayload['file_id']]);
+      if (payloadFileId == null) {
+        customPayload = Map<String, dynamic>.from(customPayload)
+          ..['file_id'] = attachedFileId;
+        if (customPayload['type'] == 'video_message' &&
+            _loggedRestoredVideoFileIds.add(id)) {
+          Logger.warning(
+            'VideoMessage',
+            'restored missing file_id from message attachment: '
+                'messageId=$id fileId=$attachedFileId',
+          );
+        }
+      }
+      if (attachedFileUrl != null &&
+          firstNonEmpty([customPayload['file_url']]) == null) {
+        customPayload['file_url'] = attachedFileUrl;
+      }
+    }
     if (customPayload == null && attachedFileId != null) {
       if (msg['attached_file_name'] != null) {
         customPayload = {
@@ -17573,6 +17643,26 @@ class _VideoMessageMockBubbleState extends State<_VideoMessageMockBubble> {
   StreamSubscription? _durSub;
   StreamSubscription? _playingSub;
   StreamSubscription? _completedSub;
+  StreamSubscription? _errorSub;
+  CancelToken? _downloadCancelToken;
+  bool _durationLogged = false;
+
+  String get _videoLogId {
+    final fileId = widget.payload['file_id']?.toString();
+    return fileId == null || fileId.isEmpty ? '<missing>' : fileId;
+  }
+
+  String _videoUrlForLog(String value) {
+    if (value.isEmpty) return '<empty>';
+    try {
+      final uri = Uri.parse(value);
+      final port = uri.hasPort ? ':${uri.port}' : '';
+      final origin = uri.host.isEmpty ? '' : '${uri.scheme}://${uri.host}$port';
+      return '$origin${uri.path}';
+    } catch (_) {
+      return '<invalid-url>';
+    }
+  }
 
   String _buildVideoUrl() {
     final fileId = widget.payload['file_id']?.toString() ?? '';
@@ -17583,11 +17673,109 @@ class _VideoMessageMockBubbleState extends State<_VideoMessageMockBubble> {
     String? fileUrl = widget.payload['file_url']?.toString();
     if (fileUrl != null && fileUrl.trim().isEmpty) fileUrl = null;
 
+    if (fileUrl == null && fileId.isEmpty) return '';
+
     final suffix = fileUrl ?? '/api/files/download/$fileId/';
 
     return suffix.startsWith('http')
         ? suffix
         : '$host${suffix.startsWith('/') ? '' : '/'}$suffix';
+  }
+
+  bool _isApiDownloadUrl(String value) {
+    try {
+      final videoUri = Uri.parse(value);
+      final apiUri = Uri.parse(ApiService.baseUrl);
+      return videoUri.host == apiUri.host &&
+          videoUri.path.contains('/api/files/download/');
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<String> _prepareVideoMessageUrl(String videoUrl) async {
+    if (!_isApiDownloadUrl(videoUrl)) {
+      Logger.info(
+        'VideoMessage',
+        'using direct non-API URL fileId=$_videoLogId '
+            'target=${_videoUrlForLog(videoUrl)}',
+      );
+      return videoUrl;
+    }
+
+    File? partialFile;
+    try {
+      final safeId = _videoLogId.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+      final cacheDir = Directory(
+        '${(await getTemporaryDirectory()).path}/xaneo_video_message_cache',
+      );
+      await cacheDir.create(recursive: true);
+
+      final cachedFile = File('${cacheDir.path}/$safeId.mp4');
+      if (await cachedFile.exists()) {
+        final cachedBytes = await cachedFile.length();
+        if (cachedBytes > 0) {
+          Logger.info(
+            'VideoMessage',
+            'cache hit fileId=$_videoLogId bytes=$cachedBytes',
+          );
+          return cachedFile.path;
+        }
+        await cachedFile.delete();
+      }
+
+      partialFile = File('${cachedFile.path}.${identityHashCode(this)}.part');
+      if (await partialFile.exists()) await partialFile.delete();
+
+      final cancelToken = CancelToken();
+      _downloadCancelToken = cancelToken;
+      Logger.info(
+        'VideoMessage',
+        'download start fileId=$_videoLogId '
+            'target=${_videoUrlForLog(videoUrl)}',
+      );
+      final response = await ApiService().dio.download(
+        videoUrl,
+        partialFile.path,
+        cancelToken: cancelToken,
+        deleteOnError: true,
+        options: Options(headers: {'Accept-Encoding': 'identity'}),
+      );
+      final downloadedBytes = await partialFile.length();
+      final statusCode = response.statusCode ?? 0;
+      if (statusCode < 200 || statusCode >= 300 || downloadedBytes == 0) {
+        throw StateError(
+          'download returned status=$statusCode '
+          'bytes=$downloadedBytes contentType='
+          '${response.headers.value(HttpHeaders.contentTypeHeader)}',
+        );
+      }
+
+      if (await cachedFile.exists()) {
+        await partialFile.delete();
+      } else {
+        await partialFile.rename(cachedFile.path);
+      }
+      Logger.info(
+        'VideoMessage',
+        'download completed fileId=$_videoLogId bytes=$downloadedBytes',
+      );
+      return cachedFile.path;
+    } catch (e, stackTrace) {
+      if (e is DioException && CancelToken.isCancel(e)) rethrow;
+      Logger.error(
+        'VideoMessage',
+        'download failed; falling back to media proxy fileId=$_videoLogId',
+        e,
+        stackTrace,
+      );
+      if (partialFile != null && await partialFile.exists()) {
+        await partialFile.delete();
+      }
+      return LocalProxy.getProxyUrl(videoUrl, ext: '.mp4');
+    } finally {
+      _downloadCancelToken = null;
+    }
   }
 
   @override
@@ -17602,20 +17790,47 @@ class _VideoMessageMockBubbleState extends State<_VideoMessageMockBubble> {
   }
 
   Future<void> _initPlayer() async {
-    if (_isLoading || _isInitialized) return;
+    if (_isLoading || _isInitialized) {
+      Logger.info(
+        'VideoMessage',
+        'init skipped fileId=$_videoLogId loading=$_isLoading '
+            'initialized=$_isInitialized',
+      );
+      return;
+    }
     setState(() {
       _isLoading = true;
     });
 
     try {
       final videoUrl = _buildVideoUrl();
-      final localPath = widget.payload['local_path']?.toString();
-      String playUrl;
-      if (localPath != null && await File(localPath).exists()) {
-        playUrl = localPath;
-      } else {
-        playUrl = LocalProxy.getProxyUrl(videoUrl, ext: '.mp4');
+      if (videoUrl.isEmpty) {
+        throw StateError(
+          'Video payload has neither file_id nor file_url; '
+          'keys=${widget.payload.keys.join(',')}',
+        );
       }
+      final localPath = widget.payload['local_path']?.toString();
+      final localFile = localPath == null ? null : File(localPath);
+      final localExists = localFile != null && await localFile.exists();
+      String playUrl;
+      if (localExists) {
+        playUrl = localPath!;
+      } else {
+        playUrl = await _prepareVideoMessageUrl(videoUrl);
+      }
+
+      final source = localExists
+          ? 'local'
+          : (playUrl.startsWith('http') ? 'network' : 'cache');
+
+      Logger.info(
+        'VideoMessage',
+        'init fileId=$_videoLogId source=$source '
+            'target=${_videoUrlForLog(videoUrl)} '
+            'localPath=${localPath ?? '<none>'} localExists=$localExists '
+            'playUrl=${_videoUrlForLog(playUrl)}',
+      );
 
       final player = Player();
       final controller = VideoController(player);
@@ -17643,6 +17858,13 @@ class _VideoMessageMockBubbleState extends State<_VideoMessageMockBubble> {
 
       _durSub = player.stream.duration.listen((dur) {
         if (dur != Duration.zero && mounted) {
+          if (!_durationLogged) {
+            _durationLogged = true;
+            Logger.info(
+              'VideoMessage',
+              'metadata ready fileId=$_videoLogId durationMs=${dur.inMilliseconds}',
+            );
+          }
           setState(() {
             _videoDuration = dur;
           });
@@ -17650,6 +17872,11 @@ class _VideoMessageMockBubbleState extends State<_VideoMessageMockBubble> {
       });
 
       _playingSub = player.stream.playing.listen((playing) {
+        Logger.info(
+          'VideoMessage',
+          'playing changed fileId=$_videoLogId playing=$playing '
+              'positionMs=${_videoPosition.inMilliseconds}',
+        );
         if (mounted) {
           setState(() {
             _isPlaying = playing;
@@ -17659,6 +17886,7 @@ class _VideoMessageMockBubbleState extends State<_VideoMessageMockBubble> {
 
       _completedSub = player.stream.completed.listen((completed) {
         if (completed && mounted) {
+          Logger.info('VideoMessage', 'completed fileId=$_videoLogId');
           player.pause();
           player.seek(Duration.zero);
           final playback = Provider.of<PlaybackProvider>(
@@ -17675,7 +17903,18 @@ class _VideoMessageMockBubbleState extends State<_VideoMessageMockBubble> {
         }
       });
 
+      _errorSub = player.stream.error.listen((error) {
+        Logger.error(
+          'VideoMessage',
+          'media-kit error fileId=$_videoLogId '
+              'target=${_videoUrlForLog(videoUrl)} '
+              'playUrl=${_videoUrlForLog(playUrl)}',
+          error,
+        );
+      });
+
       await player.open(Media(playUrl), play: false);
+      Logger.info('VideoMessage', 'open succeeded fileId=$_videoLogId');
 
       if (mounted) {
         setState(() {
@@ -17683,8 +17922,13 @@ class _VideoMessageMockBubbleState extends State<_VideoMessageMockBubble> {
           _isLoading = false;
         });
       }
-    } catch (e) {
-      debugPrint('❌ Error auto-initializing video message: $e');
+    } catch (e, stackTrace) {
+      Logger.error(
+        'VideoMessage',
+        'initialization failed fileId=$_videoLogId',
+        e,
+        stackTrace,
+      );
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -17776,21 +18020,54 @@ class _VideoMessageMockBubbleState extends State<_VideoMessageMockBubble> {
 
   Future<void> _handleTap() async {
     final player = _player;
-    if (player == null || !_isInitialized) return;
+    if (player == null || !_isInitialized) {
+      Logger.warning(
+        'VideoMessage',
+        'tap ignored fileId=$_videoLogId playerReady=${player != null} '
+            'initialized=$_isInitialized loading=$_isLoading',
+      );
+      return;
+    }
 
-    final playbackProvider = Provider.of<PlaybackProvider>(
-      context,
-      listen: false,
-    );
-    final videoUrl = _buildVideoUrl();
+    try {
+      final playbackProvider = Provider.of<PlaybackProvider>(
+        context,
+        listen: false,
+      );
+      final videoUrl = _buildVideoUrl();
 
-    if (_isPlaying) {
-      if (_isMuted) {
-        // Unmute and restart from 0 (Telegram style)
-        await playbackProvider
-            .stop(); // Stops any other active audible sounds/voice messages
+      Logger.info(
+        'VideoMessage',
+        'tap fileId=$_videoLogId playing=$_isPlaying muted=$_isMuted '
+            'positionMs=${_videoPosition.inMilliseconds} '
+            'durationMs=${_videoDuration.inMilliseconds}',
+      );
+
+      if (_isPlaying) {
+        if (_isMuted) {
+          // Unmute and restart from 0 (Telegram style)
+          await playbackProvider
+              .stop(); // Stops any other active audible sounds/voice messages
+          await player.setVolume(100.0);
+          await player.seek(Duration.zero);
+          _updateMuteState(false);
+
+          await playbackProvider.playVideo(
+            videoUrl,
+            (AppLocalizations.of(context)?.videosoobschenie_2951 ?? 'Fallback'),
+            (AppLocalizations.of(context)?.video_a095 ?? 'Fallback'),
+            duration: _videoDuration,
+          );
+        } else {
+          // Pause playback
+          await player.pause();
+          playbackProvider.pause();
+        }
+      } else {
+        // Play unmuted
+        await playbackProvider.stop();
         await player.setVolume(100.0);
-        await player.seek(Duration.zero);
+        await player.play();
         _updateMuteState(false);
 
         await playbackProvider.playVideo(
@@ -17799,34 +18076,26 @@ class _VideoMessageMockBubbleState extends State<_VideoMessageMockBubble> {
           (AppLocalizations.of(context)?.video_a095 ?? 'Fallback'),
           duration: _videoDuration,
         );
-      } else {
-        // Pause playback
-        await player.pause();
-        playbackProvider.pause();
       }
-    } else {
-      // Play unmuted
-      await playbackProvider.stop();
-      await player.setVolume(100.0);
-      await player.play();
-      _updateMuteState(false);
-
-      await playbackProvider.playVideo(
-        videoUrl,
-        (AppLocalizations.of(context)?.videosoobschenie_2951 ?? 'Fallback'),
-        (AppLocalizations.of(context)?.video_a095 ?? 'Fallback'),
-        duration: _videoDuration,
+    } catch (e, stackTrace) {
+      Logger.error(
+        'VideoMessage',
+        'tap/playback failed fileId=$_videoLogId',
+        e,
+        stackTrace,
       );
     }
   }
 
   @override
   void dispose() {
+    _downloadCancelToken?.cancel('video message disposed');
     _muteIndicatorTimer?.cancel();
     _posSub?.cancel();
     _durSub?.cancel();
     _playingSub?.cancel();
     _completedSub?.cancel();
+    _errorSub?.cancel();
     _player?.dispose();
     super.dispose();
   }

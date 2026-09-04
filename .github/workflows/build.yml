@@ -213,9 +213,9 @@ jobs:
           printf '%s\n' \
             '[Desktop Entry]' \
             'Type=Application' \
-            'Name=Xaneo PC' \
+            'Name=Xaneo' \
             'Comment=Desktop application with onboarding' \
-            'Exec=/opt/xaneo-pc/xaneo-launcher.sh' \
+            'Exec=xaneo' \
             'Icon=xaneo' \
             'StartupWMClass=net.xaneo.pc' \
             'Categories=Utility;' \
@@ -225,7 +225,7 @@ jobs:
           cp macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_512.png "$PKG/usr/share/icons/hicolor/512x512/apps/xaneo.png"
           cp macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_512.png "$PKG/usr/share/pixmaps/xaneo.png"
 
-          ln -sf /opt/xaneo-pc/xaneo-launcher.sh "$PKG/usr/bin/xaneo-pc"
+          ln -sf /opt/xaneo-pc/xaneo-launcher.sh "$PKG/usr/bin/xaneo"
 
           INSTALLED_SIZE=$(du -sk "$PKG/opt/xaneo-pc" | cut -f1)
 
@@ -277,7 +277,7 @@ jobs:
           printf '%s\n' \
             '[Desktop Entry]' \
             'Type=Application' \
-            'Name=Xaneo PC' \
+            'Name=Xaneo' \
             'Comment=Desktop application with onboarding' \
             'Exec=xaneo' \
             'Icon=xaneo' \
@@ -303,7 +303,7 @@ jobs:
 
           # Перемещаем результат с чётким именем
           rm -f dist/*.AppImage 2>/dev/null || true
-          mv Xaneo_PC-*.AppImage "dist/xaneo-v${VERSION}-x86_64.AppImage"
+          mv Xaneo-*.AppImage "dist/xaneo-v${VERSION}-x86_64.AppImage"
 
       - uses: actions/upload-artifact@v4
         with:

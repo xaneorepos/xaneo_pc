@@ -173,14 +173,14 @@ EOF
 [Desktop Entry]
 Version=1.0
 Type=Application
-Name=Xaneo PC
+Name=Xaneo
 GenericName=Xaneo Messenger
 Comment=Desktop application with onboarding
-Exec=xaneo-pc
+Exec=xaneo
 Icon=xaneo
 Terminal=false
 Categories=Utility;Network;InstantMessaging;
-Keywords=Xaneo;xaneo;pc;chat;messenger;
+Keywords=Xaneo;xaneo;chat;messenger;
 EOF
     fi
     
@@ -254,7 +254,7 @@ create_deb() {
     fi
     
     # Создаём символическую ссылку
-    ln -sf /opt/xaneo-pc/xaneo "$pkg_dir/usr/bin/xaneo-pc"
+    ln -sf /opt/xaneo-pc/xaneo "$pkg_dir/usr/bin/xaneo"
     
     # Создаём control файл
     cat > "$pkg_dir/DEBIAN/control" << EOF
@@ -358,10 +358,14 @@ mkdir -p \$RPM_BUILD_ROOT/usr/bin
 cp -r * \$RPM_BUILD_ROOT/opt/xaneo-pc/
 cp xaneo.desktop \$RPM_BUILD_ROOT/usr/share/applications/net.xaneo.pc.desktop
 cp xaneo.png \$RPM_BUILD_ROOT/usr/share/icons/hicolor/256x256/apps/
-ln -sf /opt/xaneo-pc/xaneo \$RPM_BUILD_ROOT/usr/bin/xaneo-pc
 ln -sf /opt/xaneo-pc/xaneo \$RPM_BUILD_ROOT/usr/bin/xaneo
 
 %post
+# Удаляем desktop-entry и CLI-алиас из старых сборок: иначе после обновления
+# Fedora может показывать одновременно Xaneo PC и Xaneo.
+rm -f /usr/share/applications/xaneo.desktop \
+      /usr/share/applications/xaneo_pc.desktop \
+      /usr/bin/xaneo-pc
 update-desktop-database /usr/share/applications || true
 gtk-update-icon-cache -f -t /usr/share/icons/hicolor || true
 
@@ -374,7 +378,6 @@ gtk-update-icon-cache -f -t /usr/share/icons/hicolor || true
 /opt/xaneo-pc
 /usr/share/applications/net.xaneo.pc.desktop
 /usr/share/icons/hicolor/256x256/apps/xaneo.png
-/usr/bin/xaneo-pc
 /usr/bin/xaneo
 
 %changelog
@@ -431,7 +434,7 @@ package() {
     cp -r $appdir_path/* "\$pkgdir/opt/xaneo-pc/"
     cp $appdir_path/xaneo.desktop "\$pkgdir/usr/share/applications/"
     cp $appdir_path/xaneo.png "\$pkgdir/usr/share/icons/hicolor/256x256/apps/"
-    ln -sf /opt/xaneo-pc/xaneo "\$pkgdir/usr/bin/xaneo-pc"
+    ln -sf /opt/xaneo-pc/xaneo "\$pkgdir/usr/bin/xaneo"
 }
 EOF
     
@@ -488,7 +491,7 @@ package() {
     cp -r ../AppDir/* "\$pkgdir/opt/xaneo-pc/"
     cp ../AppDir/xaneo.desktop "\$pkgdir/usr/share/applications/"
     cp ../AppDir/xaneo.png "\$pkgdir/usr/share/icons/hicolor/256x256/apps/"
-    ln -sf /opt/xaneo-pc/xaneo "\$pkgdir/usr/bin/xaneo-pc"
+    ln -sf /opt/xaneo-pc/xaneo "\$pkgdir/usr/bin/xaneo"
 }
 EOF
     
@@ -543,7 +546,7 @@ do_install() {
     cp -r ../AppDir/* \${DESTDIR}/opt/xaneo-pc/
     cp ../AppDir/xaneo.desktop \${DESTDIR}/usr/share/applications/
     cp ../AppDir/xaneo.png \${DESTDIR}/usr/share/icons/hicolor/256x256/apps/
-    ln -sf /opt/xaneo-pc/xaneo \${DESTDIR}/usr/bin/xaneo-pc
+    ln -sf /opt/xaneo-pc/xaneo \${DESTDIR}/usr/bin/xaneo
 }
 EOF
     

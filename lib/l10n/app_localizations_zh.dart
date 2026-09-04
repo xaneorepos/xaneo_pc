@@ -2437,16 +2437,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get confirmOnDeviceStatus => '请在已授权的设备上确认登录。';
 
   @override
-  String get sixDigitCodeSentSub =>
-      '请输入发送至 Xaneo 通知的 6 位数验证码';
+  String get sixDigitCodeSentSub => '请输入发送至 Xaneo 通知的 6 位数验证码';
 
   @override
-  String get confirmOnDeviceSub =>
-      '请在已授权的设备上确认登录';
+  String get confirmOnDeviceSub => '请在已授权的设备上确认登录';
 
   @override
-  String get awaitingDeviceApproval =>
-      '正在等待设备确认...';
+  String get awaitingDeviceApproval => '正在等待设备确认...';
 
   @override
   String get mustBeSixDigits => '验证码必须由 6 位数字组成';
@@ -2458,9 +2455,45 @@ class AppLocalizationsZh extends AppLocalizations {
   String get backBtn => '返回';
 
   @override
-  String get confirmDeviceRequestText =>
-      '确认请求已发送至您的设备。请在应用中确认登录。';
+  String get confirmDeviceRequestText => '确认请求已发送至您的设备。请在应用中确认登录。';
 
   @override
   String get sendingEmailCode => '正在发送验证码至邮箱…';
+
+  @override
+  String get changePhoto => '更换照片';
+  @override
+  String get deleting => '正在删除…';
+  @override
+  String get chatFontSize => '聊天字体大小';
+  @override
+  String get chatWallpaper => '聊天背景';
+  @override
+  String get myMessageColor => '我的消息颜色';
+  @override
+  String get otherMessageColor => '对方消息颜色';
+  @override
+  String get notificationStyle => '通知样式';
+  @override
+  String get standardNotificationStyle => '标准';
+  @override
+  String get ravenNotificationStyle => '黑鸦';
+  @override
+  String get deleteAccountTitle => '删除账户？';
+  @override
+  String get deleteAccountConfirmation => '您的个人资料将被永久删除。请输入密码以确认。';
+  @override
+  String get customColor => '自定义颜色';
+  @override
+  String get customGradient => '自定义渐变';
+  @override
+  String get colorOne => '颜色 1';
+  @override
+  String get colorTwo => '颜色 2';
+  @override
+  String get diagonal => '对角线';
+  @override
+  String get vertical => '垂直';
+  @override
+  String get horizontal => '水平';
 }

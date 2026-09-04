@@ -1,17 +1,23 @@
+import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:file_picker/file_picker.dart';
+import 'color_picker_modal.dart';
 import '../providers/theme_provider.dart';
 import '../providers/locale_provider.dart';
+import '../providers/appearance_provider.dart';
+import '../models/message_color_presets.dart';
 import '../services/api_service.dart';
+import '../services/account_service.dart';
 import '../services/update_service.dart';
 import '../models/app_version_info.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'base_custom_modal.dart';
 import 'custom_language_pack_dialogs.dart';
+import 'avatar_cropper.dart';
 import '../l10n/app_localizations.dart';
 import '../services/runtime_translations.dart';
 
@@ -53,7 +59,8 @@ List<_SettingsSection> _getAccountSections(BuildContext context) {
       id: 'privacy',
       title:
           l10n?.privatnost_0899 ??
-          (AppLocalizations.of(context)?.privatnost_0899 ?? 'Конфиденциальность'),
+          (AppLocalizations.of(context)?.privatnost_0899 ??
+              'Конфиденциальность'),
       description:
           l10n?.privacyDesc ??
           (AppLocalizations.of(context)?.ktoMozhetPisatZvonitVidet_1789 ??
@@ -183,6 +190,7 @@ List<_SettingsSection> _getInterfaceSections(BuildContext context) {
 class XaneoSettingsModal extends BaseCustomModal {
   final Map<String, dynamic>? currentUser;
   final VoidCallback? onLogout;
+  final VoidCallback? onProfileChanged;
   final Function(dynamic contact)? onSelectChat;
   final Function(dynamic contact)? onStartCall;
   final Function(AppVersionInfo update)? onUpdateFound;
@@ -191,6 +199,7 @@ class XaneoSettingsModal extends BaseCustomModal {
     super.key,
     this.currentUser,
     this.onLogout,
+    this.onProfileChanged,
     this.onSelectChat,
     this.onStartCall,
     this.onUpdateFound,
@@ -201,6 +210,7 @@ class XaneoSettingsModal extends BaseCustomModal {
     BuildContext context, {
     Map<String, dynamic>? currentUser,
     VoidCallback? onLogout,
+    VoidCallback? onProfileChanged,
     Function(dynamic contact)? onSelectChat,
     Function(dynamic contact)? onStartCall,
     Function(AppVersionInfo update)? onUpdateFound,
@@ -210,6 +220,7 @@ class XaneoSettingsModal extends BaseCustomModal {
       modal: XaneoSettingsModal(
         currentUser: currentUser,
         onLogout: onLogout,
+        onProfileChanged: onProfileChanged,
         onSelectChat: onSelectChat,
         onStartCall: onStartCall,
         onUpdateFound: onUpdateFound,
@@ -315,6 +326,10 @@ class _XaneoSettingsModalState
   final _usernameCtrl = TextEditingController();
   final _bioCtrl = TextEditingController();
   bool _personalSaving = false;
+  bool _personalAvatarUploading = false;
+  bool _accountDeleting = false;
+  File? _personalAvatarFile;
+  String? _personalAvatar;
   String? _personalError;
   String? _personalSuccess;
 
@@ -340,6 +355,8 @@ class _XaneoSettingsModalState
       _firstNameCtrl.text = u['first_name']?.toString() ?? '';
       _usernameCtrl.text = u['username']?.toString() ?? '';
       _bioCtrl.text = u['bio']?.toString() ?? '';
+      _personalAvatar = (u['avatar_url'] ?? u['custom_avatar'] ?? u['avatar'])
+          ?.toString();
       _fetchFreshProfile();
     }
   }
@@ -358,6 +375,9 @@ class _XaneoSettingsModalState
           _firstNameCtrl.text = data['first_name']?.toString() ?? '';
           _usernameCtrl.text = data['username']?.toString() ?? '';
           _bioCtrl.text = data['bio']?.toString() ?? '';
+          _personalAvatar =
+              (data['avatar_url'] ?? data['custom_avatar'] ?? data['avatar'])
+                  ?.toString();
         });
       }
     } catch (_) {}
@@ -586,20 +606,34 @@ class _XaneoSettingsModalState
   };
 
   static const Map<String, List<String>> _securityManifestKeys = {
-    'twoFactorTitle': ['auth.2fa.title', 'profile.privacy.twoFactorTitle', 'messenger.settings.securityTitle'],
+    'twoFactorTitle': [
+      'auth.2fa.title',
+      'profile.privacy.twoFactorTitle',
+      'messenger.settings.securityTitle',
+    ],
     'tfaEnabled': ['auth.2fa.enabled', 'profile.privacy.twoFactorEnabled'],
     'tfaDisabled': ['auth.2fa.disabled', 'profile.privacy.twoFactorDisabled'],
-    'twoFactorDesc': ['auth.2fa.description', 'messenger.settings.securityDesc'],
+    'twoFactorDesc': [
+      'auth.2fa.description',
+      'messenger.settings.securityDesc',
+    ],
     'disable': ['auth.2fa.disable', 'common.disable'],
     'enable': ['auth.2fa.enable', 'common.enable'],
     'confirm': ['auth.2fa.confirm', 'common.confirm'],
-    'activeSessions': ['profile.privacy.activeSessions', 'messenger.settings.securityDesc'],
+    'activeSessions': [
+      'profile.privacy.activeSessions',
+      'messenger.settings.securityDesc',
+    ],
     'refresh': ['common.refresh'],
     'noSessions': ['profile.privacy.noActiveSessions'],
     'unknownDevice': ['auth.deviceLogin.unknownDevice', 'common.unknownDevice'],
     'thisDevice': ['profile.privacy.thisDevice'],
     'active': ['common.active'],
-    'terminate': ['messenger.delete.buttons.leave', 'profile.privacy.terminateSession', 'common.terminate'],
+    'terminate': [
+      'messenger.delete.buttons.leave',
+      'profile.privacy.terminateSession',
+      'common.terminate',
+    ],
   };
 
   String _securityText(String key) {
@@ -845,18 +879,38 @@ class _XaneoSettingsModalState
     try {
       final newFirstName = _firstNameCtrl.text.trim();
       final newBio = _bioCtrl.text.trim();
+      final newUsername = _usernameCtrl.text.trim().replaceFirst('@', '');
+
+      if (!RegExp(r'^[a-zA-Z0-9._-]{3,30}$').hasMatch(newUsername)) {
+        throw StateError(
+          'Никнейм: 3–30 символов, только буквы, цифры, ., _ и -',
+        );
+      }
 
       final res = await ApiService().dio.patch(
         '/user/profile/',
-        data: {'first_name': newFirstName, 'bio': newBio},
+        data: {
+          'first_name': newFirstName,
+          'username': newUsername,
+          'bio': newBio,
+        },
       );
 
       if (mounted) {
         if (res.statusCode == 200 || res.statusCode == 201) {
           if (widget.currentUser != null) {
             widget.currentUser!['first_name'] = newFirstName;
+            widget.currentUser!['username'] = newUsername;
             widget.currentUser!['bio'] = newBio;
+            if (res.data is Map) {
+              widget.currentUser!.addAll(
+                Map<String, dynamic>.from(res.data as Map),
+              );
+            }
+            await AccountService().saveCurrentAccount(widget.currentUser!);
           }
+          if (!mounted) return;
+          widget.onProfileChanged?.call();
           setState(() {
             _personalSaving = false;
             _personalSuccess =
@@ -869,9 +923,11 @@ class _XaneoSettingsModalState
         } else {
           setState(() {
             _personalSaving = false;
-            _personalError =
-                (AppLocalizations.of(context)?.oshibkaSohraneniya_0387 ??
-                'Fallback');
+            _personalError = _responseMessage(
+              res.data,
+              AppLocalizations.of(context)?.oshibkaSohraneniya_0387 ??
+                  'Ошибка сохранения',
+            );
           });
         }
       }
@@ -879,10 +935,103 @@ class _XaneoSettingsModalState
       if (mounted) {
         setState(() {
           _personalSaving = false;
-          _personalError = 'Ошибка сохранения: $e';
+          _personalError = e is StateError
+              ? e.message.toString()
+              : 'Ошибка сохранения: $e';
         });
       }
     }
+  }
+
+  Future<void> _pickPersonalAvatar() async {
+    try {
+      final result = await FilePicker.pickFiles(
+        type: FileType.image,
+        allowMultiple: false,
+      );
+      final path = result?.files.single.path;
+      if (path == null || !mounted) return;
+
+      final cropped = await AvatarCropper.show(context, File(path));
+      if (cropped == null || !mounted) return;
+      setState(() {
+        _personalAvatarUploading = true;
+        _personalError = null;
+        _personalSuccess = null;
+      });
+
+      final response = await ApiService().uploadAvatar(cropped);
+      if (!mounted) return;
+      if (!response.success) {
+        throw StateError(response.error ?? 'Не удалось загрузить аватар');
+      }
+
+      final avatar = response.data?['avatar_url']?.toString();
+      setState(() {
+        _personalAvatarFile = cropped;
+        _personalAvatar = avatar ?? _personalAvatar;
+        _personalAvatarUploading = false;
+        _personalSuccess = 'Аватар обновлён';
+      });
+      if (widget.currentUser != null) {
+        widget.currentUser!['avatar'] = avatar;
+        widget.currentUser!['avatar_url'] = avatar;
+        await AccountService().saveCurrentAccount(widget.currentUser!);
+      }
+      if (!mounted) return;
+      widget.onProfileChanged?.call();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _personalAvatarUploading = false;
+        _personalError = error is StateError
+            ? error.message.toString()
+            : 'Не удалось загрузить аватар: $error';
+      });
+    }
+  }
+
+  Future<void> _confirmDeleteAccount() async {
+    final password = await _DeleteAccountConfirmationModal.show(
+      context: context,
+    );
+    if (password == null || password.isEmpty || !mounted) return;
+
+    setState(() {
+      _accountDeleting = true;
+      _personalError = null;
+    });
+    try {
+      final response = await ApiService().dio.post(
+        '/user/delete-account/',
+        data: {'password': password},
+      );
+      final data = response.data is Map
+          ? Map<String, dynamic>.from(response.data as Map)
+          : const <String, dynamic>{};
+      if (response.statusCode != 200 || data['success'] != true) {
+        throw StateError(_responseMessage(data, 'Не удалось удалить аккаунт'));
+      }
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      widget.onLogout?.call();
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _accountDeleting = false;
+        _personalError = error is StateError
+            ? error.message.toString()
+            : 'Не удалось удалить аккаунт: $error';
+      });
+    }
+  }
+
+  String _responseMessage(dynamic raw, String fallback) {
+    if (raw is! Map) return fallback;
+    final data = Map<String, dynamic>.from(raw);
+    final detail = data['error'] ?? data['detail'] ?? data['username'];
+    if (detail is List && detail.isNotEmpty) return detail.first.toString();
+    return detail?.toString() ?? fallback;
   }
 
   // ── buildContent ────────────────────────────────────────────────────────────
@@ -1448,6 +1597,75 @@ class _XaneoSettingsModalState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        Center(
+          child: Column(
+            children: [
+              Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  ClipOval(
+                    child: _personalAvatarFile != null
+                        ? Image.file(
+                            _personalAvatarFile!,
+                            width: 88 * scale,
+                            height: 88 * scale,
+                            fit: BoxFit.cover,
+                          )
+                        : _buildUserCardAvatar(
+                            _personalAvatar,
+                            widget.currentUser?['avatar_gradient']
+                                    ?.toString() ??
+                                '',
+                            _firstNameCtrl.text.isNotEmpty
+                                ? _firstNameCtrl.text
+                                : _usernameCtrl.text,
+                            88 * scale,
+                          ),
+                  ),
+                  Positioned(
+                    right: -4 * scale,
+                    bottom: -4 * scale,
+                    child: Material(
+                      color: isDark ? Colors.white : Colors.black87,
+                      shape: const CircleBorder(),
+                      child: InkWell(
+                        customBorder: const CircleBorder(),
+                        onTap: _personalAvatarUploading
+                            ? null
+                            : _pickPersonalAvatar,
+                        child: SizedBox(
+                          width: 32 * scale,
+                          height: 32 * scale,
+                          child: _personalAvatarUploading
+                              ? Padding(
+                                  padding: EdgeInsets.all(8 * scale),
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: isDark ? Colors.black : Colors.white,
+                                  ),
+                                )
+                              : Icon(
+                                  Icons.camera_alt_rounded,
+                                  size: 17 * scale,
+                                  color: isDark ? Colors.black : Colors.white,
+                                ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              SizedBox(height: 6 * scale),
+              TextButton(
+                onPressed: _personalAvatarUploading
+                    ? null
+                    : _pickPersonalAvatar,
+                child: Text(l10n?.changePhoto ?? 'Change photo'),
+              ),
+            ],
+          ),
+        ),
+        SizedBox(height: 12 * scale),
         _sectionHeader(
           l10n?.basicInfo ??
               (AppLocalizations.of(context)?.osnovnayaInformatsiya_6fec ??
@@ -1477,13 +1695,6 @@ class _XaneoSettingsModalState
           isDark: isDark,
           scale: scale,
           hint: '@username',
-          readOnly: true,
-          note:
-              l10n?.nicknameCannotBeChanged ??
-              (AppLocalizations.of(
-                    context,
-                  )?.nikneymNelzyaIzmenitVPrilozhenii_75d0 ??
-                  'Fallback'),
         ),
         SizedBox(height: 12 * scale),
         _textAreaField(
@@ -1514,6 +1725,16 @@ class _XaneoSettingsModalState
           isDark: isDark,
           scale: scale,
           onTap: _personalSaving ? null : _savePersonalData,
+        ),
+        SizedBox(height: 12 * scale),
+        _dangerRow(
+          icon: Icons.delete_forever_rounded,
+          label: _accountDeleting
+              ? (l10n?.deleting ?? 'Deleting…')
+              : (l10n?.deleteAccount ?? 'Delete account'),
+          isDark: isDark,
+          scale: scale,
+          onTap: _accountDeleting ? () {} : _confirmDeleteAccount,
         ),
       ],
     );
@@ -2314,6 +2535,7 @@ class _XaneoSettingsModalState
 
   Widget _buildAppearance(BuildContext context, bool isDark, double scale) {
     final themeProvider = Provider.of<ThemeProvider>(context);
+    final appearance = Provider.of<AppearanceProvider>(context);
     final l10n = AppLocalizations.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2331,7 +2553,7 @@ class _XaneoSettingsModalState
           onChanged: (v) => themeProvider.setDarkMode(v),
         ),
         SizedBox(height: 20 * scale),
-        _sectionHeader(l10n?.fontSizeText ?? 'Размер шрифта', isDark, scale),
+        _sectionHeader(l10n?.chatFontSize ?? 'Chat font size', isDark, scale),
         SizedBox(height: 8 * scale),
         Row(
           children: [
@@ -2344,16 +2566,16 @@ class _XaneoSettingsModalState
             ),
             Expanded(
               child: Slider(
-                value: _fontSize,
-                min: 12,
-                max: 20,
-                divisions: 8,
+                value: appearance.chatFontSize,
+                min: AppearanceProvider.minFontSize,
+                max: AppearanceProvider.maxFontSize,
+                divisions:
+                    (AppearanceProvider.maxFontSize -
+                            AppearanceProvider.minFontSize)
+                        .round(),
                 activeColor: const Color(0xFF2563EB),
                 inactiveColor: isDark ? Colors.white12 : Colors.black12,
-                onChanged: (v) {
-                  setState(() => _fontSize = v);
-                  _savePrefs();
-                },
+                onChanged: (v) => appearance.setChatFontSize(v),
               ),
             ),
             Text(
@@ -2367,12 +2589,404 @@ class _XaneoSettingsModalState
         ),
         Center(
           child: Text(
-            '${_fontSize.round()} px',
+            '${appearance.chatFontSize.round()} px',
             style: TextStyle(
               fontSize: 11 * scale,
               color: isDark ? Colors.white38 : Colors.black38,
             ),
           ),
+        ),
+        SizedBox(height: 20 * scale),
+        _buildWallpaperPicker(context, appearance, isDark, scale),
+        SizedBox(height: 20 * scale),
+        _buildMessageColorPicker(
+          context,
+          appearance,
+          isMe: true,
+          isDark: isDark,
+          scale: scale,
+        ),
+        SizedBox(height: 20 * scale),
+        _buildMessageColorPicker(
+          context,
+          appearance,
+          isMe: false,
+          isDark: isDark,
+          scale: scale,
+        ),
+        SizedBox(height: 20 * scale),
+        _buildNotificationStylePicker(context, appearance, isDark, scale),
+      ],
+    );
+  }
+
+  // ── Wallpaper ────────────────────────────────────────────────────────────────
+
+  Widget _buildWallpaperPicker(
+    BuildContext context,
+    AppearanceProvider appearance,
+    bool isDark,
+    double scale,
+  ) {
+    final l10n = AppLocalizations.of(context);
+    final presets = <WallpaperPresetId, Widget>{
+      WallpaperPresetId.defaultWp: Container(
+        color: isDark ? Colors.black : Colors.white,
+      ),
+      WallpaperPresetId.blue: Container(
+        decoration: BoxDecoration(gradient: kWallpaperGradients['blue']),
+      ),
+      WallpaperPresetId.green: Container(
+        decoration: BoxDecoration(gradient: kWallpaperGradients['green']),
+      ),
+      WallpaperPresetId.purple: Container(
+        decoration: BoxDecoration(gradient: kWallpaperGradients['purple']),
+      ),
+      WallpaperPresetId.dark: Container(color: const Color(0xFF1A1A1A)),
+      WallpaperPresetId.gradient: Container(
+        decoration: BoxDecoration(gradient: kWallpaperGradients['gradient']),
+      ),
+    };
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionHeader(l10n?.chatWallpaper ?? 'Chat wallpaper', isDark, scale),
+        SizedBox(height: 8 * scale),
+        Wrap(
+          spacing: 8 * scale,
+          runSpacing: 8 * scale,
+          children: [
+            ...presets.entries.map((entry) {
+              final selected = appearance.wallpaper.preset == entry.key;
+              return _swatchTile(
+                scale: scale,
+                selected: selected,
+                isDark: isDark,
+                onTap: () => appearance.setWallpaperPreset(entry.key),
+                child: entry.value,
+              );
+            }),
+            _swatchTile(
+              scale: scale,
+              selected: appearance.wallpaper.preset == WallpaperPresetId.custom,
+              isDark: isDark,
+              onTap: () => _pickCustomWallpaper(context, appearance),
+              child:
+                  appearance.wallpaper.preset == WallpaperPresetId.custom &&
+                      appearance.wallpaper.customImagePath != null
+                  ? Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        Image.file(
+                          File(appearance.wallpaper.customImagePath!),
+                          fit: BoxFit.cover,
+                        ),
+                        Positioned(
+                          right: 2,
+                          top: 2,
+                          child: GestureDetector(
+                            onTap: () => appearance.removeCustomWallpaper(),
+                            child: Container(
+                              padding: EdgeInsets.all(2 * scale),
+                              decoration: const BoxDecoration(
+                                color: Colors.black54,
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                Icons.close,
+                                size: 12 * scale,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    )
+                  : Icon(
+                      Icons.add_photo_alternate_outlined,
+                      size: 18 * scale,
+                      color: isDark ? Colors.white54 : Colors.black45,
+                    ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _swatchTile({
+    required double scale,
+    required bool selected,
+    required bool isDark,
+    required VoidCallback onTap,
+    required Widget child,
+  }) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: 44 * scale,
+          height: 44 * scale,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10 * scale),
+            border: Border.all(
+              color: selected
+                  ? const Color(0xFF2563EB)
+                  : (isDark ? Colors.white12 : Colors.black12),
+              width: selected ? 2 : 1,
+            ),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: child,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickCustomWallpaper(
+    BuildContext context,
+    AppearanceProvider appearance,
+  ) async {
+    try {
+      final result = await FilePicker.pickFiles(
+        type: FileType.image,
+        allowMultiple: false,
+      );
+      final path = result?.files.single.path;
+      if (path == null) return;
+      await appearance.setCustomWallpaperFromPickedFile(path);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Не удалось загрузить обои: $e')),
+        );
+      }
+    }
+  }
+
+  // ── Message colors ──────────────────────────────────────────────────────────
+
+  Widget _buildMessageColorPicker(
+    BuildContext context,
+    AppearanceProvider appearance, {
+    required bool isMe,
+    required bool isDark,
+    required double scale,
+  }) {
+    final l10n = AppLocalizations.of(context);
+    final solidPresets = isMe
+        ? kMyMessageSolidPresets
+        : kOtherMessageSolidPresets;
+    final gradientPresets = isMe
+        ? kMyMessageGradientPresets
+        : kOtherMessageGradientPresets;
+    final defaultCustomSolid = isMe
+        ? kMyMessageDefaultCustomSolid
+        : kOtherMessageDefaultCustomSolid;
+    final current = isMe
+        ? appearance.myMessageColor
+        : appearance.otherMessageColor;
+
+    void apply(MessageColorSetting setting) {
+      if (isMe) {
+        appearance.setMyMessageColor(setting);
+      } else {
+        appearance.setOtherMessageColor(setting);
+      }
+    }
+
+    Widget presetSwatch(String presetId, Widget content) {
+      final selected = current.presetId == presetId;
+      return _swatchTile(
+        scale: scale,
+        selected: selected,
+        isDark: isDark,
+        onTap: () => apply(MessageColorSetting(presetId: presetId)),
+        child: content,
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionHeader(
+          isMe
+              ? (l10n?.myMessageColor ?? 'Your message color')
+              : (l10n?.otherMessageColor ?? 'Other message color'),
+          isDark,
+          scale,
+        ),
+        SizedBox(height: 8 * scale),
+        Wrap(
+          spacing: 8 * scale,
+          runSpacing: 8 * scale,
+          children: [
+            presetSwatch(
+              'default',
+              Container(color: isDark ? Colors.white12 : Colors.black12),
+            ),
+            ...solidPresets.entries.map(
+              (e) => presetSwatch('${e.key}', Container(color: e.value)),
+            ),
+            ...gradientPresets.entries.map(
+              (e) => presetSwatch(
+                '${e.key}',
+                Container(decoration: BoxDecoration(gradient: e.value)),
+              ),
+            ),
+            _swatchTile(
+              scale: scale,
+              selected: current.presetId == 'custom',
+              isDark: isDark,
+              onTap: () async {
+                final baseColor = _resolvedBaseColor(
+                  current,
+                  solidPresets,
+                  gradientPresets,
+                  defaultCustomSolid,
+                );
+                final color = await ColorPickerModal.pick(
+                  context: context,
+                  initial: baseColor,
+                );
+                if (color != null) {
+                  apply(
+                    MessageColorSetting(presetId: 'custom', customSolid: color),
+                  );
+                }
+              },
+              child: current.presetId == 'custom' && current.customSolid != null
+                  ? Container(color: current.customSolid)
+                  : Icon(
+                      Icons.colorize_rounded,
+                      size: 18 * scale,
+                      color: isDark ? Colors.white54 : Colors.black45,
+                    ),
+            ),
+            _swatchTile(
+              scale: scale,
+              selected: current.presetId == 'custom-gradient',
+              isDark: isDark,
+              onTap: () async {
+                final baseGradient = _resolvedBaseGradient(
+                  current,
+                  solidPresets,
+                  gradientPresets,
+                  defaultCustomSolid,
+                );
+                final gradient = await GradientPickerModal.pick(
+                  context: context,
+                  initial: baseGradient,
+                );
+                if (gradient != null) {
+                  apply(
+                    MessageColorSetting(
+                      presetId: 'custom-gradient',
+                      customGradient: gradient,
+                    ),
+                  );
+                }
+              },
+              child:
+                  current.presetId == 'custom-gradient' &&
+                      current.customGradient != null
+                  ? Container(
+                      decoration: BoxDecoration(
+                        gradient: current.customGradient!.toLinearGradient(),
+                      ),
+                    )
+                  : Icon(
+                      Icons.gradient_rounded,
+                      size: 18 * scale,
+                      color: isDark ? Colors.white54 : Colors.black45,
+                    ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  /// The bubble color that's actually showing right now for [current] —
+  /// resolves the preset/custom value against its tables, and only falls
+  /// back to [defaultCustomSolid] if nothing is currently applied ("default").
+  /// Any custom-color/-gradient modal opened from this section starts here,
+  /// so it never jumps to an unrelated placeholder color.
+  Color _resolvedBaseColor(
+    MessageColorSetting current,
+    Map<String, Color> solidPresets,
+    Map<String, LinearGradient> gradientPresets,
+    Color defaultCustomSolid,
+  ) {
+    final resolution = current.resolve(
+      solidPresets: solidPresets,
+      gradientPresets: gradientPresets,
+      defaultCustomSolid: defaultCustomSolid,
+    );
+    return resolution.solidColor ??
+        resolution.gradient?.colors.first ??
+        defaultCustomSolid;
+  }
+
+  GradientSpec _resolvedBaseGradient(
+    MessageColorSetting current,
+    Map<String, Color> solidPresets,
+    Map<String, LinearGradient> gradientPresets,
+    Color defaultCustomSolid,
+  ) {
+    final resolution = current.resolve(
+      solidPresets: solidPresets,
+      gradientPresets: gradientPresets,
+      defaultCustomSolid: defaultCustomSolid,
+    );
+    if (resolution.gradient != null) {
+      return GradientSpec(
+        color1: resolution.gradient!.colors.first,
+        color2: resolution.gradient!.colors.last,
+      );
+    }
+    final base = resolution.solidColor ?? defaultCustomSolid;
+    return GradientSpec(
+      color1: base,
+      color2: gradientPresets.values.first.colors.last,
+    );
+  }
+
+  // ── Notification style ──────────────────────────────────────────────────────
+
+  Widget _buildNotificationStylePicker(
+    BuildContext context,
+    AppearanceProvider appearance,
+    bool isDark,
+    double scale,
+  ) {
+    final l10n = AppLocalizations.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionHeader(
+          l10n?.notificationStyle ?? 'Notification style',
+          isDark,
+          scale,
+        ),
+        SizedBox(height: 8 * scale),
+        _radioRow(
+          l10n?.standardNotificationStyle ?? 'Standard',
+          NotificationStyle.standard.name,
+          appearance.notificationStyle.name,
+          isDark,
+          scale,
+          (v) => appearance.setNotificationStyle(NotificationStyle.standard),
+        ),
+        _radioRow(
+          l10n?.ravenNotificationStyle ?? 'Black Raven',
+          NotificationStyle.raven.name,
+          appearance.notificationStyle.name,
+          isDark,
+          scale,
+          (v) => appearance.setNotificationStyle(NotificationStyle.raven),
         ),
       ],
     );
@@ -2382,7 +2996,6 @@ class _XaneoSettingsModalState
 
   Widget _buildLanguage(BuildContext context, bool isDark, double scale) {
     final localeProvider = Provider.of<LocaleProvider>(context);
-    final l10n = AppLocalizations.of(context);
     final currentCode = localeProvider.locale?.languageCode ?? 'ru';
     final hasActiveCustom = localeProvider.hasActiveCustomPack;
     final activeCustomId = localeProvider.activeCustomPack?.id;
@@ -2396,7 +3009,9 @@ class _XaneoSettingsModalState
           final code = lang['code']!;
           final name = lang['name']!;
           final isSelected = !hasActiveCustom && currentCode == code;
-          return _radioRow(name, code, isSelected ? code : '', isDark, scale, (v) {
+          return _radioRow(name, code, isSelected ? code : '', isDark, scale, (
+            v,
+          ) {
             localeProvider.setLocale(Locale(code));
             _savePrefs();
           });
@@ -2411,7 +3026,9 @@ class _XaneoSettingsModalState
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(
-              RuntimeTranslations.instance.resolveByText('Пользовательские языки'),
+              RuntimeTranslations.instance.resolveByText(
+                'Пользовательские языки',
+              ),
               style: TextStyle(
                 fontSize: 14 * scale,
                 fontWeight: FontWeight.w600,
@@ -2420,15 +3037,28 @@ class _XaneoSettingsModalState
             ),
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
-                backgroundColor: isDark ? const Color(0xFF1E293B) : const Color(0xFFE2E8F0),
-                foregroundColor: isDark ? const Color(0xFF00FFCC) : const Color(0xFF0F766E),
+                backgroundColor: isDark
+                    ? const Color(0xFF1E293B)
+                    : const Color(0xFFE2E8F0),
+                foregroundColor: isDark
+                    ? const Color(0xFF00FFCC)
+                    : const Color(0xFF0F766E),
                 elevation: 0,
-                padding: EdgeInsets.symmetric(horizontal: 10 * scale, vertical: 6 * scale),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                padding: EdgeInsets.symmetric(
+                  horizontal: 10 * scale,
+                  vertical: 6 * scale,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
               ),
               icon: Icon(Icons.file_upload_outlined, size: 14 * scale),
-              label: Text(RuntimeTranslations.instance.resolveByText('Импорт .json'), style: TextStyle(fontSize: 12 * scale)),
-              onPressed: () => CustomLanguagePackDialogs.pickAndImportLanguagePack(context),
+              label: Text(
+                RuntimeTranslations.instance.resolveByText('Импорт .json'),
+                style: TextStyle(fontSize: 12 * scale),
+              ),
+              onPressed: () =>
+                  CustomLanguagePackDialogs.pickAndImportLanguagePack(context),
             ),
           ],
         ),
@@ -2438,8 +3068,13 @@ class _XaneoSettingsModalState
           Padding(
             padding: EdgeInsets.symmetric(vertical: 8 * scale),
             child: Text(
-              RuntimeTranslations.instance.resolveByText('Нет загруженных языковых пакетов. Вы можете загрузить свой .json файл.'),
-              style: TextStyle(fontSize: 12 * scale, color: isDark ? Colors.white38 : Colors.black38),
+              RuntimeTranslations.instance.resolveByText(
+                'Нет загруженных языковых пакетов. Вы можете загрузить свой .json файл.',
+              ),
+              style: TextStyle(
+                fontSize: 12 * scale,
+                color: isDark ? Colors.white38 : Colors.black38,
+              ),
             ),
           ),
         ] else ...[
@@ -2449,12 +3084,16 @@ class _XaneoSettingsModalState
               margin: EdgeInsets.only(bottom: 6 * scale),
               decoration: BoxDecoration(
                 color: isSelected
-                    ? (isDark ? Colors.white.withOpacity(0.08) : Colors.black.withOpacity(0.04))
+                    ? (isDark
+                          ? Colors.white.withOpacity(0.08)
+                          : Colors.black.withOpacity(0.04))
                     : Colors.transparent,
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(
                   color: isSelected
-                      ? (isDark ? const Color(0xFF00FFCC).withOpacity(0.4) : const Color(0xFF0F766E).withOpacity(0.4))
+                      ? (isDark
+                            ? const Color(0xFF00FFCC).withOpacity(0.4)
+                            : const Color(0xFF0F766E).withOpacity(0.4))
                       : (isDark ? Colors.white10 : Colors.black12),
                 ),
               ),
@@ -2462,26 +3101,41 @@ class _XaneoSettingsModalState
                 dense: true,
                 contentPadding: EdgeInsets.symmetric(horizontal: 10 * scale),
                 leading: Icon(
-                  isSelected ? Icons.radio_button_checked : Icons.radio_button_off,
+                  isSelected
+                      ? Icons.radio_button_checked
+                      : Icons.radio_button_off,
                   size: 18 * scale,
-                  color: isSelected ? const Color(0xFF00FFCC) : (isDark ? Colors.white38 : Colors.black38),
+                  color: isSelected
+                      ? const Color(0xFF00FFCC)
+                      : (isDark ? Colors.white38 : Colors.black38),
                 ),
                 title: Text(
                   '${pack.name} (${pack.nativeName})',
                   style: TextStyle(
                     fontSize: 13 * scale,
-                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                    fontWeight: isSelected
+                        ? FontWeight.w600
+                        : FontWeight.normal,
                     color: isDark ? Colors.white : Colors.black87,
                   ),
                 ),
                 subtitle: Text(
                   '${pack.locale} • ${pack.stringCount} строк • fallback: ${pack.fallbackLocale}',
-                  style: TextStyle(fontSize: 11 * scale, color: isDark ? Colors.white38 : Colors.black38),
+                  style: TextStyle(
+                    fontSize: 11 * scale,
+                    color: isDark ? Colors.white38 : Colors.black38,
+                  ),
                 ),
                 trailing: IconButton(
-                  icon: Icon(Icons.delete_outline, size: 16 * scale, color: Colors.redAccent.withOpacity(0.8)),
+                  icon: Icon(
+                    Icons.delete_outline,
+                    size: 16 * scale,
+                    color: Colors.redAccent.withOpacity(0.8),
+                  ),
                   onPressed: () => localeProvider.deleteCustomPack(pack.id),
-                  tooltip: RuntimeTranslations.instance.resolveByText('Удалить пакет'),
+                  tooltip: RuntimeTranslations.instance.resolveByText(
+                    'Удалить пакет',
+                  ),
                 ),
                 onTap: () {
                   localeProvider.activateCustomPack(pack.id);
@@ -2666,7 +3320,9 @@ class _XaneoSettingsModalState
           final uri = Uri.parse(ApiService.baseUrl);
           final origin =
               "${uri.scheme}://${uri.host}${uri.hasPort ? ':${uri.port}' : ''}";
-          fullUrl = avatar.startsWith('/') ? "$origin$avatar" : "$origin/$avatar";
+          fullUrl = avatar.startsWith('/')
+              ? "$origin$avatar"
+              : "$origin/$avatar";
         } catch (_) {
           fullUrl = 'https://xaneo.ru$avatar';
         }
@@ -2720,7 +3376,9 @@ class _XaneoSettingsModalState
           final uri = Uri.parse(ApiService.baseUrl);
           final origin =
               "${uri.scheme}://${uri.host}${uri.hasPort ? ':${uri.port}' : ''}";
-          fullUrl = avatar.startsWith('/') ? "$origin$avatar" : "$origin/$avatar";
+          fullUrl = avatar.startsWith('/')
+              ? "$origin$avatar"
+              : "$origin/$avatar";
         } catch (_) {
           fullUrl = 'https://xaneo.ru$avatar';
         }
@@ -3758,6 +4416,122 @@ class __XaneoDropdownItemRowState extends State<_XaneoDropdownItemRow> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _DeleteAccountConfirmationModal extends BaseCustomModal {
+  const _DeleteAccountConfirmationModal();
+
+  static Future<String?> show({required BuildContext context}) {
+    return BaseCustomModal.show<String>(
+      context: context,
+      modal: const _DeleteAccountConfirmationModal(),
+      barrierLabel: 'DeleteAccountConfirmation',
+    );
+  }
+
+  @override
+  State<_DeleteAccountConfirmationModal> createState() =>
+      _DeleteAccountConfirmationModalState();
+}
+
+class _DeleteAccountConfirmationModalState
+    extends BaseCustomModalState<_DeleteAccountConfirmationModal> {
+  final TextEditingController _passwordController = TextEditingController();
+
+  @override
+  double get modalWidth => 430;
+
+  @override
+  double get modalHeightFactor => 0.60;
+
+  @override
+  void initState() {
+    super.initState();
+    _passwordController.addListener(_refresh);
+  }
+
+  void _refresh() => setState(() {});
+
+  void _submit() {
+    final password = _passwordController.text;
+    if (password.isNotEmpty) Navigator.of(context).pop(password);
+  }
+
+  @override
+  void dispose() {
+    _passwordController
+      ..removeListener(_refresh)
+      ..dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget buildContent(
+    BuildContext context,
+    ScrollController scrollController,
+    bool isDark,
+    double scale,
+  ) {
+    final l10n = AppLocalizations.of(context)!;
+    final foreground = isDark ? Colors.white : const Color(0xFF161616);
+
+    return SingleChildScrollView(
+      controller: scrollController,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            l10n.deleteAccountTitle,
+            style: TextStyle(
+              color: foreground,
+              fontSize: 18 * scale,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          SizedBox(height: 10 * scale),
+          Text(
+            l10n.deleteAccountConfirmation,
+            style: TextStyle(
+              color: foreground.withValues(alpha: 0.68),
+              fontSize: 13 * scale,
+              height: 1.4,
+            ),
+          ),
+          SizedBox(height: 16 * scale),
+          TextField(
+            controller: _passwordController,
+            obscureText: true,
+            autofocus: true,
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => _submit(),
+            decoration: InputDecoration(labelText: l10n.password),
+          ),
+          SizedBox(height: 20 * scale),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: Text(l10n.cancel),
+                ),
+              ),
+              SizedBox(width: 12 * scale),
+              Expanded(
+                child: FilledButton(
+                  onPressed: _passwordController.text.isEmpty ? null : _submit,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.redAccent,
+                  ),
+                  child: Text(l10n.delete),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

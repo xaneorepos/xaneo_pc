@@ -2440,16 +2440,13 @@ class AppLocalizationsKo extends AppLocalizations {
   String get confirmOnDeviceStatus => '이미 인증된 기기에서 로그인을 확인하세요.';
 
   @override
-  String get sixDigitCodeSentSub =>
-      'Xaneo 알림으로 전송된 6자리 코드를 입력하세요';
+  String get sixDigitCodeSentSub => 'Xaneo 알림으로 전송된 6자리 코드를 입력하세요';
 
   @override
-  String get confirmOnDeviceSub =>
-      '이미 인증된 기기에서 로그인을 확인하세요';
+  String get confirmOnDeviceSub => '이미 인증된 기기에서 로그인을 확인하세요';
 
   @override
-  String get awaitingDeviceApproval =>
-      '기기에서 확인 대기 중...';
+  String get awaitingDeviceApproval => '기기에서 확인 대기 중...';
 
   @override
   String get mustBeSixDigits => '코드는 6자리 숫자여야 합니다';
@@ -2461,9 +2458,46 @@ class AppLocalizationsKo extends AppLocalizations {
   String get backBtn => '뒤로';
 
   @override
-  String get confirmDeviceRequestText =>
-      '기기로 확인 요청이 전송되었습니다. 앱에서 로그인을 승인하세요.';
+  String get confirmDeviceRequestText => '기기로 확인 요청이 전송되었습니다. 앱에서 로그인을 승인하세요.';
 
   @override
   String get sendingEmailCode => '이메일로 코드 전송 중…';
+
+  @override
+  String get changePhoto => '사진 변경';
+  @override
+  String get deleting => '삭제 중…';
+  @override
+  String get chatFontSize => '채팅 글꼴 크기';
+  @override
+  String get chatWallpaper => '채팅 배경';
+  @override
+  String get myMessageColor => '내 메시지 색상';
+  @override
+  String get otherMessageColor => '상대방 메시지 색상';
+  @override
+  String get notificationStyle => '알림 스타일';
+  @override
+  String get standardNotificationStyle => '표준';
+  @override
+  String get ravenNotificationStyle => '검은 까마귀';
+  @override
+  String get deleteAccountTitle => '계정을 삭제할까요?';
+  @override
+  String get deleteAccountConfirmation =>
+      '프로필이 영구적으로 삭제됩니다. 확인하려면 비밀번호를 입력하세요.';
+  @override
+  String get customColor => '사용자 지정 색상';
+  @override
+  String get customGradient => '사용자 지정 그라데이션';
+  @override
+  String get colorOne => '색상 1';
+  @override
+  String get colorTwo => '색상 2';
+  @override
+  String get diagonal => '대각선';
+  @override
+  String get vertical => '세로';
+  @override
+  String get horizontal => '가로';
 }

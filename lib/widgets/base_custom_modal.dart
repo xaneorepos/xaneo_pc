@@ -91,8 +91,6 @@ abstract class BaseCustomModalState<T extends BaseCustomModal>
         ? const Color(0xFF1E1E1E)
         : const Color(0xFFEBEBEB);
 
-    final headerText = getModalTitle(context);
-
     return Material(
       type: MaterialType.transparency,
       child: Center(
@@ -120,27 +118,17 @@ abstract class BaseCustomModalState<T extends BaseCustomModal>
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Шапка (Заголовок категории в стиле Account Switcher + кнопка Закрыть)
+                // Компактная строка закрытия без дублирующего eyebrow-заголовка.
                 Padding(
                   padding: EdgeInsets.fromLTRB(
-                    20 * scale,
-                    18 * scale,
-                    20 * scale,
                     12 * scale,
+                    8 * scale,
+                    12 * scale,
+                    0,
                   ),
                   child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    mainAxisAlignment: MainAxisAlignment.end,
                     children: [
-                      Text(
-                        headerText,
-                        style: TextStyle(
-                          fontSize: 11 * scale,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 1.5 * scale,
-                          color: isDark ? Colors.white38 : Colors.black38,
-                          fontFamily: 'Inter',
-                        ),
-                      ),
                       GestureDetector(
                         onTap: () => Navigator.of(context).pop(),
                         child: MouseRegion(

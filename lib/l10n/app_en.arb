@@ -497,5 +497,23 @@
   "emailCodeFailed": "Failed to send code to email",
   "@emailCodeFailed": {
     "description": "Error when sending code to email fails"
-  }
+  },
+  "changePhoto": "Change photo",
+  "deleting": "Deleting…",
+  "chatFontSize": "Chat font size",
+  "chatWallpaper": "Chat wallpaper",
+  "myMessageColor": "Your message color",
+  "otherMessageColor": "Other message color",
+  "notificationStyle": "Notification style",
+  "standardNotificationStyle": "Standard",
+  "ravenNotificationStyle": "Black Raven",
+  "deleteAccountTitle": "Delete account?",
+  "deleteAccountConfirmation": "Your profile will be permanently deleted. Enter your password to confirm.",
+  "customColor": "Custom color",
+  "customGradient": "Custom gradient",
+  "colorOne": "Color 1",
+  "colorTwo": "Color 2",
+  "diagonal": "Diagonal",
+  "vertical": "Vertical",
+  "horizontal": "Horizontal"
 }

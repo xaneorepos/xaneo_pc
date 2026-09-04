@@ -2299,9 +2299,11 @@ class AppLocalizationsAr extends AppLocalizations {
   String get noMessagesSubtitle =>
       'أرسل رسالة لبدء المحادثة على Xaneo Connect!';
   @override
-  String get groupWelcome => 'مرحبًا بك في المجموعة! تحدث وشارك الملفات مع الأعضاء.';
+  String get groupWelcome =>
+      'مرحبًا بك في المجموعة! تحدث وشارك الملفات مع الأعضاء.';
   @override
-  String get channelWelcome => 'مرحبًا بك في القناة! يتم نشر الإعلانات والأخبار المهمة هنا.';
+  String get channelWelcome =>
+      'مرحبًا بك في القناة! يتم نشر الإعلانات والأخبار المهمة هنا.';
   @override
   String get closeActionTitle => 'الإجراء عند إغلاق النافذة';
   @override
@@ -2430,14 +2432,16 @@ class AppLocalizationsAr extends AppLocalizations {
   String get codeSentToBot => 'تم إرسال الرمز إلى دردشة إشعارات Xaneo.';
 
   @override
-  String emailCodeSent(String email) =>
-      email.isNotEmpty ? 'تم إرسال الرمز إلى البريد $email' : 'تم إرسال الرمز إلى البريد';
+  String emailCodeSent(String email) => email.isNotEmpty
+      ? 'تم إرسال الرمز إلى البريد $email'
+      : 'تم إرسال الرمز إلى البريد';
 
   @override
   String get emailCodeFailed => 'فشل إرسال الرمز إلى البريد الإلكتروني';
 
   @override
-  String get enterUsernameErr => 'أدخل اسم المستخدم أو البريد الإلكتروني المؤكد.';
+  String get enterUsernameErr =>
+      'أدخل اسم المستخدم أو البريد الإلكتروني المؤكد.';
 
   @override
   String get sendCodeFailedErr => 'فشل إرسال الرمز. حاول لاحقًا.';
@@ -2470,19 +2474,18 @@ class AppLocalizationsAr extends AppLocalizations {
   String get rateLimitedErr => 'طلبات كثيرة جدًا. حاول لاحقًا.';
 
   @override
-  String get confirmOnDeviceStatus => 'تأكيد تسجيل الدخول على جهاز مصرح به بالفعل.';
+  String get confirmOnDeviceStatus =>
+      'تأكيد تسجيل الدخول على جهاز مصرح به بالفعل.';
 
   @override
   String get sixDigitCodeSentSub =>
       'أدخل الرمز المكون من 6 أرقام المرسل إلى إشعارات Xaneo';
 
   @override
-  String get confirmOnDeviceSub =>
-      'تأكيد تسجيل الدخول على جهاز مصرح به بالفعل';
+  String get confirmOnDeviceSub => 'تأكيد تسجيل الدخول على جهاز مصرح به بالفعل';
 
   @override
-  String get awaitingDeviceApproval =>
-      'في انتظار التأكيد على الجهاز...';
+  String get awaitingDeviceApproval => 'في انتظار التأكيد على الجهاز...';
 
   @override
   String get mustBeSixDigits => 'يجب أن يتكون الرمز من 6 أرقام';
@@ -2499,4 +2502,42 @@ class AppLocalizationsAr extends AppLocalizations {
 
   @override
   String get sendingEmailCode => 'جاري إرسال الرمز إلى البريد الإلكتروني…';
+
+  @override
+  String get changePhoto => 'تغيير الصورة';
+  @override
+  String get deleting => 'جاري الحذف…';
+  @override
+  String get chatFontSize => 'حجم خط الدردشة';
+  @override
+  String get chatWallpaper => 'خلفية الدردشة';
+  @override
+  String get myMessageColor => 'لون رسائلك';
+  @override
+  String get otherMessageColor => 'لون رسائل الآخرين';
+  @override
+  String get notificationStyle => 'نمط الإشعارات';
+  @override
+  String get standardNotificationStyle => 'قياسي';
+  @override
+  String get ravenNotificationStyle => 'الغراب الأسود';
+  @override
+  String get deleteAccountTitle => 'حذف الحساب؟';
+  @override
+  String get deleteAccountConfirmation =>
+      'سيتم حذف ملفك الشخصي نهائيًا. أدخل كلمة المرور للتأكيد.';
+  @override
+  String get customColor => 'لون مخصص';
+  @override
+  String get customGradient => 'تدرج مخصص';
+  @override
+  String get colorOne => 'اللون 1';
+  @override
+  String get colorTwo => 'اللون 2';
+  @override
+  String get diagonal => 'قطري';
+  @override
+  String get vertical => 'عمودي';
+  @override
+  String get horizontal => 'أفقي';
 }

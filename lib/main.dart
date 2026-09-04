@@ -12,6 +12,7 @@ import 'providers/theme_provider.dart';
 import 'providers/locale_provider.dart';
 import 'providers/scale_provider.dart';
 import 'providers/playback_provider.dart';
+import 'providers/appearance_provider.dart';
 import 'screens/onboarding_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/register_screen.dart';
@@ -131,6 +132,7 @@ void main(List<String> args) async {
         ChangeNotifierProvider(create: (context) => ThemeProvider()),
         ChangeNotifierProvider(create: (context) => ScaleProvider()),
         ChangeNotifierProvider(create: (context) => PlaybackProvider()),
+        ChangeNotifierProvider(create: (context) => AppearanceProvider()),
         Provider<WebRTCSignalingService>(
           create: (context) => WebRTCSignalingService(),
           dispose: (context, service) => service.dispose(),

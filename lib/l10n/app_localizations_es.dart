@@ -2313,9 +2313,11 @@ class AppLocalizationsEs extends AppLocalizations {
   String get noMessagesSubtitle =>
       '¡Envía un mensaje para iniciar la conversación en Xaneo Connect!';
   @override
-  String get groupWelcome => '¡Bienvenido al grupo! Chatea y comparte archivos con los miembros.';
+  String get groupWelcome =>
+      '¡Bienvenido al grupo! Chatea y comparte archivos con los miembros.';
   @override
-  String get channelWelcome => '¡Bienvenido al canal! Aquí se publican anuncios y noticias importantes.';
+  String get channelWelcome =>
+      '¡Bienvenido al canal! Aquí se publican anuncios y noticias importantes.';
   @override
   String get closeActionTitle => 'Acción al cerrar la ventana';
   @override
@@ -2445,17 +2447,20 @@ class AppLocalizationsEs extends AppLocalizations {
   String get codeSentToBot => 'Código enviado al chat «Notificaciones Xaneo».';
 
   @override
-  String emailCodeSent(String email) =>
-      email.isNotEmpty ? 'Código enviado al correo $email' : 'Código enviado al correo';
+  String emailCodeSent(String email) => email.isNotEmpty
+      ? 'Código enviado al correo $email'
+      : 'Código enviado al correo';
 
   @override
   String get emailCodeFailed => 'Error al enviar el código por correo';
 
   @override
-  String get enterUsernameErr => 'Ingresa un nombre de usuario o correo verificado.';
+  String get enterUsernameErr =>
+      'Ingresa un nombre de usuario o correo verificado.';
 
   @override
-  String get sendCodeFailedErr => 'Error al enviar el código. Inténtalo más tarde.';
+  String get sendCodeFailedErr =>
+      'Error al enviar el código. Inténtalo más tarde.';
 
   @override
   String get enterAllDigitsErr => 'Ingresa los seis dígitos.';
@@ -2470,7 +2475,8 @@ class AppLocalizationsEs extends AppLocalizations {
   String get invalidPasswordErr => 'Contraseña incorrecta.';
 
   @override
-  String get passwordTooSoonErr => 'El inicio de sesión con contraseña aún no está disponible.';
+  String get passwordTooSoonErr =>
+      'El inicio de sesión con contraseña aún no está disponible.';
 
   @override
   String get submitCodeBtn => 'Iniciar sesión';
@@ -2515,4 +2521,42 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get sendingEmailCode => 'Enviando código al correo…';
+
+  @override
+  String get changePhoto => 'Cambiar foto';
+  @override
+  String get deleting => 'Eliminando…';
+  @override
+  String get chatFontSize => 'Tamaño de texto del chat';
+  @override
+  String get chatWallpaper => 'Fondo del chat';
+  @override
+  String get myMessageColor => 'Color de tus mensajes';
+  @override
+  String get otherMessageColor => 'Color de otros mensajes';
+  @override
+  String get notificationStyle => 'Estilo de notificaciones';
+  @override
+  String get standardNotificationStyle => 'Estándar';
+  @override
+  String get ravenNotificationStyle => 'Cuervo negro';
+  @override
+  String get deleteAccountTitle => '¿Eliminar la cuenta?';
+  @override
+  String get deleteAccountConfirmation =>
+      'Tu perfil se eliminará de forma permanente. Introduce tu contraseña para confirmar.';
+  @override
+  String get customColor => 'Color personalizado';
+  @override
+  String get customGradient => 'Degradado personalizado';
+  @override
+  String get colorOne => 'Color 1';
+  @override
+  String get colorTwo => 'Color 2';
+  @override
+  String get diagonal => 'Diagonal';
+  @override
+  String get vertical => 'Vertical';
+  @override
+  String get horizontal => 'Horizontal';
 }

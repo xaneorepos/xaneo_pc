@@ -497,5 +497,23 @@
   "emailCodeFailed": "Не удалось отправить код на email",
   "@emailCodeFailed": {
     "description": "Ошибка отправки кода на почту"
-  }
+  },
+  "changePhoto": "Изменить фото",
+  "deleting": "Удаление…",
+  "chatFontSize": "Размер шрифта в чате",
+  "chatWallpaper": "Обои чата",
+  "myMessageColor": "Цвет своих сообщений",
+  "otherMessageColor": "Цвет чужих сообщений",
+  "notificationStyle": "Стиль уведомлений",
+  "standardNotificationStyle": "Стандартный",
+  "ravenNotificationStyle": "Чёрная ворона",
+  "deleteAccountTitle": "Удалить аккаунт?",
+  "deleteAccountConfirmation": "Профиль будет удалён без возможности восстановления. Введите пароль для подтверждения.",
+  "customColor": "Свой цвет",
+  "customGradient": "Свой градиент",
+  "colorOne": "Цвет 1",
+  "colorTwo": "Цвет 2",
+  "diagonal": "По диагонали",
+  "vertical": "Вертикально",
+  "horizontal": "Горизонтально"
 }

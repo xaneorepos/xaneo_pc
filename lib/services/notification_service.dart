@@ -2,7 +2,10 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:provider/provider.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:local_notifier/local_notifier.dart';
 import 'package:desktop_multi_window/desktop_multi_window.dart';
@@ -14,6 +17,7 @@ import 'package:xaneo/providers/playback_provider.dart';
 import 'package:xaneo/services/webrtc/call_manager.dart';
 import 'package:xaneo/screens/webrtc/active_call_screen.dart';
 import 'package:xaneo/utils/win32_overlay_helper.dart';
+import 'package:xaneo/models/message_color_presets.dart';
 import 'api_service.dart';
 import '../l10n/app_localizations.dart';
 
@@ -62,6 +66,43 @@ class NotificationService {
     return false;
   }
 
+  /// Возвращает выбранный пользователем стиль уведомлений
+  /// (`appearance_notification_style`, задаётся в настройках "Внешний вид").
+  Future<NotificationStyle> _loadNotificationStyle(SharedPreferences prefs) async {
+    return NotificationStyle.values.firstWhere(
+      (e) => e.name == prefs.getString('appearance_notification_style'),
+      orElse: () => NotificationStyle.standard,
+    );
+  }
+
+  /// Возвращает аргумент иконки для `notify-send` (Linux) под выбранный
+  /// стиль. Для "raven" подставляется логотип приложения вместо системной
+  /// иконки — единственная часть нативного уведомления, которую реально
+  /// можно стилизовать: local_notifier (Windows/macOS) не даёт задавать
+  /// иконку на уровне отдельного уведомления.
+  Future<String> _linuxIconForStyle(
+    NotificationStyle style, {
+    required String fallback,
+  }) async {
+    if (style != NotificationStyle.raven) return fallback;
+    try {
+      final data = await rootBundle.load('assets/logo.png');
+      final tempDir = await getTemporaryDirectory();
+      final file = File(
+        p.join(tempDir.path, 'xaneo_raven_notification_icon.png'),
+      );
+      if (!await file.exists()) {
+        await file.writeAsBytes(
+          data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+        );
+      }
+      return file.path;
+    } catch (e) {
+      debugPrint('NotificationService: failed to prepare raven icon: $e');
+      return fallback;
+    }
+  }
+
   /// Удаление символов разметки (markdown) из текста уведомления
   static String stripFormatting(String text) {
     if (text.isEmpty) return text;
@@ -104,8 +145,9 @@ class NotificationService {
 
     final prefs = await SharedPreferences.getInstance();
     // По умолчанию кастомный оверлей включен, если он поддерживается
-    final useCustomNotifications = isCustomOverlaySupported() && 
+    final useCustomNotifications = isCustomOverlaySupported() &&
         (prefs.getBool('use_custom_notifications') ?? true);
+    final notificationStyle = await _loadNotificationStyle(prefs);
 
     if (useCustomNotifications) {
       try {
@@ -127,6 +169,7 @@ class NotificationService {
       chatId: chatId,
       title: cleanTitle,
       body: cleanBody,
+      style: notificationStyle,
     );
   }
 
@@ -139,8 +182,9 @@ class NotificationService {
     String? gradient,
   }) async {
     final prefs = await SharedPreferences.getInstance();
-    final useCustomNotifications = isCustomOverlaySupported() && 
+    final useCustomNotifications = isCustomOverlaySupported() &&
         (prefs.getBool('use_custom_notifications') ?? true);
+    final notificationStyle = await _loadNotificationStyle(prefs);
 
     if (useCustomNotifications) {
       try {
@@ -161,6 +205,7 @@ class NotificationService {
       callId: callId,
       callerName: callerName,
       callType: callType,
+      style: notificationStyle,
     );
   }
 
@@ -190,6 +235,7 @@ class NotificationService {
     required String chatId,
     required String title,
     required String body,
+    NotificationStyle style = NotificationStyle.standard,
   }) async {
     final context = navigatorKey.currentContext;
     final l10n = context != null ? AppLocalizations.of(context) : null;
@@ -198,13 +244,17 @@ class NotificationService {
 
     if (!kIsWeb && Platform.isLinux) {
       try {
+        final icon = await _linuxIconForStyle(
+          style,
+          fallback: 'dialog-information',
+        );
         final res = await Process.run('notify-send', [
           '--action=open=$openText',
           '--action=read=$readText',
           '-a',
           'Xaneo',
           '-i',
-          'dialog-information',
+          icon,
           title,
           body,
         ]);
@@ -273,6 +323,7 @@ class NotificationService {
     required String callId,
     required String callerName,
     required String callType,
+    NotificationStyle style = NotificationStyle.standard,
   }) async {
     await dismissCallNotification();
 
@@ -288,6 +339,7 @@ class NotificationService {
 
     if (!kIsWeb && Platform.isLinux) {
       try {
+        final icon = await _linuxIconForStyle(style, fallback: 'call-start');
         final res = await Process.run('notify-send', [
           '--action=accept=$acceptText',
           '--action=decline=$declineText',
@@ -296,7 +348,7 @@ class NotificationService {
           '-u',
           'critical',
           '-i',
-          'call-start',
+          icon,
           titleText,
           bodyText,
         ]);

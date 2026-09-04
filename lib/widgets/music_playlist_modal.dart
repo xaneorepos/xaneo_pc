@@ -4,6 +4,7 @@ import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:provider/provider.dart';
 import '../providers/playback_provider.dart';
+import 'track_artwork.dart';
 import '../services/api_service.dart';
 import '../services/runtime_translations.dart';
 import '../utils/audio_metadata.dart';
@@ -169,7 +170,10 @@ class _MusicPlaylistL10n {
   };
 
   static String get(String key, String lang) {
-    return _strings[key]?[lang] ?? _strings[key]?['en'] ?? _strings[key]?['ru'] ?? key;
+    return _strings[key]?[lang] ??
+        _strings[key]?['en'] ??
+        _strings[key]?['ru'] ??
+        key;
   }
 }
 
@@ -195,7 +199,8 @@ class MusicPlaylistModal extends BaseCustomModal {
   State<MusicPlaylistModal> createState() => _MusicPlaylistModalState();
 }
 
-class _MusicPlaylistModalState extends BaseCustomModalState<MusicPlaylistModal> {
+class _MusicPlaylistModalState
+    extends BaseCustomModalState<MusicPlaylistModal> {
   double? _dragValue;
 
   String _getEffectiveLang(BuildContext context) {
@@ -211,7 +216,10 @@ class _MusicPlaylistModalState extends BaseCustomModalState<MusicPlaylistModal> 
     final lang = _getEffectiveLang(context);
     final l10n = AppLocalizations.of(context);
     final dynamicTitle = l10n?.pleylist_a04c ?? l10n?.muzyka_0660;
-    if (dynamicTitle != null && dynamicTitle.isNotEmpty && dynamicTitle != 'Fallback' && dynamicTitle != 'ПЛЕЙЛИСТ') {
+    if (dynamicTitle != null &&
+        dynamicTitle.isNotEmpty &&
+        dynamicTitle != 'Fallback' &&
+        dynamicTitle != 'ПЛЕЙЛИСТ') {
       return dynamicTitle.toUpperCase();
     }
     return _MusicPlaylistL10n.get('playlist', lang).toUpperCase();
@@ -237,10 +245,15 @@ class _MusicPlaylistModalState extends BaseCustomModalState<MusicPlaylistModal> 
   }
 
   bool _isAudioFile(Map<String, dynamic> payload) {
-    final fileName = (payload['file_name'] ?? payload['name'] ?? '').toString().toLowerCase();
-    final mime = (payload['mime_type'] ?? payload['type'] ?? '').toString().toLowerCase();
+    final fileName = (payload['file_name'] ?? payload['name'] ?? '')
+        .toString()
+        .toLowerCase();
+    final mime = (payload['mime_type'] ?? payload['type'] ?? '')
+        .toString()
+        .toLowerCase();
 
-    final isVoice = payload['type'] == 'voice' ||
+    final isVoice =
+        payload['type'] == 'voice' ||
         payload['type'] == 'video_message' ||
         fileName.contains('voice') ||
         fileName.endsWith('.ogg') ||
@@ -264,18 +277,31 @@ class _MusicPlaylistModalState extends BaseCustomModalState<MusicPlaylistModal> 
       if (rawMsg is! Map) continue;
       final msg = Map<String, dynamic>.from(rawMsg);
       final customPayload = _getCustomPayload(msg);
-      final attachedFileId = msg['attached_file_id']?.toString() ?? msg['file_id']?.toString();
+      final attachedFileId =
+          msg['attached_file_id']?.toString() ?? msg['file_id']?.toString();
 
-      final payload = customPayload ??
+      final basePayload =
+          customPayload ??
           (attachedFileId != null
               ? {
-                  'type': msg['attached_file_type'] == 'audio' || msg['file_type'] == 'audio' ? 'audio' : 'file',
+                  'type':
+                      msg['attached_file_type'] == 'audio' ||
+                          msg['file_type'] == 'audio'
+                      ? 'audio'
+                      : 'file',
                   'file_id': attachedFileId,
-                  'file_name': msg['attached_file_name'] ?? msg['file_name'] ?? _MusicPlaylistL10n.get('audio_track', lang),
-                  'file_size': msg['attached_file_size'] ?? msg['file_size'] ?? 0,
+                  'file_name':
+                      msg['attached_file_name'] ??
+                      msg['file_name'] ??
+                      _MusicPlaylistL10n.get('audio_track', lang),
+                  'file_size':
+                      msg['attached_file_size'] ?? msg['file_size'] ?? 0,
                   'mime_type': msg['attached_file_type'] ?? 'audio/mp3',
                 }
               : null);
+      final payload = basePayload == null
+          ? null
+          : audioPayloadWithMetadata(basePayload, msg);
 
       if (payload == null) continue;
 
@@ -283,10 +309,15 @@ class _MusicPlaylistModalState extends BaseCustomModalState<MusicPlaylistModal> 
       if (type == 'voice' || type == 'video_message') continue;
 
       if (type == 'audio' || _isAudioFile(payload)) {
-        final fileName = payload['file_name']?.toString() ?? payload['name']?.toString() ?? _MusicPlaylistL10n.get('audio_track', lang);
+        final fileName =
+            payload['file_name']?.toString() ??
+            payload['name']?.toString() ??
+            _MusicPlaylistL10n.get('audio_track', lang);
         final title = audioTrackTitle(payload, fileName);
         final rawArtist = audioTrackArtist(payload, fileName).trim();
-        final unknownText = AppLocalizations.of(context)?.neizvestnyy_be89 ?? _MusicPlaylistL10n.get('unknown_artist', lang);
+        final unknownText =
+            AppLocalizations.of(context)?.neizvestnyy_be89 ??
+            _MusicPlaylistL10n.get('unknown_artist', lang);
         final artist = rawArtist.isNotEmpty ? rawArtist : unknownText;
         final mimeType = payload['mime_type']?.toString() ?? 'audio/mp3';
 
@@ -297,7 +328,9 @@ class _MusicPlaylistModalState extends BaseCustomModalState<MusicPlaylistModal> 
         String? fileUrl = payload['file_url']?.toString();
         if (fileUrl != null && fileUrl.trim().isEmpty) fileUrl = null;
         final suffix = fileUrl ?? '/api/files/download/$fileId/';
-        String audioUrl = suffix.startsWith('http') ? suffix : '$host${suffix.startsWith('/') ? '' : '/'}$suffix';
+        String audioUrl = suffix.startsWith('http')
+            ? suffix
+            : '$host${suffix.startsWith('/') ? '' : '/'}$suffix';
         final lowerName = fileName.toLowerCase();
         if (lowerName.endsWith('.mp3')) {
           audioUrl += audioUrl.contains('?') ? '&ext=.mp3' : '?ext=.mp3';
@@ -319,40 +352,59 @@ class _MusicPlaylistModalState extends BaseCustomModalState<MusicPlaylistModal> 
             : null;
         final trackDurationSec = audioTrackDuration(payload);
 
-        playlist.add(PlaybackItem(
-          url: audioUrl,
-          title: title,
-          subtitle: artist,
-          mimeType: mimeType,
-          duration: trackDurationSec > 0 ? Duration(seconds: trackDurationSec) : null,
-          artUri: artUri,
-          payload: payload,
-        ));
+        playlist.add(
+          PlaybackItem(
+            url: audioUrl,
+            title: title,
+            subtitle: artist,
+            mimeType: mimeType,
+            duration: trackDurationSec > 0
+                ? Duration(seconds: trackDurationSec)
+                : null,
+            artUri: artUri,
+            payload: payload,
+          ),
+        );
       }
     }
     return playlist;
   }
 
   @override
-  Widget buildContent(BuildContext context, ScrollController scrollController, bool isDark, double scale) {
+  Widget buildContent(
+    BuildContext context,
+    ScrollController scrollController,
+    bool isDark,
+    double scale,
+  ) {
     final playlist = _getMusicPlaylistFromMessages();
     final lang = _getEffectiveLang(context);
 
     return Consumer<PlaybackProvider>(
       builder: (context, playback, child) {
-        final items = playback.playlist.isNotEmpty ? playback.playlist : playlist;
-        final hasActiveTrack = playback.currentAudioUrl != null && playback.currentAudioUrl!.isNotEmpty;
+        final items = playback.playlist.isNotEmpty
+            ? playback.playlist
+            : playlist;
+        final hasActiveTrack =
+            playback.currentAudioUrl != null &&
+            playback.currentAudioUrl!.isNotEmpty;
         final position = playback.position;
         final duration = playback.duration;
         final isPlaying = playback.isPlaying;
 
-        final currentSliderPos = _dragValue ??
+        final currentSliderPos =
+            _dragValue ??
             (duration > Duration.zero
-                ? (position.inMilliseconds / duration.inMilliseconds).clamp(0.0, 1.0)
+                ? (position.inMilliseconds / duration.inMilliseconds).clamp(
+                    0.0,
+                    1.0,
+                  )
                 : 0.0);
 
         final displayPos = _dragValue != null && duration > Duration.zero
-            ? Duration(milliseconds: (_dragValue! * duration.inMilliseconds).round())
+            ? Duration(
+                milliseconds: (_dragValue! * duration.inMilliseconds).round(),
+              )
             : position;
 
         return Column(
@@ -374,7 +426,10 @@ class _MusicPlaylistModalState extends BaseCustomModalState<MusicPlaylistModal> 
                     )
                   : ListView.builder(
                       controller: scrollController,
-                      padding: EdgeInsets.symmetric(horizontal: 16 * scale, vertical: 12 * scale),
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 16 * scale,
+                        vertical: 12 * scale,
+                      ),
                       itemCount: items.length,
                       itemBuilder: (context, index) {
                         final item = items[index];
@@ -385,11 +440,19 @@ class _MusicPlaylistModalState extends BaseCustomModalState<MusicPlaylistModal> 
                           margin: EdgeInsets.only(bottom: 8 * scale),
                           decoration: BoxDecoration(
                             color: isCurrent
-                                ? (isDark ? Colors.blue.shade900.withValues(alpha: 0.35) : Colors.blue.shade50)
-                                : (isDark ? Colors.white.withValues(alpha: 0.04) : Colors.black.withValues(alpha: 0.03)),
+                                ? (isDark
+                                      ? Colors.blue.shade900.withValues(
+                                          alpha: 0.35,
+                                        )
+                                      : Colors.blue.shade50)
+                                : (isDark
+                                      ? Colors.white.withValues(alpha: 0.04)
+                                      : Colors.black.withValues(alpha: 0.03)),
                             borderRadius: BorderRadius.circular(12 * scale),
                             border: Border.all(
-                              color: isCurrent ? Colors.blue.withValues(alpha: 0.4) : Colors.transparent,
+                              color: isCurrent
+                                  ? Colors.blue.withValues(alpha: 0.4)
+                                  : Colors.transparent,
                             ),
                           ),
                           child: ListTile(
@@ -399,14 +462,24 @@ class _MusicPlaylistModalState extends BaseCustomModalState<MusicPlaylistModal> 
                               height: 38 * scale,
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
-                                color: isCurrent ? Colors.blue.shade500 : (isDark ? Colors.white10 : Colors.black12),
+                                color: isCurrent
+                                    ? Colors.blue.shade500
+                                    : (isDark
+                                          ? Colors.white10
+                                          : Colors.black12),
                               ),
                               child: Center(
                                 child: FaIcon(
                                   isCurrent
-                                      ? (isItemPlaying ? FontAwesomeIcons.pause : FontAwesomeIcons.play)
+                                      ? (isItemPlaying
+                                            ? FontAwesomeIcons.pause
+                                            : FontAwesomeIcons.play)
                                       : FontAwesomeIcons.music,
-                                  color: isCurrent ? Colors.white : (isDark ? Colors.white70 : Colors.black54),
+                                  color: isCurrent
+                                      ? Colors.white
+                                      : (isDark
+                                            ? Colors.white70
+                                            : Colors.black54),
                                   size: 14 * scale,
                                 ),
                               ),
@@ -417,9 +490,13 @@ class _MusicPlaylistModalState extends BaseCustomModalState<MusicPlaylistModal> 
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 color: isCurrent
-                                    ? (isDark ? Colors.blue.shade300 : Colors.blue.shade700)
+                                    ? (isDark
+                                          ? Colors.blue.shade300
+                                          : Colors.blue.shade700)
                                     : (isDark ? Colors.white : Colors.black87),
-                                fontWeight: isCurrent ? FontWeight.bold : FontWeight.w500,
+                                fontWeight: isCurrent
+                                    ? FontWeight.bold
+                                    : FontWeight.w500,
                                 fontSize: 13.5 * scale,
                                 fontFamily: 'Inter',
                               ),
@@ -436,7 +513,10 @@ class _MusicPlaylistModalState extends BaseCustomModalState<MusicPlaylistModal> 
                             ),
                             onTap: () {
                               if (playback.playlist.isEmpty) {
-                                playback.setPlaylist(items, initialUrl: item.url);
+                                playback.setPlaylist(
+                                  items,
+                                  initialUrl: item.url,
+                                );
                               }
                               playback.playItemAtIndex(index);
                             },
@@ -447,12 +527,19 @@ class _MusicPlaylistModalState extends BaseCustomModalState<MusicPlaylistModal> 
             ),
             if (hasActiveTrack) ...[
               Container(
-                padding: EdgeInsets.symmetric(horizontal: 16 * scale, vertical: 10 * scale),
+                padding: EdgeInsets.symmetric(
+                  horizontal: 16 * scale,
+                  vertical: 10 * scale,
+                ),
                 decoration: BoxDecoration(
-                  color: isDark ? const Color(0xFF141416) : const Color(0xFFF5F5F7),
+                  color: isDark
+                      ? const Color(0xFF141416)
+                      : const Color(0xFFF5F5F7),
                   border: Border(
                     top: BorderSide(
-                      color: isDark ? Colors.white.withValues(alpha: 0.08) : Colors.black.withValues(alpha: 0.06),
+                      color: isDark
+                          ? Colors.white.withValues(alpha: 0.08)
+                          : Colors.black.withValues(alpha: 0.06),
                       width: 1,
                     ),
                   ),
@@ -462,18 +549,24 @@ class _MusicPlaylistModalState extends BaseCustomModalState<MusicPlaylistModal> 
                   children: [
                     Row(
                       children: [
-                        Container(
+                        SizedBox(
                           width: 32 * scale,
                           height: 32 * scale,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: isDark ? Colors.blue.shade600 : Colors.blue.shade500,
-                          ),
-                          child: Center(
-                            child: FaIcon(
-                              FontAwesomeIcons.music,
-                              color: Colors.white,
-                              size: 13 * scale,
+                          child: ClipOval(
+                            child: TrackArtwork(
+                              uri: playback.currentArtUri,
+                              fallback: ColoredBox(
+                                color: isDark
+                                    ? Colors.blue.shade600
+                                    : Colors.blue.shade500,
+                                child: Center(
+                                  child: FaIcon(
+                                    FontAwesomeIcons.music,
+                                    color: Colors.white,
+                                    size: 13 * scale,
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
                         ),
@@ -484,7 +577,12 @@ class _MusicPlaylistModalState extends BaseCustomModalState<MusicPlaylistModal> 
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Text(
-                                playback.title.isNotEmpty ? playback.title : _MusicPlaylistL10n.get('audio_track', lang),
+                                playback.title.isNotEmpty
+                                    ? playback.title
+                                    : _MusicPlaylistL10n.get(
+                                        'audio_track',
+                                        lang,
+                                      ),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
@@ -501,7 +599,9 @@ class _MusicPlaylistModalState extends BaseCustomModalState<MusicPlaylistModal> 
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
-                                    color: isDark ? Colors.white54 : Colors.black54,
+                                    color: isDark
+                                        ? Colors.white54
+                                        : Colors.black54,
                                     fontSize: 11 * scale,
                                     fontFamily: 'Inter',
                                   ),
@@ -527,26 +627,42 @@ class _MusicPlaylistModalState extends BaseCustomModalState<MusicPlaylistModal> 
                           child: SliderTheme(
                             data: SliderThemeData(
                               trackHeight: 2.5 * scale,
-                              thumbShape: RoundSliderThumbShape(enabledThumbRadius: 4.5 * scale),
-                              overlayShape: RoundSliderOverlayShape(overlayRadius: 10 * scale),
-                              activeTrackColor: isDark ? Colors.blue.shade400 : Colors.blue.shade600,
-                              inactiveTrackColor: isDark ? Colors.white.withValues(alpha: 0.15) : Colors.black.withValues(alpha: 0.12),
-                              thumbColor: isDark ? Colors.blue.shade400 : Colors.blue.shade600,
+                              thumbShape: RoundSliderThumbShape(
+                                enabledThumbRadius: 4.5 * scale,
+                              ),
+                              overlayShape: RoundSliderOverlayShape(
+                                overlayRadius: 10 * scale,
+                              ),
+                              activeTrackColor: isDark
+                                  ? Colors.blue.shade400
+                                  : Colors.blue.shade600,
+                              inactiveTrackColor: isDark
+                                  ? Colors.white.withValues(alpha: 0.15)
+                                  : Colors.black.withValues(alpha: 0.12),
+                              thumbColor: isDark
+                                  ? Colors.blue.shade400
+                                  : Colors.blue.shade600,
                             ),
                             child: Slider(
                               value: currentSliderPos.clamp(0.0, 1.0),
                               onChanged: (val) {
                                 setState(() => _dragValue = val);
                                 if (duration > Duration.zero) {
-                                  final targetMs = (val * duration.inMilliseconds).round();
-                                  playback.seekPreview(Duration(milliseconds: targetMs));
+                                  final targetMs =
+                                      (val * duration.inMilliseconds).round();
+                                  playback.seekPreview(
+                                    Duration(milliseconds: targetMs),
+                                  );
                                 }
                               },
                               onChangeEnd: (val) {
                                 setState(() => _dragValue = null);
                                 if (duration > Duration.zero) {
-                                  final targetMs = (val * duration.inMilliseconds).round();
-                                  playback.seek(Duration(milliseconds: targetMs));
+                                  final targetMs =
+                                      (val * duration.inMilliseconds).round();
+                                  playback.seek(
+                                    Duration(milliseconds: targetMs),
+                                  );
                                 }
                               },
                             ),
@@ -574,7 +690,9 @@ class _MusicPlaylistModalState extends BaseCustomModalState<MusicPlaylistModal> 
                           icon: Icon(
                             Icons.shuffle_rounded,
                             color: playback.isShuffle
-                                ? (isDark ? Colors.blue.shade400 : Colors.blue.shade600)
+                                ? (isDark
+                                      ? Colors.blue.shade400
+                                      : Colors.blue.shade600)
                                 : (isDark ? Colors.white38 : Colors.black38),
                             size: 20 * scale,
                           ),
@@ -591,12 +709,14 @@ class _MusicPlaylistModalState extends BaseCustomModalState<MusicPlaylistModal> 
                           ),
                           icon: FaIcon(
                             FontAwesomeIcons.backwardStep,
-                            color: (playback.hasPrevious || position.inSeconds > 3)
+                            color:
+                                (playback.hasPrevious || position.inSeconds > 3)
                                 ? (isDark ? Colors.white : Colors.black87)
                                 : (isDark ? Colors.white24 : Colors.black26),
                             size: 15 * scale,
                           ),
-                          onPressed: (playback.hasPrevious || position.inSeconds > 3)
+                          onPressed:
+                              (playback.hasPrevious || position.inSeconds > 3)
                               ? () => playback.playPrevious()
                               : null,
                           tooltip: _MusicPlaylistL10n.get('prev_track', lang),
@@ -614,7 +734,9 @@ class _MusicPlaylistModalState extends BaseCustomModalState<MusicPlaylistModal> 
                             height: 38 * scale,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              color: isDark ? Colors.blue.shade600 : Colors.blue.shade500,
+                              color: isDark
+                                  ? Colors.blue.shade600
+                                  : Colors.blue.shade500,
                               boxShadow: [
                                 BoxShadow(
                                   color: Colors.blue.withValues(alpha: 0.3),
@@ -625,7 +747,9 @@ class _MusicPlaylistModalState extends BaseCustomModalState<MusicPlaylistModal> 
                             ),
                             child: Center(
                               child: FaIcon(
-                                isPlaying ? FontAwesomeIcons.pause : FontAwesomeIcons.play,
+                                isPlaying
+                                    ? FontAwesomeIcons.pause
+                                    : FontAwesomeIcons.play,
                                 color: Colors.white,
                                 size: 14 * scale,
                               ),
@@ -661,7 +785,9 @@ class _MusicPlaylistModalState extends BaseCustomModalState<MusicPlaylistModal> 
                                 ? Icons.repeat_one_rounded
                                 : Icons.repeat_rounded,
                             color: playback.loopMode != LoopMode.off
-                                ? (isDark ? Colors.blue.shade400 : Colors.blue.shade600)
+                                ? (isDark
+                                      ? Colors.blue.shade400
+                                      : Colors.blue.shade600)
                                 : (isDark ? Colors.white38 : Colors.black38),
                             size: 20 * scale,
                           ),
@@ -669,8 +795,8 @@ class _MusicPlaylistModalState extends BaseCustomModalState<MusicPlaylistModal> 
                           tooltip: playback.loopMode == LoopMode.one
                               ? _MusicPlaylistL10n.get('repeat_one', lang)
                               : playback.loopMode == LoopMode.all
-                                  ? _MusicPlaylistL10n.get('repeat_all', lang)
-                                  : _MusicPlaylistL10n.get('repeat_off', lang),
+                              ? _MusicPlaylistL10n.get('repeat_all', lang)
+                              : _MusicPlaylistL10n.get('repeat_off', lang),
                         ),
                       ],
                     ),
@@ -684,4 +810,3 @@ class _MusicPlaylistModalState extends BaseCustomModalState<MusicPlaylistModal> 
     );
   }
 }
-

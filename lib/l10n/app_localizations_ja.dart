@@ -2443,16 +2443,13 @@ class AppLocalizationsJa extends AppLocalizations {
   String get confirmOnDeviceStatus => '既に承認されているデバイスでログインを確認してください。';
 
   @override
-  String get sixDigitCodeSentSub =>
-      'Xaneo Notificationsに送信された6桁のコードを入力してください';
+  String get sixDigitCodeSentSub => 'Xaneo Notificationsに送信された6桁のコードを入力してください';
 
   @override
-  String get confirmOnDeviceSub =>
-      '既に承認されているデバイスでログインを確認してください';
+  String get confirmOnDeviceSub => '既に承認されているデバイスでログインを確認してください';
 
   @override
-  String get awaitingDeviceApproval =>
-      'デバイスでの確認を待っています...';
+  String get awaitingDeviceApproval => 'デバイスでの確認を待っています...';
 
   @override
   String get mustBeSixDigits => 'コードは6桁である必要があります';
@@ -2469,4 +2466,42 @@ class AppLocalizationsJa extends AppLocalizations {
 
   @override
   String get sendingEmailCode => 'メールにコードを送信中…';
+
+  @override
+  String get changePhoto => '写真を変更';
+  @override
+  String get deleting => '削除中…';
+  @override
+  String get chatFontSize => 'チャットの文字サイズ';
+  @override
+  String get chatWallpaper => 'チャットの背景';
+  @override
+  String get myMessageColor => '自分のメッセージ色';
+  @override
+  String get otherMessageColor => '相手のメッセージ色';
+  @override
+  String get notificationStyle => '通知スタイル';
+  @override
+  String get standardNotificationStyle => '標準';
+  @override
+  String get ravenNotificationStyle => '黒いワタリガラス';
+  @override
+  String get deleteAccountTitle => 'アカウントを削除しますか？';
+  @override
+  String get deleteAccountConfirmation =>
+      'プロフィールは完全に削除されます。確認のためパスワードを入力してください。';
+  @override
+  String get customColor => 'カスタムカラー';
+  @override
+  String get customGradient => 'カスタムグラデーション';
+  @override
+  String get colorOne => '色 1';
+  @override
+  String get colorTwo => '色 2';
+  @override
+  String get diagonal => '斜め';
+  @override
+  String get vertical => '垂直';
+  @override
+  String get horizontal => '水平';
 }

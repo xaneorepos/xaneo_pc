@@ -310,7 +310,7 @@ create_rpm() {
     fi
     
     local dist_dir="dist"
-    local version="1.0.0"
+    local version="${1:-1.0.0}"
     local release="1"
     local rpmbuild_dir="$HOME/rpmbuild"
     
@@ -356,7 +356,7 @@ mkdir -p \$RPM_BUILD_ROOT/usr/share/icons/hicolor/256x256/apps
 mkdir -p \$RPM_BUILD_ROOT/usr/bin
 
 cp -r * \$RPM_BUILD_ROOT/opt/xaneo-pc/
-cp xaneo.desktop \$RPM_BUILD_ROOT/usr/share/applications/
+cp xaneo.desktop \$RPM_BUILD_ROOT/usr/share/applications/net.xaneo.pc.desktop
 cp xaneo.png \$RPM_BUILD_ROOT/usr/share/icons/hicolor/256x256/apps/
 ln -sf /opt/xaneo-pc/xaneo \$RPM_BUILD_ROOT/usr/bin/xaneo-pc
 ln -sf /opt/xaneo-pc/xaneo \$RPM_BUILD_ROOT/usr/bin/xaneo
@@ -372,7 +372,7 @@ gtk-update-icon-cache -f -t /usr/share/icons/hicolor || true
 %files
 %defattr(-,root,root,-)
 /opt/xaneo-pc
-/usr/share/applications/xaneo.desktop
+/usr/share/applications/net.xaneo.pc.desktop
 /usr/share/icons/hicolor/256x256/apps/xaneo.png
 /usr/bin/xaneo-pc
 /usr/bin/xaneo
@@ -897,7 +897,7 @@ main() {
         "all")
             create_appimage
             create_deb
-            create_rpm
+            create_rpm "$version"
             create_arch
             create_alpine
             create_void
@@ -910,7 +910,7 @@ main() {
             create_deb
             ;;
         "rpm")
-            create_rpm
+            create_rpm "$version"
             ;;
         "arch")
             create_arch

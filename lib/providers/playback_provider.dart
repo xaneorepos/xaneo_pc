@@ -6,6 +6,7 @@ import 'package:just_audio/just_audio.dart';
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
 import '../services/api_service.dart';
+import '../services/audio_track_cache.dart';
 import '../services/desktop_media_session_service.dart';
 import '../utils/ssl_helper.dart';
 
@@ -32,6 +33,7 @@ class PlaybackItem {
 /// Глобальный провайдер воспроизведения голосовых и музыкальных сообщений.
 class PlaybackProvider extends ChangeNotifier {
   final AudioPlayer _player = AudioPlayer();
+  final AudioTrackCache _trackCache = AudioTrackCache.instance;
   StreamSubscription? _playerStateSub;
   StreamSubscription? _positionSub;
   StreamSubscription? _durationSub;
@@ -39,6 +41,7 @@ class PlaybackProvider extends ChangeNotifier {
   String? _currentAudioUrl;
   String _title = '';
   String _subtitle = '';
+  Uri? _currentArtUri;
   bool _isPlaying = false;
   bool _isInitialized = false;
   Duration _position = Duration.zero;
@@ -46,6 +49,7 @@ class PlaybackProvider extends ChangeNotifier {
   bool _isLoading = false;
   bool _isSeeking = false;
   bool _isVideo = false;
+  bool _playerControlsDismissed = false;
   bool _isSimulated = false;
   Timer? _simulatedTimer;
 
@@ -58,12 +62,15 @@ class PlaybackProvider extends ChangeNotifier {
   String? get currentAudioUrl => _currentAudioUrl;
   String get title => _title;
   String get subtitle => _subtitle;
+  Uri? get currentArtUri => _currentArtUri;
   bool get isPlaying => _isPlaying;
   bool get isInitialized => _isInitialized;
   Duration get position => _position;
   Duration get duration => _duration;
   bool get isLoading => _isLoading;
   bool get isVideo => _isVideo;
+  bool get showPlayerControls =>
+      _currentAudioUrl != null && !_playerControlsDismissed;
 
   bool get isShuffle => _isShuffle;
   LoopMode get loopMode => _loopMode;
@@ -114,7 +121,11 @@ class PlaybackProvider extends ChangeNotifier {
   }
 
   void _updateMediaSession() {
-    final hasTrack = _currentAudioUrl != null && _currentAudioUrl!.isNotEmpty && !_isVideo && !_isSimulated;
+    final hasTrack =
+        _currentAudioUrl != null &&
+        _currentAudioUrl!.isNotEmpty &&
+        !_isVideo &&
+        !_isSimulated;
     DesktopMediaSessionService.instance.updatePlaybackState(
       title: _title,
       artist: _subtitle,
@@ -124,6 +135,7 @@ class PlaybackProvider extends ChangeNotifier {
       duration: _duration,
       hasNext: hasNext,
       hasPrevious: hasPrevious,
+      artUrl: _currentArtUri?.toString(),
     );
   }
 
@@ -133,6 +145,9 @@ class PlaybackProvider extends ChangeNotifier {
 
     _playerStateSub = _player.playerStateStream.listen((state) {
       _isPlaying = state.playing;
+      if (state.playing && _playerControlsDismissed) {
+        _playerControlsDismissed = false;
+      }
       if (state.processingState == ProcessingState.completed) {
         _isPlaying = false;
         _position = Duration.zero;
@@ -164,7 +179,9 @@ class PlaybackProvider extends ChangeNotifier {
 
   void _startSimulatedTimer() {
     _simulatedTimer?.cancel();
-    _simulatedTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
+    _simulatedTimer = Timer.periodic(const Duration(milliseconds: 100), (
+      timer,
+    ) {
       if (_isPlaying && !_isSeeking) {
         final nextPos = _position + const Duration(milliseconds: 100);
         if (nextPos >= _duration) {
@@ -179,6 +196,102 @@ class PlaybackProvider extends ChangeNotifier {
     });
   }
 
+  String _stableCacheKey(String sourceUrl) {
+    final uri = Uri.tryParse(sourceUrl);
+    if (uri == null || !uri.hasScheme) return sourceUrl;
+    final query = Map<String, String>.from(uri.queryParameters)
+      ..remove('token');
+    return uri
+        .replace(queryParameters: query.isEmpty ? null : query)
+        .toString();
+  }
+
+  String _audioExtension(String? mimeType) {
+    final mime = mimeType?.toLowerCase() ?? '';
+    if (mime.contains('webm')) return '.webm';
+    if (mime.contains('ogg') || mime.contains('opus')) return '.ogg';
+    if (mime.contains('mp3')) return '.mp3';
+    if (mime.contains('wav')) return '.wav';
+    if (mime.contains('m4a') || mime.contains('aac')) return '.m4a';
+    if (mime.contains('flac')) return '.flac';
+    return '.ogg';
+  }
+
+  AudioTrackMetadata _cacheMetadata(PlaybackItem item) => AudioTrackMetadata(
+    sourceUrl: _stableCacheKey(item.url),
+    title: item.title,
+    artist: item.subtitle,
+    album: item.payload?['album']?.toString() ?? '',
+    mimeType: item.mimeType,
+    duration: item.duration,
+    artworkUri: item.artUri,
+  );
+
+  Future<void> _saveMetadata(AudioTrackMetadata metadata) async {
+    try {
+      await _trackCache.saveMetadata(metadata);
+    } catch (error, stack) {
+      debugPrint('⚠️ [Audio Cache] Failed to save metadata: $error\n$stack');
+    }
+  }
+
+  Future<String> _ensureLocalFile(PlaybackItem item) async {
+    final metadata = _cacheMetadata(item);
+    await _saveMetadata(metadata);
+    final extension = _audioExtension(item.mimeType);
+
+    if (!item.url.startsWith('http')) {
+      final local = File(item.url);
+      if (await local.exists() &&
+          !await _trackCache.hasAudio(metadata.sourceUrl)) {
+        await _trackCache.storeFile(metadata, local);
+      }
+      return item.url;
+    }
+
+    final tempDir = Directory.systemTemp;
+    final restored = await _trackCache.restoreFile(
+      metadata.sourceUrl,
+      tempDir,
+      extension: extension,
+    );
+    if (restored != null && await restored.exists()) return restored.path;
+
+    final safeName = metadata.sourceUrl.replaceAll(
+      RegExp(r'[^a-zA-Z0-9]'),
+      '_',
+    );
+    final localFilePath =
+        '${tempDir.path}/xaneo_audio_${safeName.hashCode.toUnsigned(32).toRadixString(16)}$extension';
+    final file = File(localFilePath);
+    if (await file.exists() && await file.length() > 0) {
+      await _trackCache.storeFile(metadata, file);
+      return localFilePath;
+    }
+
+    final freshToken = await ApiService().getAccessToken();
+    final dio = Dio();
+    (dio.httpClientAdapter as IOHttpClientAdapter).createHttpClient = () {
+      final client = HttpClient();
+      client.badCertificateCallback = validateSslCertificate;
+      return client;
+    };
+    final response = await dio.download(
+      item.url,
+      localFilePath,
+      options: Options(
+        headers: freshToken != null && freshToken.isNotEmpty
+            ? {'Authorization': 'Bearer $freshToken'}
+            : {},
+      ),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to download audio file: ${response.statusCode}');
+    }
+    await _trackCache.storeFile(metadata, file);
+    return localFilePath;
+  }
+
   /// Запускает воспроизведение [url]. Если это уже текущий трек — переключает play/pause.
   Future<void> play(
     String url,
@@ -186,8 +299,11 @@ class PlaybackProvider extends ChangeNotifier {
     String subtitle, {
     String? mimeType,
     Duration? duration,
+    Uri? artUri,
+    Map<String, dynamic>? payload,
   }) async {
     if (_currentAudioUrl == url && !_isVideo) {
+      _playerControlsDismissed = false;
       _togglePlay();
       return;
     }
@@ -196,8 +312,10 @@ class PlaybackProvider extends ChangeNotifier {
 
     _isVideo = false;
     _currentAudioUrl = url;
+    _playerControlsDismissed = false;
     _title = title;
     _subtitle = subtitle;
+    _currentArtUri = artUri;
     _duration = duration ?? Duration.zero;
 
     final isSimulated = url.contains('voice_') || url.contains('video_');
@@ -217,49 +335,16 @@ class PlaybackProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final tempDir = Directory.systemTemp;
-      String ext = '.ogg';
-      if (mimeType != null) {
-        final mime = mimeType.toLowerCase();
-        if (mime.contains('webm')) {
-          ext = '.webm';
-        } else if (mime.contains('ogg') || mime.contains('opus')) {
-          ext = '.ogg';
-        } else if (mime.contains('mp3')) {
-          ext = '.mp3';
-        } else if (mime.contains('wav')) {
-          ext = '.wav';
-        } else if (mime.contains('m4a') || mime.contains('aac')) {
-          ext = '.m4a';
-        }
-      }
-
-      final safeName = url.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_');
-      final localFilePath = '${tempDir.path}/xaneo_voice_$safeName$ext';
-      final file = File(localFilePath);
-
-      if (!await file.exists()) {
-        final freshToken = await ApiService().getAccessToken();
-        final dio = Dio();
-        (dio.httpClientAdapter as IOHttpClientAdapter).createHttpClient = () {
-          final client = HttpClient();
-          client.badCertificateCallback = validateSslCertificate;
-          return client;
-        };
-
-        final response = await dio.download(
-          url,
-          localFilePath,
-          options: Options(
-            headers: freshToken != null && freshToken.isNotEmpty
-                ? {'Authorization': 'Bearer $freshToken'}
-                : {},
-          ),
-        );
-        if (response.statusCode != 200) {
-          throw Exception('Failed to download audio file: ${response.statusCode}');
-        }
-      }
+      final item = PlaybackItem(
+        url: url,
+        title: title,
+        subtitle: subtitle,
+        mimeType: mimeType,
+        duration: duration,
+        artUri: artUri,
+        payload: payload,
+      );
+      final localFilePath = await _ensureLocalFile(item);
 
       await _player.setAudioSource(AudioSource.file(localFilePath));
 
@@ -273,13 +358,16 @@ class PlaybackProvider extends ChangeNotifier {
         _duration = duration;
       }
 
-      await _player.play();
+      if (!_playerControlsDismissed) {
+        await _player.play();
+      }
       notifyListeners();
     } catch (e) {
       debugPrint('❌ Playback error: $e');
       _isLoading = false;
       _isInitialized = false;
       _currentAudioUrl = null;
+      _currentArtUri = null;
       notifyListeners();
     }
   }
@@ -418,6 +506,9 @@ class PlaybackProvider extends ChangeNotifier {
 
   void setPlaylist(List<PlaybackItem> items, {String? initialUrl}) {
     _playlist = List.from(items);
+    for (final item in _playlist) {
+      unawaited(_saveMetadata(_cacheMetadata(item)));
+    }
     if (initialUrl != null) {
       _currentIndex = _playlist.indexWhere((item) => item.url == initialUrl);
     } else if (_playlist.isNotEmpty) {
@@ -428,7 +519,10 @@ class PlaybackProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> playFromPlaylist(List<PlaybackItem> items, {String? selectedUrl}) async {
+  Future<void> playFromPlaylist(
+    List<PlaybackItem> items, {
+    String? selectedUrl,
+  }) async {
     if (items.isEmpty) return;
     setPlaylist(items, initialUrl: selectedUrl);
     final targetIndex = selectedUrl != null
@@ -448,6 +542,8 @@ class PlaybackProvider extends ChangeNotifier {
       item.subtitle,
       mimeType: item.mimeType,
       duration: item.duration,
+      artUri: item.artUri,
+      payload: item.payload,
     );
   }
 
@@ -509,9 +605,11 @@ class PlaybackProvider extends ChangeNotifier {
     await _player.stop();
 
     _isVideo = false;
+    _playerControlsDismissed = false;
     _currentAudioUrl = null;
     _title = '';
     _subtitle = '';
+    _currentArtUri = null;
     _isPlaying = false;
     _isInitialized = false;
     _position = Duration.zero;
@@ -520,6 +618,24 @@ class PlaybackProvider extends ChangeNotifier {
     _isSeeking = false;
     _updateMediaSession();
     notifyListeners();
+  }
+
+  /// Скрывает встроенные панели, не разрывая системную media session.
+  /// Возобновление через MPRIS/SMTC снова покажет панели приложения.
+  Future<void> dismissPlayerControls() async {
+    if (_currentAudioUrl == null) return;
+    if (_isVideo || _isSimulated) {
+      await stop();
+      return;
+    }
+
+    _playerControlsDismissed = true;
+    _isPlaying = false;
+    _isLoading = false;
+    _isSeeking = false;
+    notifyListeners();
+    await _player.pause();
+    _updateMediaSession();
   }
 
   Future<void> playVideo(
@@ -537,8 +653,10 @@ class PlaybackProvider extends ChangeNotifier {
 
     _isVideo = true;
     _currentAudioUrl = url;
+    _playerControlsDismissed = false;
     _title = title;
     _subtitle = subtitle;
+    _currentArtUri = null;
     _isPlaying = true;
     _isInitialized = true;
     _duration = duration ?? Duration.zero;

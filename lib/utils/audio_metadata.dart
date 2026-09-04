@@ -15,9 +15,9 @@ String _firstText(Iterable<dynamic> values) {
 }
 
 String _withoutAudioExtension(String value) => value.replaceFirst(
-      RegExp(r'\.(mp3|m4a|aac|flac|wav|ogg|opus|wma)$', caseSensitive: false),
-      '',
-    );
+  RegExp(r'\.(mp3|m4a|aac|flac|wav|ogg|opus|wma)$', caseSensitive: false),
+  '',
+);
 
 Map<String, dynamic> _allAudioMetadata(Map<String, dynamic> payload) {
   final result = <String, dynamic>{};
@@ -39,6 +39,40 @@ Map<String, dynamic> _allAudioMetadata(Map<String, dynamic> payload) {
 
   extract(payload);
   return result;
+}
+
+Map<String, dynamic> audioPayloadWithMetadata(
+  Map<String, dynamic> payload,
+  Map<String, dynamic> source, [
+  Map<String, dynamic>? fetchedMetadata,
+]) {
+  final merged = Map<String, dynamic>.from(payload);
+
+  void mergeFrom(Map<String, dynamic>? data) {
+    if (data == null) return;
+    const directKeys = <String>{
+      'title',
+      'artist',
+      'album',
+      'duration',
+      'cover_url',
+      'has_cover',
+    };
+    for (final key in directKeys) {
+      if (data[key] != null && data[key].toString().isNotEmpty) {
+        merged[key] = data[key];
+      }
+    }
+    for (final key in const ['audio_metadata', 'attached_file_metadata']) {
+      if (data[key] is Map) {
+        merged[key] = Map<String, dynamic>.from(data[key] as Map);
+      }
+    }
+  }
+
+  mergeFrom(source);
+  mergeFrom(fetchedMetadata);
+  return merged;
 }
 
 String audioTrackTitle(Map<String, dynamic> payload, String fileName) {
@@ -68,7 +102,8 @@ String audioTrackArtist(Map<String, dynamic> payload, String fileName) {
 
 int audioTrackDuration(Map<String, dynamic> payload) {
   final metadata = _allAudioMetadata(payload);
-  final raw = metadata['duration'] ??
+  final raw =
+      metadata['duration'] ??
       metadata['audio_duration'] ??
       metadata['length'] ??
       metadata['track_duration'] ??

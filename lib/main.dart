@@ -19,8 +19,9 @@ import 'screens/register_screen.dart';
 import 'screens/messenger_screen.dart';
 import 'widgets/zoom_toast.dart';
 import 'widgets/custom_title_bar.dart';
-import 'widgets/settings_modal.dart';
 import 'services/logger_service.dart';
+import 'services/api_service.dart';
+import 'services/crypto_service.dart';
 import 'utils/local_proxy.dart';
 import 'utils/ssl_helper.dart';
 import 'services/webrtc/webrtc_signaling_service.dart';
@@ -242,7 +243,7 @@ class _MyAppState extends State<MyApp> with WindowListener {
         return MaterialApp(
           navigatorKey: navigatorKey,
           title: 'Xaneo',
-          locale: localeProvider.locale ?? Locale('ru'),
+          locale: localeProvider.locale ?? const Locale('ru'),
           localizationsDelegates: const [
             AppLocalizations.delegate,
             GlobalMaterialLocalizations.delegate,
@@ -256,7 +257,7 @@ class _MyAppState extends State<MyApp> with WindowListener {
             ),
             visualDensity: VisualDensity.adaptivePlatformDensity,
           ),
-          home: const ZoomScope(child: OnboardingScreen()),
+          home: const ZoomScope(child: _StartupGate()),
           debugShowCheckedModeBanner: false,
           builder: (context, child) => Stack(
             children: [
@@ -279,6 +280,62 @@ class _MyAppState extends State<MyApp> with WindowListener {
           },
         );
       },
+    );
+  }
+}
+
+class _StartupGate extends StatefulWidget {
+  const _StartupGate();
+
+  @override
+  State<_StartupGate> createState() => _StartupGateState();
+}
+
+class _StartupGateState extends State<_StartupGate> {
+  Widget? _destination;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolveDestination();
+  }
+
+  Future<void> _resolveDestination() async {
+    final apiService = ApiService();
+    final cryptoService = CryptoService();
+    final authenticated = await apiService.isAuthenticated();
+
+    if (authenticated) {
+      final hasKeys = await cryptoService.init();
+      if (hasKeys) {
+        _show(const MessengerScreen());
+        return;
+      }
+
+      Logger.warning(
+        'StartupGate',
+        'User is authenticated but E2EE keys are missing.',
+      );
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final hasSeenOnboarding = prefs.getBool('has_seen_onboarding') ?? false;
+    _show(hasSeenOnboarding ? const LoginScreen() : const OnboardingScreen());
+  }
+
+  void _show(Widget destination) {
+    if (!mounted) return;
+    setState(() => _destination = destination);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final destination = _destination;
+    if (destination != null) return destination;
+
+    return Scaffold(
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      body: const Center(child: CircularProgressIndicator()),
     );
   }
 }

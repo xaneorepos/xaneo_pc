@@ -97,6 +97,9 @@ flutter:
   assets:
     - assets/animations/
     - assets/logo.png
+    - assets/onboarding_bear.png
+    - assets/onboarding_bear_private.png
+    - assets/onboarding_bear_database.png
     - assets/tray_icon.ico
     - assets/sounds/
     - assets/emoji/

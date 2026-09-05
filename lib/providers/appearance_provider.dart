@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:image/image.dart' as img;
@@ -16,19 +17,22 @@ import '../models/message_color_presets.dart';
 class AppearanceProvider extends ChangeNotifier {
   static const double minFontSize = 12.0;
   static const double maxFontSize = 24.0;
-  static const double _defaultFontSize = 15.0; // matches current hardcoded bubble text size
+  static const double _defaultFontSize =
+      15.0; // matches current hardcoded bubble text size
   static const int _maxWallpaperBytes = 5 * 1024 * 1024;
   static const int _maxWallpaperDimension = 1920;
 
   static const _kFontSizeKey = 'appearance_chat_font_size';
   static const _kWallpaperPresetKey = 'appearance_wallpaper_preset';
   static const _kWallpaperCustomPathKey = 'appearance_wallpaper_custom_path';
+  static const _kWallpaperLuminanceKey = 'appearance_wallpaper_luminance';
   static const _kMyMessageColorKey = 'appearance_my_message_color';
   static const _kOtherMessageColorKey = 'appearance_other_message_color';
   static const _kNotificationStyleKey = 'appearance_notification_style';
 
   double _chatFontSize = _defaultFontSize;
   ChatWallpaper _wallpaper = const ChatWallpaper();
+  double? _customWallpaperLuminance;
   MessageColorSetting _myMessageColor = const MessageColorSetting();
   MessageColorSetting _otherMessageColor = const MessageColorSetting();
   NotificationStyle _notificationStyle = NotificationStyle.standard;
@@ -59,6 +63,23 @@ class AppearanceProvider extends ChangeNotifier {
       preset: wallpaperPreset,
       customImagePath: prefs.getString(_kWallpaperCustomPathKey),
     );
+    _customWallpaperLuminance = prefs.getDouble(_kWallpaperLuminanceKey);
+    if (wallpaperPreset == WallpaperPresetId.custom &&
+        _customWallpaperLuminance == null) {
+      final customPath = _wallpaper.customImagePath;
+      if (customPath != null) {
+        try {
+          final decoded = img.decodeImage(await File(customPath).readAsBytes());
+          if (decoded != null) {
+            _customWallpaperLuminance = _estimateImageLuminance(decoded);
+            await prefs.setDouble(
+              _kWallpaperLuminanceKey,
+              _customWallpaperLuminance!,
+            );
+          }
+        } catch (_) {}
+      }
+    }
 
     _myMessageColor = _decodeColorSetting(prefs.getString(_kMyMessageColorKey));
     _otherMessageColor = _decodeColorSetting(
@@ -93,10 +114,67 @@ class AppearanceProvider extends ChangeNotifier {
   }
 
   Future<void> setWallpaperPreset(WallpaperPresetId preset) async {
-    _wallpaper = ChatWallpaper(preset: preset, customImagePath: _wallpaper.customImagePath);
+    _wallpaper = ChatWallpaper(
+      preset: preset,
+      customImagePath: _wallpaper.customImagePath,
+    );
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kWallpaperPresetKey, preset.name);
+  }
+
+  /// Whether controls drawn over the chat wallpaper should use their dark
+  /// appearance. This deliberately follows the wallpaper, not the app theme.
+  /// [themeIsDark] is only relevant for the default wallpaper, where the chat
+  /// has no separate decoration and inherits the application background.
+  bool isChatBackgroundDark(bool themeIsDark) {
+    switch (_wallpaper.preset) {
+      case WallpaperPresetId.defaultWp:
+        return themeIsDark;
+      case WallpaperPresetId.dark:
+        return true;
+      case WallpaperPresetId.custom:
+        final luminance = _customWallpaperLuminance;
+        return luminance == null ? themeIsDark : luminance < 0.179;
+      case WallpaperPresetId.blue:
+      case WallpaperPresetId.green:
+      case WallpaperPresetId.purple:
+      case WallpaperPresetId.gradient:
+        final colors = kWallpaperGradients[_wallpaper.preset.name]!.colors;
+        final luminance =
+            colors
+                .map((color) => color.computeLuminance())
+                .reduce((a, b) => a + b) /
+            colors.length;
+        return luminance < 0.179;
+    }
+  }
+
+  double _estimateImageLuminance(img.Image image) {
+    final stepX = math.max(1, image.width ~/ 64);
+    final stepY = math.max(1, image.height ~/ 64);
+    var luminance = 0.0;
+    var samples = 0;
+
+    for (var y = stepY ~/ 2; y < image.height; y += stepY) {
+      for (var x = stepX ~/ 2; x < image.width; x += stepX) {
+        final pixel = image.getPixel(x, y);
+        double linearize(num channel) {
+          final value = channel.toDouble();
+          return value <= 0.04045
+              ? value / 12.92
+              : math.pow((value + 0.055) / 1.055, 2.4).toDouble();
+        }
+
+        luminance +=
+            0.2126 * linearize(pixel.rNormalized) +
+            0.7152 * linearize(pixel.gNormalized) +
+            0.0722 * linearize(pixel.bNormalized);
+        samples++;
+      }
+    }
+
+    return samples == 0 ? 0.0 : luminance / samples;
   }
 
   /// Copies [pickedPath] into the app support directory (resizing/compressing
@@ -114,15 +192,21 @@ class AppearanceProvider extends ChangeNotifier {
     if (decoded == null) {
       throw StateError('wallpaper_decode_failed');
     }
-    final resized = (decoded.width > _maxWallpaperDimension ||
+    final resized =
+        (decoded.width > _maxWallpaperDimension ||
             decoded.height > _maxWallpaperDimension)
         ? img.copyResize(
             decoded,
-            width: decoded.width >= decoded.height ? _maxWallpaperDimension : null,
-            height: decoded.height > decoded.width ? _maxWallpaperDimension : null,
+            width: decoded.width >= decoded.height
+                ? _maxWallpaperDimension
+                : null,
+            height: decoded.height > decoded.width
+                ? _maxWallpaperDimension
+                : null,
           )
         : decoded;
     final encoded = img.encodeJpg(resized, quality: 80);
+    final wallpaperLuminance = _estimateImageLuminance(resized);
 
     final appSupportDir = await getApplicationSupportDirectory();
     final wallpaperDir = Directory(p.join(appSupportDir.path, 'wallpapers'));
@@ -135,20 +219,27 @@ class AppearanceProvider extends ChangeNotifier {
       preset: WallpaperPresetId.custom,
       customImagePath: destPath,
     );
+    _customWallpaperLuminance = wallpaperLuminance;
     notifyListeners();
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kWallpaperPresetKey, WallpaperPresetId.custom.name);
     await prefs.setString(_kWallpaperCustomPathKey, destPath);
+    await prefs.setDouble(_kWallpaperLuminanceKey, wallpaperLuminance);
   }
 
   Future<void> removeCustomWallpaper() async {
     await _deleteExistingCustomWallpaper();
     _wallpaper = const ChatWallpaper(preset: WallpaperPresetId.defaultWp);
+    _customWallpaperLuminance = null;
     notifyListeners();
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_kWallpaperPresetKey, WallpaperPresetId.defaultWp.name);
+    await prefs.setString(
+      _kWallpaperPresetKey,
+      WallpaperPresetId.defaultWp.name,
+    );
     await prefs.remove(_kWallpaperCustomPathKey);
+    await prefs.remove(_kWallpaperLuminanceKey);
   }
 
   Future<void> _deleteExistingCustomWallpaper() async {

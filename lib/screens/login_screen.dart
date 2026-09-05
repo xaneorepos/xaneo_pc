@@ -279,11 +279,7 @@ class _LoginScreenState extends State<LoginScreen>
         !await CryptoService().importUserKeysFromPayload(decryptedKeys)) {
       throw StateError('Не удалось перенести ключи шифрования');
     }
-    Logger.info(
-      'E2EE-DIAG',
-      'QR keys ready before opening messenger: '
-          'publicFp=${CryptoService().x25519PublicKeyFingerprint}',
-    );
+    Logger.info('E2EE-DIAG', 'QR keys ready before opening messenger');
   }
 
   Future<void> _handleQrApproved(Map<String, dynamic> data) async {
@@ -899,7 +895,6 @@ class _LoginScreenState extends State<LoginScreen>
     }
   }
 
-
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context);
@@ -1045,7 +1040,6 @@ class _LoginScreenState extends State<LoginScreen>
     );
   }
 
-
   Widget _buildLoginField(AppLocalizations? l10n, bool isDark) {
     return CustomTextFormField(
       controller: _loginController,
@@ -1060,7 +1054,6 @@ class _LoginScreenState extends State<LoginScreen>
       },
     );
   }
-
 
   Widget _buildAuthV2LeftContent(
     AppLocalizations l10n,
@@ -1573,7 +1566,7 @@ class _LoginScreenState extends State<LoginScreen>
   Widget _buildAuthV2RightContent(AppLocalizations l10n, bool isDark) {
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF0C0C0C), // Always dark like the web version
+        color: isDark ? const Color(0xFF0C0C0C) : const Color(0xFFF5F5F5),
         border: Border(
           left: BorderSide(
             color: isDark

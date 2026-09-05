@@ -46,9 +46,7 @@ class NotificationService {
           shortcutPolicy: ShortcutPolicy.requireCreate,
         );
       } else {
-        await localNotifier.setup(
-          appName: 'Xaneo',
-        );
+        await localNotifier.setup(appName: 'Xaneo');
       }
     } catch (e) {
       debugPrint('NotificationService: localNotifier setup error: $e');
@@ -68,7 +66,9 @@ class NotificationService {
 
   /// Возвращает выбранный пользователем стиль уведомлений
   /// (`appearance_notification_style`, задаётся в настройках "Внешний вид").
-  Future<NotificationStyle> _loadNotificationStyle(SharedPreferences prefs) async {
+  Future<NotificationStyle> _loadNotificationStyle(
+    SharedPreferences prefs,
+  ) async {
     return NotificationStyle.values.firstWhere(
       (e) => e.name == prefs.getString('appearance_notification_style'),
       orElse: () => NotificationStyle.standard,
@@ -107,15 +107,33 @@ class NotificationService {
   static String stripFormatting(String text) {
     if (text.isEmpty) return text;
     String clean = text;
-    clean = clean.replaceAllMapped(RegExp(r'```[\s\S]*?```'), (m) => m.group(0)!.replaceAll('```', ''));
+    clean = clean.replaceAllMapped(
+      RegExp(r'```[\s\S]*?```'),
+      (m) => m.group(0)!.replaceAll('```', ''),
+    );
     clean = clean.replaceAllMapped(RegExp(r'`([^`]+)`'), (m) => m.group(1)!);
-    clean = clean.replaceAllMapped(RegExp(r'\[([^\]]+)\]\([^)]+\)'), (m) => m.group(1)!);
-    clean = clean.replaceAllMapped(RegExp(r'!\[([^\]]*)\]\([^)]+\)'), (m) => m.group(1)!);
+    clean = clean.replaceAllMapped(
+      RegExp(r'\[([^\]]+)\]\([^)]+\)'),
+      (m) => m.group(1)!,
+    );
+    clean = clean.replaceAllMapped(
+      RegExp(r'!\[([^\]]*)\]\([^)]+\)'),
+      (m) => m.group(1)!,
+    );
     clean = clean.replaceAll(RegExp(r'^#{1,6}\s+', multiLine: true), '');
     clean = clean.replaceAll(RegExp(r'^\s*>\s+', multiLine: true), '');
-    clean = clean.replaceAllMapped(RegExp(r'(\*{1,3}|_{1,3})(.+?)\1'), (m) => m.group(2)!);
-    clean = clean.replaceAllMapped(RegExp(r'~{1,2}(.+?)~{1,2}'), (m) => m.group(1)!);
-    clean = clean.replaceAllMapped(RegExp(r'\|\|(.+?)\|\|'), (m) => m.group(1)!);
+    clean = clean.replaceAllMapped(
+      RegExp(r'(\*{1,3}|_{1,3})(.+?)\1'),
+      (m) => m.group(2)!,
+    );
+    clean = clean.replaceAllMapped(
+      RegExp(r'~{1,2}(.+?)~{1,2}'),
+      (m) => m.group(1)!,
+    );
+    clean = clean.replaceAllMapped(
+      RegExp(r'\|\|(.+?)\|\|'),
+      (m) => m.group(1)!,
+    );
     clean = clean.replaceAll(RegExp(r'[\*\_\`\~]'), '');
     return clean.trim();
   }
@@ -136,7 +154,7 @@ class NotificationService {
         _lastNotifiedBody == cleanBody &&
         _lastNotifiedTime != null &&
         now.difference(_lastNotifiedTime!).inSeconds < 3) {
-      debugPrint('🔔 [DEDUPLICATED] Skipping duplicate notification for chatId: $chatId');
+      debugPrint('🔔 [DEDUPLICATED] Skipping duplicate notification');
       return;
     }
     _lastNotifiedChatId = chatId;
@@ -145,7 +163,8 @@ class NotificationService {
 
     final prefs = await SharedPreferences.getInstance();
     // По умолчанию кастомный оверлей включен, если он поддерживается
-    final useCustomNotifications = isCustomOverlaySupported() &&
+    final useCustomNotifications =
+        isCustomOverlaySupported() &&
         (prefs.getBool('use_custom_notifications') ?? true);
     final notificationStyle = await _loadNotificationStyle(prefs);
 
@@ -160,7 +179,9 @@ class NotificationService {
         );
         return;
       } catch (e) {
-        debugPrint('NotificationService: Failed to show custom overlay, falling back to native: $e');
+        debugPrint(
+          'NotificationService: Failed to show custom overlay, falling back to native: $e',
+        );
       }
     }
 
@@ -182,7 +203,8 @@ class NotificationService {
     String? gradient,
   }) async {
     final prefs = await SharedPreferences.getInstance();
-    final useCustomNotifications = isCustomOverlaySupported() &&
+    final useCustomNotifications =
+        isCustomOverlaySupported() &&
         (prefs.getBool('use_custom_notifications') ?? true);
     final notificationStyle = await _loadNotificationStyle(prefs);
 
@@ -197,7 +219,9 @@ class NotificationService {
         );
         return;
       } catch (e) {
-        debugPrint('NotificationService: Failed to show custom call overlay, falling back to native: $e');
+        debugPrint(
+          'NotificationService: Failed to show custom call overlay, falling back to native: $e',
+        );
       }
     }
 
@@ -215,7 +239,9 @@ class NotificationService {
       try {
         await _activeCallNotification!.close();
       } catch (e) {
-        debugPrint('NotificationService: error closing native notification: $e');
+        debugPrint(
+          'NotificationService: error closing native notification: $e',
+        );
       }
       _activeCallNotification = null;
     }
@@ -224,7 +250,9 @@ class NotificationService {
       try {
         WindowController.fromWindowId(_activeCallOverlayWindowId!).hide();
       } catch (e) {
-        debugPrint('NotificationService: error hiding custom overlay window: $e');
+        debugPrint(
+          'NotificationService: error hiding custom overlay window: $e',
+        );
       }
       // Do not set _activeCallOverlayWindowId to null because the window is reused
     }
@@ -260,7 +288,9 @@ class NotificationService {
         ]);
 
         final clickedAction = res.stdout.toString().trim();
-        debugPrint('NotificationService: Linux notify-send clicked action: "$clickedAction"');
+        debugPrint(
+          'NotificationService: Linux notify-send clicked action: "$clickedAction"',
+        );
 
         if (clickedAction == 'open') {
           await windowManager.show();
@@ -289,7 +319,7 @@ class NotificationService {
       );
 
       notification.onClick = () {
-        debugPrint('Notification clicked: open chat $chatId');
+        debugPrint('Notification clicked: open chat');
         windowManager.show();
         windowManager.focus();
       };
@@ -297,15 +327,15 @@ class NotificationService {
       notification.onClickAction = (actionIndex) async {
         if (actionIndex == 0) {
           // Открыть чат
-          debugPrint('Button clicked: open chat $chatId');
+          debugPrint('Button clicked: open chat');
           await windowManager.show();
           await windowManager.focus();
         } else if (actionIndex == 1) {
           // Отметить как прочитанное
-          debugPrint('Button clicked: mark as read $chatId');
+          debugPrint('Button clicked: mark as read');
           try {
             final res = await ApiService().markMessagesAsRead(chatId);
-            debugPrint('Mark as read result: ${res.success} for chat $chatId');
+            debugPrint('Mark as read result: ${res.success}');
           } catch (e) {
             debugPrint('Mark as read error: $e');
           }
@@ -354,7 +384,9 @@ class NotificationService {
         ]);
 
         final clickedAction = res.stdout.toString().trim();
-        debugPrint('NotificationService: Linux call notify-send action: "$clickedAction"');
+        debugPrint(
+          'NotificationService: Linux call notify-send action: "$clickedAction"',
+        );
 
         final ctx = navigatorKey.currentContext;
         if (ctx != null) {
@@ -362,9 +394,7 @@ class NotificationService {
           if (clickedAction == 'accept') {
             await callManager.acceptIncomingCall();
             Navigator.of(ctx).push(
-              MaterialPageRoute(
-                builder: (context) => const ActiveCallScreen(),
-              ),
+              MaterialPageRoute(builder: (context) => const ActiveCallScreen()),
             );
             await windowManager.show();
             await windowManager.focus();
@@ -401,9 +431,7 @@ class NotificationService {
             // Ответить
             await callManager.acceptIncomingCall();
             Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (context) => const ActiveCallScreen(),
-              ),
+              MaterialPageRoute(builder: (context) => const ActiveCallScreen()),
             );
             await windowManager.show();
             await windowManager.focus();
@@ -432,13 +460,15 @@ class NotificationService {
   }) async {
     final primaryDisplay = await ScreenRetriever.instance.getPrimaryDisplay();
     final visibleSize = primaryDisplay.visibleSize ?? primaryDisplay.size;
-    final visiblePosition = primaryDisplay.visiblePosition ?? const Offset(0, 0);
+    final visiblePosition =
+        primaryDisplay.visiblePosition ?? const Offset(0, 0);
 
     const double width = 360;
     const double height = 130;
 
     // Вычисляем координаты: правый нижний угол экрана с отступами
-    final uniqueTitle = 'xaneo_overlay_${DateTime.now().millisecondsSinceEpoch}';
+    final uniqueTitle =
+        'xaneo_overlay_${DateTime.now().millisecondsSinceEpoch}';
 
     final payload = {
       'type': 'notification',
@@ -452,12 +482,17 @@ class NotificationService {
 
     if (_overlayWindowId != null) {
       // Re-use existing window to prevent FlutterEngine destruction crashes
-      await DesktopMultiWindow.invokeMethod(_overlayWindowId!, 'update_notification', jsonEncode(payload));
+      await DesktopMultiWindow.invokeMethod(
+        _overlayWindowId!,
+        'update_notification',
+        jsonEncode(payload),
+      );
       final window = WindowController.fromWindowId(_overlayWindowId!);
       await window.show();
       // Ensure the Win32 styles are reapplied just in case (e.g. if it lost topmost status)
       int? existingHwnd = findWindowByTitle(uniqueTitle);
-      if (existingHwnd != null) applyOverlayStyleWin32ToHwnd(existingHwnd, show: true);
+      if (existingHwnd != null)
+        applyOverlayStyleWin32ToHwnd(existingHwnd, show: true);
       return;
     }
 
@@ -465,7 +500,7 @@ class NotificationService {
     final window = await DesktopMultiWindow.createWindow(jsonEncode(payload));
     _overlayWindowId = window.windowId;
     await window.setTitle(uniqueTitle);
-    
+
     // Ждем установки заголовка на уровне Win32 (обычно мгновенно)
     int? newHwnd;
     for (int i = 0; i < 20; i++) {
@@ -493,12 +528,15 @@ class NotificationService {
 
     final primaryDisplay = await ScreenRetriever.instance.getPrimaryDisplay();
     final visibleSize = primaryDisplay.visibleSize ?? primaryDisplay.size;
-    final visiblePosition = primaryDisplay.visiblePosition ?? const Offset(0, 0);
+    final visiblePosition =
+        primaryDisplay.visiblePosition ?? const Offset(0, 0);
 
     const double width = 360;
-    const double height = 145; // Слегка выше для красивого размещения кнопок звонка
+    const double height =
+        145; // Слегка выше для красивого размещения кнопок звонка
 
-    final uniqueTitle = 'xaneo_call_overlay_${DateTime.now().millisecondsSinceEpoch}';
+    final uniqueTitle =
+        'xaneo_call_overlay_${DateTime.now().millisecondsSinceEpoch}';
 
     final payload = {
       'type': 'call_incoming',
@@ -510,14 +548,19 @@ class NotificationService {
       'gradient': gradient,
       'unique_title': uniqueTitle,
     };
-    
+
     if (_overlayWindowId != null) {
       _activeCallOverlayWindowId = _overlayWindowId;
-      await DesktopMultiWindow.invokeMethod(_overlayWindowId!, 'update_notification', jsonEncode(payload));
+      await DesktopMultiWindow.invokeMethod(
+        _overlayWindowId!,
+        'update_notification',
+        jsonEncode(payload),
+      );
       final window = WindowController.fromWindowId(_overlayWindowId!);
       await window.show();
       int? existingHwnd = findWindowByTitle(uniqueTitle);
-      if (existingHwnd != null) applyOverlayStyleWin32ToHwnd(existingHwnd, show: true);
+      if (existingHwnd != null)
+        applyOverlayStyleWin32ToHwnd(existingHwnd, show: true);
       return;
     }
 

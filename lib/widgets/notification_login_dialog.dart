@@ -285,7 +285,7 @@ class _NotificationLoginDialogState extends State<NotificationLoginDialog> {
                   : Text(
                       _step == 0
                           ? (l10n?.getCodeBtn ?? 'Получить код')
-                          : (l10n?.continueBtn ?? 'Продолжить'),
+                          : (l10n?.podtverdit_e260 ?? 'Подтвердить'),
                     ),
             ),
         ],

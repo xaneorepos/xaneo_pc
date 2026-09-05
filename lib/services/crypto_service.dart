@@ -401,11 +401,7 @@ class CryptoService {
 
       final xPriv = _hexToBytes(xPrivHex);
       final edPrivFull = edPrivHex != null ? _hexToBytes(edPrivHex) : null;
-      Logger.info(
-        'E2EE-DIAG',
-        'QR key payload decoded: fields=${keys.keys.toList()}, '
-            'x25519Bytes=${xPriv.length}, ed25519Bytes=${edPrivFull?.length ?? 0}',
-      );
+      Logger.info('E2EE-DIAG', 'QR key payload decoded and validated');
       if (xPriv.length != 32 ||
           (edPrivFull != null &&
               edPrivFull.length != 32 &&
@@ -427,10 +423,7 @@ class CryptoService {
       _x25519PrivateBytes = Uint8List.fromList(xPriv);
       final xPubKey = await _x25519KeyPair!.extractPublicKey();
       _x25519PublicKeyHex = _bytesToHex(xPubKey.bytes);
-      Logger.info(
-        'E2EE-DIAG',
-        'QR X25519 key imported: publicFp=$x25519PublicKeyFingerprint',
-      );
+      Logger.info('E2EE-DIAG', 'QR X25519 key imported');
 
       if (edPriv != null) {
         final ed25519Algo = crypto.Ed25519();
@@ -539,8 +532,7 @@ class CryptoService {
       final decoded = jsonDecode(jsonStr) as Map<String, dynamic>;
       Logger.info(
         'E2EE-DIAG',
-        'QR transfer decrypted: payloadFields=${decoded.keys.toList()}, '
-            'cipherBytes=${cipherBytes.length}',
+        'QR transfer decrypted: cipherBytes=${cipherBytes.length}',
       );
       return decoded;
     } catch (e) {
@@ -1115,19 +1107,14 @@ class CryptoService {
       if (decrypted != "[Ошибка дешифрования]") {
         Logger.info(
           'E2EE-DIAG',
-          'Personal message decrypted: chat=$chatId, candidate=$index, '
-              'candidateFp=${_fingerprintBytes(key)}',
+          'Personal message decrypted: candidate=$index',
         );
         return decrypted;
       }
     }
 
     final defaultKey = derivePersonalChatKey(otherUserPublicKeyHex, chatId);
-    final debugLabel =
-        'chat=$chatId, myPublicFp=$x25519PublicKeyFingerprint, '
-        'peerPublicFp=${_fingerprintHex(otherUserPublicKeyHex)}, '
-        'defaultKeyFp=${_fingerprintBytes(defaultKey)}, '
-        'candidates=${candidates.length}';
+    final debugLabel = 'personal message, candidates=${candidates.length}';
 
     return decryptMessageWithKey(
       base64Message,
@@ -1340,9 +1327,7 @@ class CryptoService {
     // 1. Server-escrowed key fallback
     final serverKey = data['server_epoch_key'] as String?;
     if (serverKey != null && serverKey.isNotEmpty) {
-      print(
-        "[CryptoService] Using server_epoch_key directly: ${serverKey.substring(0, 8)}...",
-      );
+      Logger.info('CryptoService', 'Using server epoch key');
       return serverKey;
     }
 

@@ -86,7 +86,7 @@ class XaneoGrpcService {
       ..limit = limit
       ..beforeMessageId = beforeMessageId;
 
-    print('🚀 [gRPC Stream] Requesting history for chat: $chatId');
+    print('🚀 [gRPC Stream] Requesting chat history');
     return _chatClient!.getMessageHistory(
       req,
       options: _callOptions(const Duration(seconds: 15)),

@@ -158,7 +158,7 @@ class ApiService {
               !path.contains('/auth/device-login/')) {
             Logger.info(
               'AuthTrace',
-              'request path=$path interactive=$isInteractiveAuthRequest '
+              'auth request interactive=$isInteractiveAuthRequest '
                   'jwtAttached=${options.headers['Authorization'] != null}',
             );
           }
@@ -525,10 +525,7 @@ class ApiService {
   /// Проверяет логин и пароль и сообщает, требуется ли 2FA.
   Future<ApiResponse> mobileLogin(String username, String password) async {
     try {
-      Logger.info(
-        'AuthTrace',
-        'mobile-login request baseUrl=$_baseUrl user=$username',
-      );
+      Logger.info('AuthTrace', 'mobile-login request started');
       final response = await _dio.post(
         '$_baseUrl/auth/mobile-login/',
         options: _getOptions(contentType: 'application/json'),
@@ -546,11 +543,7 @@ class ApiService {
       );
       return result;
     } catch (e) {
-      Logger.error(
-        'ApiService',
-        'Mobile login preflight failed for $username',
-        e,
-      );
+      Logger.error('ApiService', 'Mobile login preflight failed', e);
       return ApiResponse(
         success: false,
         error: 'Ошибка подключения к серверу: $e',
@@ -620,7 +613,7 @@ class ApiService {
   /// Вход в систему
   /// Возвращает Map с данными пользователя или ошибкой
   Future<ApiResponse> login(String username, String password) async {
-    Logger.info('ApiService', 'Attempting login for user: $username');
+    Logger.info('ApiService', 'Attempting login');
     try {
       final response = await _dio.post(
         '$_baseUrl/auth/login/',
@@ -629,17 +622,10 @@ class ApiService {
       );
 
       final result = _handleDioResponse(response, isAuthRequest: true);
-      Logger.info(
-        'ApiService',
-        'Login result for $username: success=${result.success}',
-      );
+      Logger.info('ApiService', 'Login result: success=${result.success}');
       return result;
     } catch (e) {
-      Logger.error(
-        'ApiService',
-        'Login connection error for user: $username',
-        e,
-      );
+      Logger.error('ApiService', 'Login connection error', e);
       return ApiResponse(
         success: false,
         error: 'Ошибка подключения к серверу: $e',
@@ -691,23 +677,11 @@ class ApiService {
       final data = {'email': email, 'username': username};
       final options = _getOptions(contentType: 'application/json');
 
-      print('DEBUG API: POST to $urlStr');
-      print('DEBUG API: Request Body: $data');
-      print('DEBUG API: Request Headers: ${options.headers}');
-      final cookiesBefore = await _cookieJar.loadForRequest(Uri.parse(urlStr));
-      print('DEBUG API: Cookies before request: $cookiesBefore');
-
       final response = await _dio.post(urlStr, options: options, data: data);
-
-      print('DEBUG API: Response Code: ${response.statusCode}');
-      print('DEBUG API: Response Headers: ${response.headers}');
-      print('DEBUG API: Response Body: ${response.data}');
-      final cookiesAfter = await _cookieJar.loadForRequest(Uri.parse(urlStr));
-      print('DEBUG API: Cookies after request: $cookiesAfter');
 
       return _handleDioResponse(response);
     } catch (e) {
-      print('DEBUG API: Error in sendVerificationCode: $e');
+      Logger.error('ApiService', 'Failed to send verification code', e);
       return ApiResponse(success: false, error: 'Ошибка отправки кода: $e');
     }
   }
@@ -723,23 +697,11 @@ class ApiService {
       final data = {'email': email, 'code': code};
       final options = _getOptions(contentType: 'application/json');
 
-      print('DEBUG API: POST to $urlStr');
-      print('DEBUG API: Request Body: $data');
-      print('DEBUG API: Request Headers: ${options.headers}');
-      final cookiesBefore = await _cookieJar.loadForRequest(Uri.parse(urlStr));
-      print('DEBUG API: Cookies before request: $cookiesBefore');
-
       final response = await _dio.post(urlStr, options: options, data: data);
-
-      print('DEBUG API: Response Code: ${response.statusCode}');
-      print('DEBUG API: Response Headers: ${response.headers}');
-      print('DEBUG API: Response Body: ${response.data}');
-      final cookiesAfter = await _cookieJar.loadForRequest(Uri.parse(urlStr));
-      print('DEBUG API: Cookies after request: $cookiesAfter');
 
       return _handleDioResponse(response);
     } catch (e) {
-      print('DEBUG API: Error in verifyEmailCode: $e');
+      Logger.error('ApiService', 'Failed to verify email code', e);
       return ApiResponse(success: false, error: 'Ошибка проверки кода: $e');
     }
   }
@@ -789,17 +751,7 @@ class ApiService {
         options = _getOptions(contentType: 'application/json');
       }
 
-      print('DEBUG API: POST to $urlStr');
-      print('DEBUG API: Request Headers: ${options.headers}');
-      final cookiesBefore = await _cookieJar.loadForRequest(Uri.parse(urlStr));
-      print('DEBUG API: Cookies before request: $cookiesBefore');
-
       final response = await _dio.post(urlStr, options: options, data: data);
-
-      print('DEBUG API: Response Code: ${response.statusCode}');
-      print('DEBUG API: Response Body: ${response.data}');
-      final cookiesAfter = await _cookieJar.loadForRequest(Uri.parse(urlStr));
-      print('DEBUG API: Cookies after request: $cookiesAfter');
 
       final result = _handleDioResponse(response, isAuthRequest: true);
 
@@ -815,7 +767,7 @@ class ApiService {
 
       return result;
     } catch (e) {
-      print('DEBUG API: Error in register: $e');
+      Logger.error('ApiService', 'Registration failed', e);
       return ApiResponse(success: false, error: 'Ошибка регистрации: $e');
     }
   }
@@ -845,11 +797,11 @@ class ApiService {
 
   /// Получение JWT токена
   Future<ApiResponse> obtainToken(String username, String password) async {
-    Logger.info('ApiService', 'obtainToken called for user: $username');
+    Logger.info('ApiService', 'obtainToken called');
     Logger.warning(
       'AuthTrace',
-      'JWT password endpoint requested for user=$username; '
-          'this must only happen after non-2FA preflight or verified legacy 2FA',
+      'JWT password endpoint requested; this must only happen after '
+          'non-2FA preflight or verified legacy 2FA',
     );
     try {
       final response = await _dio.post(
@@ -1685,7 +1637,10 @@ class ApiService {
 
   /// Нажатие на inline-кнопку бота под сообщением (callback_data-кнопка).
   /// Эндпоинт живёт под /api/bots/, а не /api/v1/ — отрезаем /v1 как в getLiveKitToken.
-  Future<ApiResponse> activateBotCallback(int messageId, String buttonId) async {
+  Future<ApiResponse> activateBotCallback(
+    int messageId,
+    String buttonId,
+  ) async {
     try {
       final options = await _getAuthOptions();
       final baseUrlWithoutV1 = _baseUrl.replaceAll('/v1', '');

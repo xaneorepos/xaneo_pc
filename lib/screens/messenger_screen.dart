@@ -61,6 +61,8 @@ import '../models/app_version_info.dart';
 import '../services/update_service.dart';
 import '../widgets/update_banner_widget.dart';
 import '../widgets/emoji_picker_panel.dart';
+import '../widgets/forward_message_modal.dart';
+import '../widgets/blur_hash_placeholder.dart';
 import '../providers/appearance_provider.dart';
 import '../models/message_color_presets.dart';
 
@@ -135,9 +137,13 @@ class _MessengerScreenState extends State<MessengerScreen> {
   // Polling timer
   Timer? _pollingTimer;
   Timer? _deviceAuthTimer;
+  Timer? _sessionEventsReconnectTimer;
   final Set<String> _handledDeviceAuthRequests = {};
   bool _deviceAuthDialogOpen = false;
+  bool _sessionEventsConnecting = false;
+  bool _logoutInProgress = false;
   WebSocketService? _webSocketService;
+  WebSocketService? _sessionEventsService;
   final Map<String, String> _sentPlaintexts = {};
   final Map<String, String> _localVideoPaths = {};
   double _chatListWidth = 320.0;
@@ -191,6 +197,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
   @override
   void initState() {
     super.initState();
+    _apiService.onSessionExpired = _logout;
     _messageController.addListener(_onMessageTextChanged);
     _scrollController.addListener(_onScroll);
     _startTypingExpiryTimer();
@@ -280,6 +287,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
   @override
   void dispose() {
+    _apiService.onSessionExpired = null;
     // На Linux не трогаем AudioRecorder — он не используется.
     // Убиваем arecord если вдруг запущен.
     if (Platform.isLinux) {
@@ -293,8 +301,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
     } catch (_) {}
     _messageController.removeListener(_onMessageTextChanged);
     _webSocketService?.dispose();
+    _sessionEventsService?.dispose();
     _pollingTimer?.cancel();
     _deviceAuthTimer?.cancel();
+    _sessionEventsReconnectTimer?.cancel();
     _typingExpiryTimer?.cancel();
     _typingTimer?.cancel();
     _searchController.dispose();
@@ -318,6 +328,68 @@ class _MessengerScreenState extends State<MessengerScreen> {
       _handledDeviceAuthRequests.add(id);
       await _showDeviceAuthApproval(request);
       break;
+    }
+  }
+
+  Future<void> _handleSessionEvent(Map<String, dynamic> event) async {
+    final type = event['type']?.toString();
+    if (type == 'session_revoked') {
+      await _logout();
+      return;
+    }
+    if (type != 'device_auth_request' || _deviceAuthDialogOpen || !mounted) {
+      return;
+    }
+
+    final challengeId = event['challenge_id']?.toString();
+    if (challengeId == null ||
+        challengeId.isEmpty ||
+        _handledDeviceAuthRequests.contains(challengeId)) {
+      return;
+    }
+    _handledDeviceAuthRequests.add(challengeId);
+    await _showDeviceAuthApproval(event);
+    if (mounted) unawaited(_checkPendingDeviceAuth());
+  }
+
+  void _scheduleSessionEventsReconnect() {
+    if (!mounted || _logoutInProgress || _sessionEventsReconnectTimer != null) {
+      return;
+    }
+    _sessionEventsReconnectTimer = Timer(const Duration(seconds: 3), () {
+      _sessionEventsReconnectTimer = null;
+      unawaited(_connectSessionEvents());
+    });
+  }
+
+  Future<void> _connectSessionEvents() async {
+    if (!mounted || _logoutInProgress || _sessionEventsConnecting) return;
+    final token = await _apiService.getAccessToken();
+    if (token == null || token.isEmpty || !mounted) return;
+
+    _sessionEventsConnecting = true;
+    _sessionEventsReconnectTimer?.cancel();
+    _sessionEventsReconnectTimer = null;
+    await _sessionEventsService?.disconnect();
+
+    final service = WebSocketService(
+      onMessageReceived: (event) => unawaited(_handleSessionEvent(event)),
+      onError: (_) => _scheduleSessionEventsReconnect(),
+      onDone: _scheduleSessionEventsReconnect,
+    );
+    _sessionEventsService = service;
+    try {
+      await service.connect(
+        ApiService.getSessionEventsWebSocketUrl(),
+        accessToken: token,
+      );
+      if (mounted && identical(_sessionEventsService, service)) {
+        unawaited(_checkPendingDeviceAuth());
+      }
+    } catch (_) {
+      _scheduleSessionEventsReconnect();
+    } finally {
+      _sessionEventsConnecting = false;
     }
   }
 
@@ -616,7 +688,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
         // Connect signaling service
         if (_myId != null) {
           final grpcService = XaneoGrpcService();
-          grpcService.init(accessToken: currentToken);
+          grpcService.init(
+            accessToken: currentToken,
+            accessTokenProvider: _apiService.getAccessToken,
+          );
+          unawaited(_connectSessionEvents());
           unawaited(grpcService.sendPresence(_myId!.toString(), 'online'));
 
           final signaling = Provider.of<WebRTCSignalingService>(
@@ -1450,6 +1526,16 @@ class _MessengerScreenState extends State<MessengerScreen> {
   ) async {
     final type = data['type'] as String?;
 
+    if (type == 'session_revoked') {
+      await _logout();
+      return;
+    }
+
+    if (type == 'device_auth_request') {
+      await _handleSessionEvent(data);
+      return;
+    }
+
     if (type == 'encrypted_message' ||
         type == 'todo_list_message' ||
         type == 'poll_message' ||
@@ -1552,6 +1638,8 @@ class _MessengerScreenState extends State<MessengerScreen> {
               }
             }
           }
+
+          await _decryptReplyPreview(data, activeChatId, otherUser);
 
           _cacheAuthorProfileFromMsg(data);
 
@@ -3274,6 +3362,45 @@ class _MessengerScreenState extends State<MessengerScreen> {
         'Fallback');
   }
 
+  Future<void> _decryptReplyPreview(
+    dynamic message,
+    String chatId,
+    Map<String, dynamic>? otherUser,
+  ) async {
+    final rawReplyId =
+        message['reply_to_id'] ??
+        message['reply_to_ref'] ??
+        message['reply_to'];
+    final replyId = rawReplyId is int
+        ? rawReplyId
+        : int.tryParse(rawReplyId?.toString() ?? '');
+    if (replyId != null) {
+      final cached = _decryptedMessages[replyId];
+      if (cached != null && cached.isNotEmpty && !cached.startsWith('[')) {
+        message['reply_text'] = cached;
+        return;
+      }
+    }
+
+    final replyTextRaw = message['reply_text']?.toString();
+    if (replyTextRaw == null ||
+        replyTextRaw.isEmpty ||
+        !_isBase64(replyTextRaw)) {
+      return;
+    }
+
+    try {
+      final decryptedReply = await _decryptForChat(
+        replyTextRaw,
+        chatId,
+        otherUser,
+      );
+      if (decryptedReply != replyTextRaw && !decryptedReply.startsWith('[')) {
+        message['reply_text'] = decryptedReply;
+      }
+    } catch (_) {}
+  }
+
   Future<void> _decryptSingleMessage(
     dynamic msg,
     String chatId,
@@ -3286,8 +3413,13 @@ class _MessengerScreenState extends State<MessengerScreen> {
     final isCall = (msg['type'] == 'call' || msg['message_type'] == 'call');
     if (existing != null &&
         !existing.startsWith('[') &&
-        (!isCall || existing.startsWith('{')))
+        (!isCall || existing.startsWith('{'))) {
+      // The decrypted message cache survives chat switches, while the message
+      // maps are fetched again. Always hydrate the fresh reply preview before
+      // returning, otherwise its encrypted server value leaks into the UI.
+      await _decryptReplyPreview(msg, chatId, otherUser);
       return;
+    }
 
     final type = msg['type'] as String?;
     final messageType = msg['message_type'] as String?;
@@ -3376,21 +3508,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
           'Fallback');
     }
 
-    final replyTextRaw = msg['reply_text'] as String?;
-    if (replyTextRaw != null &&
-        replyTextRaw.isNotEmpty &&
-        _isBase64(replyTextRaw)) {
-      try {
-        final decryptedReply = await _decryptForChat(
-          replyTextRaw,
-          chatId,
-          otherUser,
-        );
-        if (decryptedReply != replyTextRaw && !decryptedReply.startsWith('[')) {
-          msg['reply_text'] = decryptedReply;
-        }
-      } catch (_) {}
-    }
+    await _decryptReplyPreview(msg, chatId, otherUser);
 
     if (mounted) {
       setState(() {
@@ -3412,8 +3530,12 @@ class _MessengerScreenState extends State<MessengerScreen> {
       final isCall = (msg['type'] == 'call' || msg['message_type'] == 'call');
       if (existing != null &&
           !existing.startsWith('[') &&
-          (!isCall || existing.startsWith('{')))
+          (!isCall || existing.startsWith('{'))) {
+        // Message objects are recreated after reopening a chat. The main text
+        // may already be cached, but reply_text still needs to be decrypted.
+        await _decryptReplyPreview(msg, chatId, otherUser);
         continue;
+      }
 
       final type = msg['type'] as String?;
       final messageType = msg['message_type'] as String?;
@@ -3488,22 +3610,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
             'Fallback');
       }
 
-      final replyTextRaw = msg['reply_text'] as String?;
-      if (replyTextRaw != null &&
-          replyTextRaw.isNotEmpty &&
-          _isBase64(replyTextRaw)) {
-        try {
-          final decryptedReply = await _decryptForChat(
-            replyTextRaw,
-            chatId,
-            otherUser,
-          );
-          if (decryptedReply != replyTextRaw &&
-              !decryptedReply.startsWith('[')) {
-            msg['reply_text'] = decryptedReply;
-          }
-        } catch (_) {}
-      }
+      await _decryptReplyPreview(msg, chatId, otherUser);
 
       if (mounted) {
         setState(() {
@@ -3622,8 +3729,18 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
     _sentPlaintexts[encryptedText] = plaintextToEncrypt;
 
-    final dynamic rawReplyId = _replyingToMessage?['id'];
+    final replySnapshot = _replyingToMessage == null
+        ? null
+        : Map<String, dynamic>.from(_replyingToMessage!);
+    final dynamic rawReplyId = replySnapshot?['id'];
     final replyToId = rawReplyId?.toString();
+    final replyId = rawReplyId is int
+        ? rawReplyId
+        : int.tryParse(rawReplyId?.toString() ?? '');
+    String? replyPreviewText = replySnapshot?['reply_text']?.toString();
+    if (replyId != null) {
+      replyPreviewText = _decryptedMessages[replyId] ?? replyPreviewText;
+    }
     if (_replyingToMessage != null) {
       setState(() {
         _replyingToMessage = null;
@@ -3635,11 +3752,26 @@ class _MessengerScreenState extends State<MessengerScreen> {
       sentViaWs = _webSocketService!.sendMessage({
         'type': 'encrypted_message',
         'encrypted_text': encryptedText,
-        // Сжатое фото уходит как картинка (images-массив, как на вебе), иначе —
-        // как обычное файловое вложение (file_id).
-        if (fileIdToSend != null && attachedIsCompressedImage)
+        // Все вложения несут полный descriptor в images, как mobile/web.
+        // Для обычного файла дополнительно сохраняем file_id, чтобы бэк связал
+        // сообщение с SecureFileUpload через attached_file.
+        if (fileIdToSend != null)
           'images': [
-            {'file_id': fileIdToSend},
+            {
+              'file_id': fileIdToSend,
+              'name': attachedFile!['file_name'],
+              'file_name': attachedFile['file_name'],
+              'size': attachedFile['file_size'] ?? 0,
+              'file_size': attachedFile['file_size'] ?? 0,
+              'type': attachedFile['file_type'],
+              'file_type': attachedFile['file_type'],
+              'mime_type': attachedFile['mime_type'],
+              if (attachedFile['blur_hash'] != null)
+                'blur_hash': attachedFile['blur_hash'],
+              if (attachedFile['width'] != null) 'width': attachedFile['width'],
+              if (attachedFile['height'] != null)
+                'height': attachedFile['height'],
+            },
           ],
         if (fileIdToSend != null && !attachedIsCompressedImage)
           'file_id': fileIdToSend,
@@ -3660,7 +3792,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
         'encrypted_text': encryptedText,
         'created_at': DateTime.now().toIso8601String(),
         'reply_to_id': replyToId,
-        'reply_text': _replyingToMessage?['reply_text'],
+        'reply_text': replyPreviewText,
         'is_read': false,
         'chat_id': chatId,
         if (attachedFile != null) ...{
@@ -3669,15 +3801,23 @@ class _MessengerScreenState extends State<MessengerScreen> {
           'attached_file_name': attachedFile['file_name'],
           'attached_file_size': attachedFile['file_size'] ?? 0,
           'attached_file_type': attachedFile['file_type'],
-          if (attachedIsCompressedImage)
-            'images': [
-              {
-                'file_id': fileIdToSend,
-                'file_name': attachedFile['file_name'],
-                'file_size': attachedFile['file_size'] ?? 0,
-                'mime_type': attachedFile['file_type'],
-              },
-            ],
+          'images': [
+            {
+              'file_id': fileIdToSend,
+              'file_name': attachedFile['file_name'],
+              'file_size': attachedFile['file_size'] ?? 0,
+              'name': attachedFile['file_name'],
+              'size': attachedFile['file_size'] ?? 0,
+              'type': attachedFile['file_type'],
+              'file_type': attachedFile['file_type'],
+              'mime_type': attachedFile['mime_type'],
+              if (attachedFile['blur_hash'] != null)
+                'blur_hash': attachedFile['blur_hash'],
+              if (attachedFile['width'] != null) 'width': attachedFile['width'],
+              if (attachedFile['height'] != null)
+                'height': attachedFile['height'],
+            },
+          ],
         },
       };
 
@@ -4838,31 +4978,40 @@ class _MessengerScreenState extends State<MessengerScreen> {
   }
 
   Future<void> _logout() async {
-    await _webSocketService?.disconnect();
+    if (_logoutInProgress) return;
+    _logoutInProgress = true;
+    try {
+      await _webSocketService?.disconnect();
+      _sessionEventsReconnectTimer?.cancel();
+      _sessionEventsReconnectTimer = null;
+      await _sessionEventsService?.disconnect();
 
-    final accountToRemove = await AccountService().getActiveUserId() ?? _myId;
+      final accountToRemove = await AccountService().getActiveUserId() ?? _myId;
 
-    if (_myId != null) {
-      await XaneoGrpcService().sendPresence(_myId!.toString(), 'offline');
-    }
-
-    await _apiService.logout();
-    await _cryptoService.clearKeys();
-
-    if (accountToRemove != null) {
-      // ApiService.logout already revoked the active refresh token.
-      await AccountService().removeAccount(accountToRemove, revoke: false);
-    }
-
-    _myId = null;
-
-    final remainingAccounts = await AccountService().getAccounts();
-    if (remainingAccounts.isNotEmpty) {
-      await _switchAccount(remainingAccounts.first.userId);
-    } else {
-      if (mounted) {
-        Navigator.of(context).pushReplacementNamed('/login');
+      if (_myId != null) {
+        await XaneoGrpcService().sendPresence(_myId!.toString(), 'offline');
       }
+
+      await _apiService.logout();
+      await _cryptoService.clearKeys();
+
+      if (accountToRemove != null) {
+        // ApiService.logout already revoked the active refresh token.
+        await AccountService().removeAccount(accountToRemove, revoke: false);
+      }
+
+      _myId = null;
+
+      final remainingAccounts = await AccountService().getAccounts();
+      if (remainingAccounts.isNotEmpty) {
+        await _switchAccount(remainingAccounts.first.userId);
+      } else {
+        if (mounted) {
+          Navigator.of(context).pushReplacementNamed('/login');
+        }
+      }
+    } finally {
+      _logoutInProgress = false;
     }
   }
 
@@ -4876,6 +5025,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
     _pollingTimer?.cancel();
     await _webSocketService?.disconnect();
+    _sessionEventsReconnectTimer?.cancel();
+    _sessionEventsReconnectTimer = null;
+    await _sessionEventsService?.disconnect();
     await context.read<WebRTCSignalingService>().disconnect();
     if (_myId != null) {
       await XaneoGrpcService().sendPresence(_myId!.toString(), 'offline');
@@ -9073,6 +9225,92 @@ class _MessengerScreenState extends State<MessengerScreen> {
     );
   }
 
+  Map<String, dynamic>? _forwardedFrom(Map<String, dynamic> message) {
+    dynamic messageData = message['message_data'];
+    if (messageData is String && messageData.trim().isNotEmpty) {
+      try {
+        messageData = jsonDecode(messageData);
+      } catch (_) {
+        return null;
+      }
+    }
+    if (messageData is! Map) return null;
+
+    final forwarded = messageData['forwarded_from'];
+    if (forwarded is! Map) return null;
+    return Map<String, dynamic>.from(forwarded);
+  }
+
+  bool _messageAllowsUserActions(Map<String, dynamic> message) {
+    const blockedTypes = {
+      'system',
+      'user_joined',
+      'user_joined_group',
+      'user_left',
+      'user_left_group',
+      'user_left_channel',
+      'user_invited_group',
+      'user_invited_channel',
+      'user_subscribed_channel',
+      'user_unsubscribed_channel',
+      'call',
+    };
+    final messageType = message['message_type']?.toString().toLowerCase() ?? '';
+    if (message['is_system'] == true || blockedTypes.contains(messageType)) {
+      return false;
+    }
+
+    final rawId = message['id'];
+    final id = rawId is int ? rawId : int.tryParse(rawId?.toString() ?? '');
+    final content = id == null
+        ? message['encrypted_text']?.toString()
+        : (_decryptedMessages[id] ?? message['encrypted_text']?.toString());
+    if (content != null && content.trim().startsWith('{')) {
+      try {
+        final payload = jsonDecode(content);
+        if (payload is Map && payload['type'] == 'call') return false;
+      } catch (_) {}
+    }
+    return true;
+  }
+
+  Widget _buildForwardedHeader(
+    String authorName,
+    Color foreground,
+    double scale,
+  ) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: 7 * scale),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            ForwardModalStrings.of(context).forwardedFrom,
+            style: TextStyle(
+              color: foreground.withValues(alpha: 0.78),
+              fontSize: 11 * scale,
+              fontWeight: FontWeight.w500,
+              height: 1.1,
+            ),
+          ),
+          SizedBox(height: 2 * scale),
+          Text(
+            authorName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: foreground,
+              fontSize: 14 * scale,
+              fontWeight: FontWeight.w700,
+              height: 1.15,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildMessageBubble(
     Map<String, dynamic> msg,
     bool isMe,
@@ -9099,6 +9337,12 @@ class _MessengerScreenState extends State<MessengerScreen> {
     if (isSystemMsg) {
       return _buildSystemMessageBubble(msg, decryptedText, isDark, scale);
     }
+    final forwardedFrom = _forwardedFrom(msg);
+    final forwardedAuthorName =
+        forwardedFrom?['original_author_name']?.toString().trim() ?? '';
+    final showsForwardedFrom =
+        forwardedFrom?['show_attribution'] == true &&
+        forwardedAuthorName.isNotEmpty;
     Map<String, dynamic>? customPayload;
     if (decryptedText.trim().startsWith('{')) {
       try {
@@ -9293,7 +9537,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
     );
     final messageMuted = messageForeground.withValues(alpha: 0.62);
 
-    if (customPayload != null && customPayload['type'] == 'video_message') {
+    if (customPayload != null &&
+        customPayload['type'] == 'video_message' &&
+        !showsForwardedFrom) {
       final alignLeft = isChannel || !isMe;
       return Align(
         alignment: alignLeft ? Alignment.centerLeft : Alignment.centerRight,
@@ -9346,7 +9592,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
     final trimmedText = decryptedText.trim();
     final hasMediaCaption =
         trimmedText.isNotEmpty && !trimmedText.startsWith('{');
-    final isOnlyMedia = mediaItems.isNotEmpty && !hasMediaCaption && !hasReply;
+    final isOnlyMedia =
+        mediaItems.isNotEmpty &&
+        !hasMediaCaption &&
+        !hasReply &&
+        !showsForwardedFrom;
 
     Widget buildTimestampWidget({bool overlay = false}) {
       return Row(
@@ -9397,13 +9647,17 @@ class _MessengerScreenState extends State<MessengerScreen> {
     }
 
     final bubbleContent = GestureDetector(
-      onTap: () {
-        setState(() {
-          _replyingToMessage = msg;
-        });
-      },
-      onSecondaryTapDown: (details) =>
-          _showMessageContextMenu(msg, details.globalPosition, scale, isDark),
+      onTap: _messageAllowsUserActions(msg)
+          ? () => setState(() => _replyingToMessage = msg)
+          : null,
+      onSecondaryTapDown: _messageAllowsUserActions(msg)
+          ? (details) => _showMessageContextMenu(
+              msg,
+              details.globalPosition,
+              scale,
+              isDark,
+            )
+          : null,
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 4),
         padding: isOnlyMedia
@@ -9465,6 +9719,12 @@ class _MessengerScreenState extends State<MessengerScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (showsForwardedFrom)
+                _buildForwardedHeader(
+                  forwardedAuthorName,
+                  messageForeground,
+                  scale,
+                ),
               // Sender name (channel name for channels, author name for groups if not me)
               if (isChannel || (!isMe && isGroup))
                 Padding(
@@ -9788,6 +10048,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
   }
 
   void _toggleReaction(Map<String, dynamic> msg, String emoji) {
+    if (!_messageAllowsUserActions(msg)) return;
     final rawMsgId = msg['id'];
     final msgId = rawMsgId is int
         ? rawMsgId
@@ -10153,6 +10414,8 @@ class _MessengerScreenState extends State<MessengerScreen> {
     double scale,
     bool isDark,
   ) {
+    if (!_messageAllowsUserActions(msg)) return;
+
     final List<String> popularEmojis = [
       '👍',
       '❤️',
@@ -10244,11 +10507,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
         const PopupMenuDivider(),
         PopupMenuItem<String>(
           value: 'reply',
-          onTap: () {
-            setState(() {
-              _replyingToMessage = msg;
-            });
-          },
+          onTap: () => setState(() => _replyingToMessage = msg),
           child: Row(
             children: [
               FaIcon(
@@ -10267,8 +10526,224 @@ class _MessengerScreenState extends State<MessengerScreen> {
             ],
           ),
         ),
+        PopupMenuItem<String>(
+          value: 'forward',
+          onTap: () => Future<void>.delayed(
+            Duration.zero,
+            () => _showForwardMessageModal(msg),
+          ),
+          child: Row(
+            children: [
+              FaIcon(
+                FontAwesomeIcons.share,
+                size: 14 * scale,
+                color: isDark ? Colors.white70 : Colors.black87,
+              ),
+              SizedBox(width: 10 * scale),
+              Text(
+                l10n.forward,
+                style: TextStyle(
+                  fontSize: 14 * scale,
+                  color: isDark ? Colors.white : Colors.black87,
+                ),
+              ),
+            ],
+          ),
+        ),
       ],
     );
+  }
+
+  Future<List<Map<String, dynamic>>> _loadForwardTargets() async {
+    final response = await _apiService.getForwardTargets();
+    if (!response.success || response.data == null) {
+      throw StateError(response.error ?? 'forward_targets_failed');
+    }
+    final rawTargets = response.data!['chats'];
+    if (rawTargets is! List) return const [];
+    return rawTargets
+        .whereType<Map>()
+        .map((target) => Map<String, dynamic>.from(target))
+        .toList();
+  }
+
+  Future<void> _showForwardMessageModal(Map<String, dynamic> message) async {
+    if (!_messageAllowsUserActions(message)) return;
+
+    if (!mounted) return;
+    await ForwardMessageModal.show(
+      context: context,
+      loadTargets: _loadForwardTargets,
+      onForward: (target, showAttribution) =>
+          _forwardMessage(message, target, showAttribution),
+    );
+  }
+
+  Future<void> _forwardMessage(
+    Map<String, dynamic> message,
+    Map<String, dynamic> target,
+    bool showAttribution,
+  ) async {
+    final messageId = message['id']?.toString() ?? '';
+    final targetChatId = target['chat_id']?.toString() ?? '';
+    if (messageId.isEmpty || targetChatId.isEmpty) {
+      throw StateError('invalid_forward_target');
+    }
+
+    final sourceResponse = await _apiService.getForwardSource(messageId);
+    if (!sourceResponse.success || sourceResponse.data == null) {
+      throw StateError(sourceResponse.error ?? 'forward_source_failed');
+    }
+    final source = sourceResponse.data!;
+    final sourceChatId =
+        (source['crypto_chat_id'] ?? source['chat_id'])?.toString() ?? '';
+    final numericId = int.tryParse(messageId);
+    String plaintext =
+        source['bot_plaintext']?.toString() ??
+        (numericId == null ? null : _decryptedMessages[numericId]) ??
+        '';
+
+    if (plaintext.isEmpty &&
+        (source['encrypted_text']?.toString().isNotEmpty ?? false)) {
+      final candidates = [..._chats, ..._archivedChats];
+      Map<String, dynamic>? sourceChat;
+      for (final candidate in candidates) {
+        if (candidate is Map &&
+            _areSameChatId(candidate['chat_id']?.toString(), sourceChatId)) {
+          sourceChat = Map<String, dynamic>.from(candidate);
+          break;
+        }
+      }
+      plaintext = await _decryptForChat(
+        source['encrypted_text'].toString(),
+        sourceChatId,
+        sourceChat?['other_user'] is Map
+            ? Map<String, dynamic>.from(sourceChat!['other_user'] as Map)
+            : null,
+      );
+    }
+
+    if (plaintext.isEmpty &&
+        source['attached_file'] is Map &&
+        (source['images'] is! List || (source['images'] as List).isEmpty)) {
+      final file = Map<String, dynamic>.from(source['attached_file'] as Map);
+      plaintext = jsonEncode({
+        'type': 'file',
+        'file_id': file['file_id'],
+        'file_type': file['file_type'],
+        'file_name': file['file_name'],
+        'file_size': file['file_size'],
+        'duration': file['duration'],
+        'mime_type': file['mime_type'],
+        'uploaded_at': file['uploaded_at'],
+      });
+    }
+    if (plaintext.contains('Ошибка дешифрования') ||
+        plaintext.contains('Зашифровано старым ключом')) {
+      throw StateError('forward_decryption_failed');
+    }
+
+    Future<({String encryptedText, int? epochId})> encryptTarget() async {
+      if (targetChatId.startsWith('favorites')) {
+        final userId = _myId?.toString();
+        if (userId == null) throw StateError('missing_user');
+        return (
+          encryptedText: await _cryptoService.encryptFavoritesMessage(
+            plaintext,
+            userId,
+          ),
+          epochId: null,
+        );
+      }
+      if (targetChatId.startsWith('personal_')) {
+        final peerKey = await _getPeerPublicKey(null, chatId: targetChatId);
+        if (peerKey == null) throw StateError('missing_target_key');
+        if (peerKey == 'bot') {
+          final chatKey = await _getGroupChatKey(targetChatId);
+          if (chatKey == null) throw StateError('missing_target_key');
+          return (
+            encryptedText: await _cryptoService.encryptGroupMessage(
+              plaintext,
+              chatKey,
+            ),
+            epochId: null,
+          );
+        }
+        return (
+          encryptedText: await _cryptoService.encryptPersonalMessage(
+            plaintext,
+            peerKey,
+            targetChatId,
+          ),
+          epochId: null,
+        );
+      }
+      if (targetChatId.startsWith('group_') ||
+          targetChatId.startsWith('channel_')) {
+        final epoch = await _apiService.getGroupEpochCurrent(targetChatId);
+        if (!epoch.success || epoch.data == null) {
+          throw StateError(epoch.error ?? 'missing_target_epoch');
+        }
+        final key = await _cryptoService.deriveEpochKeyFromData(epoch.data!);
+        if (key == null || key.isEmpty) throw StateError('missing_target_key');
+        final rawEpochId =
+            epoch.data!['epoch_id'] ??
+            epoch.data!['id'] ??
+            epoch.data!['epoch_number'];
+        return (
+          encryptedText: await _cryptoService.encryptGroupMessage(
+            plaintext,
+            key,
+          ),
+          epochId: int.tryParse(rawEpochId?.toString() ?? ''),
+        );
+      }
+      throw StateError('unsupported_target');
+    }
+
+    var encrypted = await encryptTarget();
+    _sentPlaintexts[encrypted.encryptedText] = plaintext;
+    var signature = await _cryptoService.signMessage(encrypted.encryptedText);
+    var result = await _apiService.forwardMessage(
+      messageId: messageId,
+      targetChatId: targetChatId,
+      showAttribution: showAttribution,
+      encryptedText: encrypted.encryptedText,
+      signature: signature,
+      targetEpochId: encrypted.epochId,
+    );
+    if (!result.success && result.statusCode == 409) {
+      _sentPlaintexts.remove(encrypted.encryptedText);
+      encrypted = await encryptTarget();
+      _sentPlaintexts[encrypted.encryptedText] = plaintext;
+      signature = await _cryptoService.signMessage(encrypted.encryptedText);
+      result = await _apiService.forwardMessage(
+        messageId: messageId,
+        targetChatId: targetChatId,
+        showAttribution: showAttribution,
+        encryptedText: encrypted.encryptedText,
+        signature: signature,
+        targetEpochId: encrypted.epochId,
+      );
+    }
+    if (!result.success) {
+      _sentPlaintexts.remove(encrypted.encryptedText);
+      throw StateError(result.error ?? 'forward_failed');
+    }
+    await _loadChats(silent: true);
+  }
+
+  bool _areSameChatId(String? first, String? second) {
+    if (first == null || second == null) return false;
+    if (first == second) return true;
+    if (first.startsWith('personal_') && second.startsWith('personal_')) {
+      final a = first.substring(9).split('_');
+      final b = second.substring(9).split('_');
+      return a.length == 2 &&
+          b.length == 2 &&
+          ((a[0] == b[0] && a[1] == b[1]) || (a[0] == b[1] && a[1] == b[0]));
+    }
+    return false;
   }
 
   void _showFullEmojiPicker(
@@ -12566,6 +13041,14 @@ class _MessengerScreenState extends State<MessengerScreen> {
               as int? ??
           0;
       final fileUrl = map['file_url']?.toString() ?? map['url']?.toString();
+      final attachedMetadata = map['attached_file_metadata'] is Map
+          ? Map<String, dynamic>.from(map['attached_file_metadata'] as Map)
+          : const <String, dynamic>{};
+      final blurHash =
+          map['blur_hash']?.toString() ??
+          attachedMetadata['blur_hash']?.toString();
+      final width = map['width'] ?? attachedMetadata['width'];
+      final height = map['height'] ?? attachedMetadata['height'];
 
       if (fileKind != 'document' && _isImageFile(fileName, mimeType)) {
         items.add({
@@ -12575,6 +13058,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
           'file_size': fileSize,
           'media_type': 'image',
           'url': fileUrl,
+          'blur_hash': blurHash,
+          'width': width,
+          'height': height,
         });
       } else if (_isVideoFile(fileName, mimeType)) {
         items.add({
@@ -12584,6 +13070,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
           'file_size': fileSize,
           'media_type': 'video',
           'url': fileUrl,
+          'blur_hash': blurHash,
+          'width': width,
+          'height': height,
         });
       }
     }
@@ -12633,16 +13122,29 @@ class _MessengerScreenState extends State<MessengerScreen> {
     }
 
     final uniqueItems = <Map<String, dynamic>>[];
-    final seenKeys = <String>{};
+    final itemIndexByKey = <String, int>{};
     for (final item in items) {
       final key = item['file_id'] != ''
           ? item['file_id']
           : (item['url'] ?? item['file_name']);
-      if (key != null &&
-          key.toString().isNotEmpty &&
-          seenKeys.add(key.toString())) {
+      if (key == null || key.toString().isEmpty) continue;
+
+      final normalizedKey = key.toString();
+      final existingIndex = itemIndexByKey[normalizedKey];
+      if (existingIndex == null) {
+        itemIndexByKey[normalizedKey] = uniqueItems.length;
         uniqueItems.add(item);
+        continue;
       }
+
+      // Decrypted message JSON can contain the same file without server media
+      // metadata. The later message.images entry is authoritative for blurhash
+      // and dimensions, so enrich the existing item instead of dropping it.
+      item.forEach((field, value) {
+        if (value != null && (!(value is String) || value.isNotEmpty)) {
+          uniqueItems[existingIndex][field] = value;
+        }
+      });
     }
     return uniqueItems;
   }
@@ -13252,19 +13754,21 @@ class _MessengerScreenState extends State<MessengerScreen> {
     final count = items.length;
     final maxCollageWidth = 320.0 * scale;
 
-    Widget buildImagePlaceholder({double? width, double? height}) {
+    Widget buildImagePlaceholder(
+      Map<String, dynamic> item, {
+      double? width,
+      double? height,
+    }) {
       return SizedBox(
         width: width,
         height: height,
-        child: ColoredBox(
-          color: isDark ? const Color(0xFF242428) : const Color(0xFFE8E8EC),
-          child: Center(
-            child: Icon(
-              Icons.image_outlined,
-              color: isDark ? Colors.white30 : Colors.black26,
-              size: 30 * scale,
-            ),
-          ),
+        child: BlurHashPlaceholder(
+          hash: item['blur_hash']?.toString(),
+          fallbackColor: isDark
+              ? const Color(0xFF242428)
+              : const Color(0xFFE8E8EC),
+          iconColor: isDark ? Colors.white30 : Colors.black26,
+          iconSize: 30 * scale,
         ),
       );
     }
@@ -13299,8 +13803,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
                   url,
                   headers: _getAuthHeader(url),
                   fit: BoxFit.cover,
-                  loadingBuilder: (_, child, progress) =>
-                      progress == null ? child : buildImagePlaceholder(),
+                  frameBuilder: (_, child, frame, wasSynchronouslyLoaded) {
+                    if (wasSynchronouslyLoaded || frame != null) return child;
+                    return buildImagePlaceholder(item);
+                  },
                   errorBuilder: (_, __, ___) => Container(
                     color: isDark
                         ? const Color(0xFF1E1E1E)
@@ -13411,6 +13917,22 @@ class _MessengerScreenState extends State<MessengerScreen> {
       final item = items[0];
       final url = _getMediaUrl(item);
       final isVideo = item['media_type'] == 'video';
+      double? dimension(dynamic value) {
+        if (value is num && value > 0) return value.toDouble();
+        return double.tryParse(value?.toString() ?? '');
+      }
+
+      final sourceWidth = dimension(item['width']);
+      final sourceHeight = dimension(item['height']);
+      final hasDimensions =
+          sourceWidth != null && sourceHeight != null && sourceHeight > 0;
+      final aspectRatio = hasDimensions ? sourceWidth / sourceHeight : 16 / 9;
+      var previewWidth = maxCollageWidth;
+      var previewHeight = previewWidth / aspectRatio;
+      if (previewHeight > 340 * scale) {
+        previewHeight = 340 * scale;
+        previewWidth = previewHeight * aspectRatio;
+      }
 
       collageBody = GestureDetector(
         onTap: () => _openMediaGallery(item, scale),
@@ -13419,11 +13941,8 @@ class _MessengerScreenState extends State<MessengerScreen> {
           // maxWidth-constraint, и если Image.network падал в errorBuilder
           // (например для видео, которое не декодируется как картинка),
           // Stack схлопывался до ширины иконки-заглушки.
-          width: maxCollageWidth,
-          constraints: BoxConstraints(
-            maxHeight: 340 * scale,
-            maxWidth: maxCollageWidth,
-          ),
+          width: previewWidth,
+          height: previewHeight,
           clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
             color: isDark
@@ -13440,17 +13959,20 @@ class _MessengerScreenState extends State<MessengerScreen> {
                 Image.network(
                   url,
                   headers: _getAuthHeader(url),
-                  width: maxCollageWidth,
-                  fit: BoxFit.contain,
-                  loadingBuilder: (_, child, progress) => progress == null
-                      ? child
-                      : buildImagePlaceholder(
-                          width: maxCollageWidth,
-                          height: 180 * scale,
-                        ),
+                  width: previewWidth,
+                  height: previewHeight,
+                  fit: BoxFit.cover,
+                  frameBuilder: (_, child, frame, wasSynchronouslyLoaded) {
+                    if (wasSynchronouslyLoaded || frame != null) return child;
+                    return buildImagePlaceholder(
+                      item,
+                      width: previewWidth,
+                      height: previewHeight,
+                    );
+                  },
                   errorBuilder: (_, __, ___) => SizedBox(
-                    width: maxCollageWidth,
-                    height: 180 * scale,
+                    width: previewWidth,
+                    height: previewHeight,
                     child: Container(
                       color: isDark
                           ? const Color(0xFF1E1E1E)
@@ -13467,8 +13989,8 @@ class _MessengerScreenState extends State<MessengerScreen> {
                 )
               else
                 SizedBox(
-                  width: maxCollageWidth,
-                  height: 180 * scale,
+                  width: previewWidth,
+                  height: previewHeight,
                   child: Container(
                     color: isDark
                         ? const Color(0xFF1E1E1E)
@@ -13859,8 +14381,12 @@ class _MessengerScreenState extends State<MessengerScreen> {
           _attachedFile = {
             'file_id': fileId,
             'file_name': fileName,
-            'file_size': fileSize,
-            'file_type': fileType,
+            'file_size': uploadRes.data!['file_size'] ?? fileSize,
+            'file_type': uploadRes.data!['file_type'] ?? fileType,
+            'mime_type': uploadRes.data!['mime_type'],
+            'blur_hash': uploadRes.data!['blur_hash'],
+            'width': uploadRes.data!['width'],
+            'height': uploadRes.data!['height'],
             if (sendAsImage) 'send_as_image': true,
           };
           _showSendButton = true;

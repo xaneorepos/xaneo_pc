@@ -3,6 +3,8 @@ import 'package:grpc/grpc.dart';
 import 'package:fixnum/fixnum.dart';
 import '../generated/grpc/chat_service.pbgrpc.dart';
 import '../generated/grpc/presence_service.pbgrpc.dart';
+import 'api_service.dart';
+import '../utils/ssl_helper.dart';
 
 class XaneoGrpcService {
   static final XaneoGrpcService _instance = XaneoGrpcService._internal();
@@ -17,42 +19,59 @@ class XaneoGrpcService {
 
   bool _isInitialized = false;
   String? _accessToken;
+  Future<String?> Function()? _accessTokenProvider;
 
   bool get isInitialized => _isInitialized;
 
   void init({
-    String host = 'xaneo.ru',
-    int chatPort = 443,
-    int presencePort = 443,
-    bool useTls = true,
+    String? host,
+    int? chatPort,
+    int? presencePort,
+    bool? useTls,
     String? accessToken,
+    Future<String?> Function()? accessTokenProvider,
   }) {
     _accessToken = accessToken;
+    _accessTokenProvider = accessTokenProvider;
     if (_isInitialized) return;
 
-    final credentials = useTls
-        ? const ChannelCredentials.secure()
+    final apiUri = Uri.parse(ApiService.baseUrl);
+    final resolvedHost = host ?? apiUri.host;
+    final resolvedUseTls = useTls ?? apiUri.scheme == 'https';
+    final proxyPort = apiUri.hasPort ? apiUri.port : 443;
+    final resolvedChatPort = chatPort ?? (resolvedUseTls ? proxyPort : 50051);
+    final resolvedPresencePort =
+        presencePort ?? (resolvedUseTls ? proxyPort : 50053);
+
+    ChannelCredentials credentialsFor(int port) => resolvedUseTls
+        ? ChannelCredentials.secure(
+            onBadCertificate: (certificate, host) =>
+                validateSslCertificate(certificate, host, port),
+          )
         : const ChannelCredentials.insecure();
 
     _chatChannel = ClientChannel(
-      host,
-      port: chatPort,
-      options: ChannelOptions(credentials: credentials),
+      resolvedHost,
+      port: resolvedChatPort,
+      options: ChannelOptions(credentials: credentialsFor(resolvedChatPort)),
     );
     _chatClient = ChatWebServiceClient(_chatChannel!);
 
     _presenceChannel = ClientChannel(
-      host,
-      port: presencePort,
-      options: ChannelOptions(credentials: credentials),
+      resolvedHost,
+      port: resolvedPresencePort,
+      options: ChannelOptions(
+        credentials: credentialsFor(resolvedPresencePort),
+      ),
     );
     _presenceClient = PresenceServiceClient(_presenceChannel!);
 
     _isInitialized = true;
-    final transport = useTls ? 'TLS' : 'plaintext';
+    final transport = resolvedUseTls ? 'TLS' : 'plaintext';
     print(
       '🚀 [Xaneo PC gRPC] Channels configured for '
-      '$host:$chatPort (Chat) & $presencePort (Presence), transport=$transport',
+      '$resolvedHost:$resolvedChatPort (Chat) & '
+      '$resolvedPresencePort (Presence), transport=$transport',
     );
   }
 
@@ -61,12 +80,16 @@ class XaneoGrpcService {
   }
 
   CallOptions _callOptions(Duration timeout) {
-    final token = _accessToken;
     return CallOptions(
       timeout: timeout,
-      metadata: token == null || token.isEmpty
-          ? const <String, String>{}
-          : <String, String>{'authorization': 'Bearer $token'},
+      providers: [
+        (metadata, _) async {
+          final token = await _accessTokenProvider?.call() ?? _accessToken;
+          if (token != null && token.isNotEmpty) {
+            metadata['authorization'] = 'Bearer $token';
+          }
+        },
+      ],
     );
   }
 
@@ -108,8 +131,14 @@ class XaneoGrpcService {
       );
       print('📖 [gRPC ACK] Marked messages as read: count=${res.markedCount}');
       return res.success;
+    } on GrpcError catch (e) {
+      final category = e.code == StatusCode.unauthenticated
+          ? 'Auth'
+          : 'Unavailable';
+      print('⚠️ [gRPC $category] markAsRead fallback to REST: $e');
+      return false;
     } catch (e) {
-      print('⚠️ [gRPC Offline] markAsRead fallback to REST: $e');
+      print('⚠️ [gRPC Error] markAsRead fallback to REST: $e');
       return false;
     }
   }
@@ -165,6 +194,7 @@ class XaneoGrpcService {
     _chatClient = null;
     _presenceClient = null;
     _accessToken = null;
+    _accessTokenProvider = null;
     _isInitialized = false;
   }
 }

@@ -35,6 +35,17 @@ class CryptoService {
 
   bool get hasKeys => _x25519KeyPair != null && _x25519PrivateBytes != null;
 
+  /// Подписывает уже зашифрованный payload, не раскрывая приватный ключ.
+  Future<String> signMessage(String encryptedText) async {
+    final keyPair = _ed25519KeyPair;
+    if (keyPair == null || encryptedText.isEmpty) return '';
+    final signature = await crypto.Ed25519().sign(
+      utf8.encode(encryptedText),
+      keyPair: keyPair,
+    );
+    return _bytesToHex(signature.bytes);
+  }
+
   // Hex representation of public keys
   String? get x25519PublicKeyHex => _x25519PublicKeyHex;
   String? get ed25519PublicKeyHex => _ed25519PublicKeyHex;

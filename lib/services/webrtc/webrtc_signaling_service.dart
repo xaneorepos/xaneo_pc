@@ -264,6 +264,16 @@ class WebRTCSignalingService {
         return;
       }
 
+      if (event['type'] == 'session_revoked') {
+        _manualDisconnect = true;
+        _reconnectTimer?.cancel();
+        final callback = _apiService.onSessionExpired;
+        if (callback != null) {
+          unawaited(callback());
+        }
+        return;
+      }
+
       _eventsController.add(event);
 
       // Прокидываем в специфичные коллбэки

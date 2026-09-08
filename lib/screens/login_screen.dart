@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:cryptography/cryptography.dart' as crypto;
 import 'package:flutter/material.dart';
@@ -13,6 +14,7 @@ import '../services/api_service.dart';
 import '../services/crypto_service.dart';
 import '../services/account_service.dart';
 import '../services/logger_service.dart';
+import '../utils/ssl_helper.dart';
 import '../widgets/settings_modal.dart';
 import '../widgets/custom_toast.dart';
 import '../widgets/qr_login_verification_modal.dart';
@@ -39,6 +41,11 @@ class _LoginScreenState extends State<LoginScreen>
   bool _isLoading = false;
 
   Timer? _qrTimer;
+  Timer? _qrReconnectTimer;
+  WebSocket? _qrSocket;
+  StreamSubscription<dynamic>? _qrSocketSubscription;
+  bool _qrStatusRequestInFlight = false;
+  bool _qrStatusCheckQueued = false;
   Uint8List? _qrImageBytes;
   crypto.SimpleKeyPair? _qrEphemeralKeyPair;
   String? _qrPollSecret;
@@ -137,7 +144,7 @@ class _LoginScreenState extends State<LoginScreen>
     try {
       final previousToken = _qrToken;
       final previousPollSecret = _qrPollSecret;
-      _qrTimer?.cancel();
+      _stopQrRealtime();
       _qrToken = null;
       _qrPollSecret = null;
       _qrImageBytes = null;
@@ -188,49 +195,168 @@ class _LoginScreenState extends State<LoginScreen>
   }
 
   void _startQrPolling() {
+    unawaited(_connectQrStatusSocket());
+    _scheduleQrStatusCheck(const Duration(seconds: 30));
+  }
+
+  void _scheduleQrStatusCheck(Duration delay) {
     _qrTimer?.cancel();
-    _qrTimer = Timer.periodic(const Duration(milliseconds: 1500), (
-      timer,
-    ) async {
-      if (!mounted ||
-          _isQrApproved ||
-          _qrToken == null ||
-          _qrPollSecret == null) {
-        if (!mounted) timer.cancel();
+    if (!mounted || _isQrApproved || _qrToken == null) return;
+    _qrTimer = Timer(delay, () => unawaited(_checkQrStatus()));
+  }
+
+  Future<void> _connectQrStatusSocket() async {
+    final token = _qrToken;
+    final pollSecret = _qrPollSecret;
+    if (!mounted || _isQrApproved || token == null || pollSecret == null) {
+      return;
+    }
+
+    try {
+      final client = HttpClient();
+      client.badCertificateCallback = validateSslCertificate;
+      final socket = await WebSocket.connect(
+        ApiService.getQrLoginWebSocketUrl(),
+        customClient: client,
+      ).timeout(const Duration(seconds: 10));
+      if (!mounted || _qrToken != token || _isQrApproved) {
+        await socket.close();
         return;
       }
 
-      final res = await _apiService.getQrStatus(_qrToken!, _qrPollSecret!);
-      if (res.success && res.data != null && res.data is Map<String, dynamic>) {
+      await _qrSocketSubscription?.cancel();
+      await _qrSocket?.close();
+      _qrSocket = socket;
+      _qrSocketSubscription = socket.listen(
+        (raw) {
+          if (_qrSocket != socket || _qrToken != token || raw is! String) {
+            return;
+          }
+          try {
+            final message = jsonDecode(raw);
+            if (message is! Map || message['type'] != 'qr_status') return;
+            final status = message['status']?.toString();
+            if (status == 'pending') {
+              if (_isQrAwaitingApproval && mounted) {
+                setState(() => _isQrAwaitingApproval = false);
+                _dismissQrVerificationModal();
+              }
+            } else if (status == 'scanned') {
+              if (!_isQrAwaitingApproval && mounted) {
+                setState(() => _isQrAwaitingApproval = true);
+                _showQrVerificationModal();
+              }
+            } else if (status == 'approved') {
+              unawaited(_checkQrStatus(forceAfterCurrent: true));
+            } else if (status == 'expired' ||
+                status == 'cancelled' ||
+                status == 'consumed') {
+              _stopQrRealtime();
+              unawaited(_startQrSession());
+            }
+          } catch (e) {
+            Logger.warning('LoginScreen', 'Invalid QR WebSocket event: $e');
+          }
+        },
+        onError: (_) {
+          if (_qrSocket == socket) {
+            _scheduleQrReconnect(token);
+          }
+        },
+        onDone: () {
+          if (_qrSocket == socket) {
+            _scheduleQrReconnect(token);
+          }
+        },
+        cancelOnError: true,
+      );
+      socket.add(jsonEncode({'token': token, 'poll_secret': pollSecret}));
+    } catch (e) {
+      Logger.warning('LoginScreen', 'QR WebSocket unavailable: $e');
+      _scheduleQrReconnect(token);
+      _scheduleQrStatusCheck(const Duration(seconds: 3));
+    }
+  }
+
+  void _scheduleQrReconnect(String token) {
+    if (!mounted || _isQrApproved || _qrToken != token) return;
+    _qrReconnectTimer?.cancel();
+    _qrReconnectTimer = Timer(
+      const Duration(seconds: 3),
+      () => unawaited(_connectQrStatusSocket()),
+    );
+  }
+
+  Future<void> _checkQrStatus({bool forceAfterCurrent = false}) async {
+    final token = _qrToken;
+    final pollSecret = _qrPollSecret;
+    if (!mounted || _isQrApproved || token == null || pollSecret == null) {
+      return;
+    }
+    if (_qrStatusRequestInFlight) {
+      if (forceAfterCurrent) _qrStatusCheckQueued = true;
+      return;
+    }
+
+    _qrStatusRequestInFlight = true;
+    try {
+      final res = await _apiService.getQrStatus(token, pollSecret);
+      if (!mounted || _qrToken != token) return;
+      if (res.success && res.data is Map<String, dynamic>) {
         final data = res.data as Map<String, dynamic>;
         final status = data['status']?.toString();
         if (status == 'scanned') {
-          if (!_isQrAwaitingApproval && mounted) {
+          if (!_isQrAwaitingApproval) {
             setState(() => _isQrAwaitingApproval = true);
             _showQrVerificationModal();
           }
         } else if (status == 'pending') {
-          if (_isQrAwaitingApproval && mounted) {
+          if (_isQrAwaitingApproval) {
             setState(() => _isQrAwaitingApproval = false);
             _dismissQrVerificationModal();
           }
         } else if (status == 'approved' && !_isQrApproved) {
           _isQrApproved = true;
-          timer.cancel();
+          _stopQrRealtime();
           _dismissQrVerificationModal();
           await _handleQrApproved(data);
         } else if (status == 'expired' ||
             status == 'cancelled' ||
             status == 'consumed') {
-          timer.cancel();
+          _stopQrRealtime();
           _dismissQrVerificationModal();
-          _startQrSession();
+          unawaited(_startQrSession());
         }
       } else if (res.statusCode == 404 || res.statusCode == 410) {
-        timer.cancel();
-        _startQrSession();
+        _stopQrRealtime();
+        unawaited(_startQrSession());
       }
-    });
+    } finally {
+      _qrStatusRequestInFlight = false;
+      if (_qrStatusCheckQueued &&
+          mounted &&
+          _qrToken == token &&
+          !_isQrApproved) {
+        _qrStatusCheckQueued = false;
+        unawaited(_checkQrStatus());
+      } else if (mounted && _qrToken == token && !_isQrApproved) {
+        _scheduleQrStatusCheck(const Duration(seconds: 30));
+      }
+    }
+  }
+
+  void _stopQrRealtime() {
+    _qrTimer?.cancel();
+    _qrReconnectTimer?.cancel();
+    _qrTimer = null;
+    _qrReconnectTimer = null;
+    _qrStatusCheckQueued = false;
+    final subscription = _qrSocketSubscription;
+    final socket = _qrSocket;
+    _qrSocketSubscription = null;
+    _qrSocket = null;
+    if (subscription != null) unawaited(subscription.cancel());
+    if (socket != null) unawaited(socket.close());
   }
 
   void _showQrVerificationModal() {
@@ -360,6 +486,7 @@ class _LoginScreenState extends State<LoginScreen>
     _codePasswordController.dispose();
     _codePasswordFocus.dispose();
     _qrTimer?.cancel();
+    _stopQrRealtime();
     super.dispose();
   }
 
@@ -507,6 +634,12 @@ class _LoginScreenState extends State<LoginScreen>
           _isCodeLoading = false;
           _codeStep = 2;
         });
+        CustomToast.show(
+          context,
+          l10n?.confirmOnDeviceStatus ??
+              'Продолжите на уже авторизованном устройстве.',
+          type: ToastType.success,
+        );
         _codePollTimer?.cancel();
         _codePollTimer = Timer.periodic(
           const Duration(milliseconds: 1500),

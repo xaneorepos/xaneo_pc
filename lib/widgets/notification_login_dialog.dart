@@ -9,6 +9,7 @@ import '../l10n/app_localizations.dart';
 import '../services/account_service.dart';
 import '../services/api_service.dart';
 import '../services/crypto_service.dart';
+import 'custom_toast.dart';
 
 class NotificationLoginDialog extends StatefulWidget {
   const NotificationLoginDialog({super.key, this.initialIdentifier});
@@ -106,6 +107,13 @@ class _NotificationLoginDialogState extends State<NotificationLoginDialog> {
         _busy = false;
         _step = 2;
       });
+      final l10n = AppLocalizations.of(context);
+      CustomToast.show(
+        context,
+        l10n?.confirmOnDeviceStatus ??
+            'Продолжите на уже авторизованном устройстве.',
+        type: ToastType.success,
+      );
       _pollTimer = Timer.periodic(
         const Duration(milliseconds: 1500),
         (_) => _poll(),

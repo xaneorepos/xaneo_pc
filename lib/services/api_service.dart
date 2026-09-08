@@ -27,7 +27,10 @@ class ApiService {
   int? _refreshFutureGeneration;
   int _sessionGeneration = 0;
   bool _sessionCommitInProgress = false;
+  bool _sessionExpiryInProgress = false;
   final SecureSessionStorage _secureStorage = SecureSessionStorage();
+
+  Future<void> Function()? onSessionExpired;
 
   // Throttling protection
   DateTime? _throttledUntil;
@@ -99,6 +102,20 @@ class ApiService {
     final port = uri.hasPort ? ':${uri.port}' : '';
 
     return '$scheme://$host$port/ws/chat/$chatId/';
+  }
+
+  static String getQrLoginWebSocketUrl() {
+    final uri = Uri.parse(_baseUrl);
+    final scheme = uri.scheme == 'https' ? 'wss' : 'ws';
+    final port = uri.hasPort ? ':${uri.port}' : '';
+    return '$scheme://${uri.host}$port/ws/qr-login/';
+  }
+
+  static String getSessionEventsWebSocketUrl() {
+    final uri = Uri.parse(_baseUrl);
+    final scheme = uri.scheme == 'https' ? 'wss' : 'ws';
+    final port = uri.hasPort ? ':${uri.port}' : '';
+    return '$scheme://${uri.host}$port/ws/session/';
   }
 
   ApiService._internal() {
@@ -211,6 +228,11 @@ class ApiService {
             // Рефреш токена
             final refreshRes = await refreshToken();
             if (!refreshRes.success) {
+              if (refreshRes.statusCode == 400 ||
+                  refreshRes.statusCode == 401 ||
+                  refreshRes.statusCode == 403) {
+                await _notifySessionExpired();
+              }
               // Рефреш упал (429, сеть и т.д.) — прекращаем, не повторяем запрос
               Logger.warning(
                 'ApiService',
@@ -284,15 +306,25 @@ class ApiService {
 
   /// Создает сессию QR кода с передачей публичного ключа клиента
   Future<String?> _ensureQrCsrfToken() async {
-    if (_qrCsrfToken != null) return _qrCsrfToken;
     final apiUri = Uri.parse(_baseUrl);
     final origin = '${apiUri.scheme}://${apiUri.authority}';
+    final rootUri = Uri.parse('$origin/');
+
+    // The session-expiry flow clears the cookie jar. Never reuse a cached
+    // CSRF header unless the matching cookie still exists.
+    final existingCookies = await _cookieJar.loadForRequest(rootUri);
+    for (final cookie in existingCookies) {
+      if (cookie.name == 'csrftoken' && cookie.value == _qrCsrfToken) {
+        return _qrCsrfToken;
+      }
+    }
+
+    _qrCsrfToken = null;
     await _dio.get(
       '$origin/qr-login/',
       options: Options(headers: {'User-Agent': _userAgent}),
     );
-    final cookies = await _cookieJar.loadForRequest(Uri.parse('$origin/'));
-    _qrCsrfToken = null;
+    final cookies = await _cookieJar.loadForRequest(rootUri);
     for (final cookie in cookies) {
       if (cookie.name == 'csrftoken') {
         _qrCsrfToken = cookie.value;
@@ -1116,6 +1148,64 @@ class ApiService {
     }
   }
 
+  /// Чаты, в которые сервер разрешил пересылку текущему пользователю.
+  Future<ApiResponse> getForwardTargets() async {
+    try {
+      final options = await _getAuthOptions();
+      final response = await _dio.get(
+        '$_baseUrl/chats/',
+        options: options,
+        queryParameters: const {'purpose': 'forward', 'limit': 100},
+      );
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(success: false, error: 'Forward targets failed: $e');
+    }
+  }
+
+  /// Серверные метаданные исходного сообщения без раскрытия ключей чата.
+  Future<ApiResponse> getForwardSource(String messageId) async {
+    try {
+      final options = await _getAuthOptions();
+      final response = await _dio.get(
+        '$_baseUrl/messages/forward/',
+        options: options,
+        queryParameters: {'message_id': messageId},
+      );
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(success: false, error: 'Forward source failed: $e');
+    }
+  }
+
+  Future<ApiResponse> forwardMessage({
+    required String messageId,
+    required String targetChatId,
+    required bool showAttribution,
+    required String encryptedText,
+    String signature = '',
+    int? targetEpochId,
+  }) async {
+    try {
+      final options = await _getAuthOptions();
+      final response = await _dio.post(
+        '$_baseUrl/messages/forward/',
+        options: options,
+        data: {
+          'message_id': messageId,
+          'target_chat_id': targetChatId,
+          'show_attribution': showAttribution,
+          'encrypted_text': encryptedText,
+          'signature': signature,
+          'target_epoch_id': targetEpochId,
+        },
+      );
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(success: false, error: 'Forward failed: $e');
+    }
+  }
+
   /// Архивировать/разархивировать чат
   Future<ApiResponse> archiveChat(String chatId, bool isArchived) async {
     try {
@@ -1302,6 +1392,7 @@ class ApiService {
 
   /// Очистить все куки сессии
   Future<void> clearCookies() async {
+    _qrCsrfToken = null;
     await _cookieJar.deleteAll();
   }
 
@@ -1317,6 +1408,22 @@ class ApiService {
       await clearCookies();
     } finally {
       endSessionCommit();
+    }
+  }
+
+  Future<void> _notifySessionExpired() async {
+    if (_sessionExpiryInProgress) return;
+    _sessionExpiryInProgress = true;
+    try {
+      final callback = onSessionExpired;
+      if (callback != null) {
+        await callback();
+      } else {
+        await _secureStorage.clearActiveSession();
+        await clearCookies();
+      }
+    } finally {
+      _sessionExpiryInProgress = false;
     }
   }
 

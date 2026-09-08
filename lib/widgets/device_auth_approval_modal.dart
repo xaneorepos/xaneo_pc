@@ -104,7 +104,8 @@ class _DeviceAuthApprovalModalState
           ),
           SizedBox(height: 9 * scale),
           Text(
-            l10n?.confirmOnDeviceSub ?? 'Код верный. Разрешите вход, только если этот запрос создали вы.',
+            l10n?.confirmOnDeviceSub ??
+                'Код верный. Разрешите вход, только если этот запрос создали вы.',
             style: TextStyle(color: muted, fontSize: 14 * scale, height: 1.45),
           ),
           SizedBox(height: 19 * scale),
@@ -147,7 +148,8 @@ class _DeviceAuthApprovalModalState
               SizedBox(width: 8 * scale),
               Expanded(
                 child: Text(
-                  l10n?.confirmDeviceRequestText ?? 'Ключи чатов будут переданы на новое устройство в зашифрованном виде.',
+                  l10n?.confirmDeviceRequestText ??
+                      'Ключи чатов будут переданы на новое устройство в зашифрованном виде.',
                   style: TextStyle(
                     color: muted,
                     fontSize: 12.5 * scale,
@@ -178,7 +180,12 @@ class _DeviceAuthApprovalModalState
                         : Colors.white,
                   ),
                   onPressed: () => Navigator.of(context).pop(true),
-                  child: Text(l10n?.loginApproved ?? 'Разрешить'),
+                  child: Text(
+                    l10n?.podtverdit_e260 ?? 'Подтвердить',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                  ),
                 ),
               ),
             ],

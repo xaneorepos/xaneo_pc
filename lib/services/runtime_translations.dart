@@ -16,13 +16,18 @@ class RuntimeTranslations {
   final Map<String, List<String>> _manifestRuIndex = {};
 
   bool get hasActiveCustomPack => _customStrings.isNotEmpty;
+  bool containsKey(String key) =>
+      _customStrings[key] != null && _customStrings[key]!.isNotEmpty;
   String? get activeLocale => _activeLocale;
   String get fallbackLocale => _fallbackLocale;
   String get direction => _direction;
 
   static String _normalize(String t) {
-    if (t.isEmpty) return "";
-    return t.replaceAll(RegExp(r'[^\w\s]', unicode: true), '').replaceAll(RegExp(r'\s+'), '').toLowerCase();
+    if (t.isEmpty) return '';
+    return t
+        .replaceAll(RegExp(r'[^\w\s]', unicode: true), '')
+        .replaceAll(RegExp(r'\s+'), '')
+        .toLowerCase();
   }
 
   void _buildManifestIndex() {
@@ -46,7 +51,9 @@ class RuntimeTranslations {
 
   /// Load canonical manifest if not yet loaded
   Future<Map<String, dynamic>> getManifest() async {
-    if (_manifest != null && _manifest!['keys'] is Map && (_manifest!['keys'] as Map).isNotEmpty) {
+    if (_manifest != null &&
+        _manifest!['keys'] is Map &&
+        (_manifest!['keys'] as Map).isNotEmpty) {
       return _manifest!;
     }
     try {
@@ -95,7 +102,9 @@ class RuntimeTranslations {
 
     final rawStrings = packData['strings'];
     if (rawStrings is Map) {
-      _customStrings = rawStrings.map((k, v) => MapEntry(k.toString(), v.toString()));
+      _customStrings = rawStrings.map(
+        (k, v) => MapEntry(k.toString(), v.toString()),
+      );
     } else {
       _customStrings = {};
     }
@@ -132,6 +141,13 @@ class RuntimeTranslations {
     }
 
     return fallback;
+  }
+
+  /// Разрешает конкретный canonical key только для активного пользовательского
+  /// пакета. Без пакета сохраняется fallback текущей системной локали.
+  String resolve(String key, String fallback) {
+    if (_customStrings.isEmpty || !containsKey(key)) return fallback;
+    return get(key, fallback: fallback);
   }
 
   /// Get translation string for a key with parameter interpolation

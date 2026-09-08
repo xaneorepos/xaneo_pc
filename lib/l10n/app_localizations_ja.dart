@@ -1933,7 +1933,7 @@ class AppLocalizationsJa extends AppLocalizations {
   String get naVashEmailOtpravlen6_b457 =>
       'На ваш email отправлен 6-значный код';
   @override
-  String get podtverdit_e260 => 'Подтвердить';
+  String get podtverdit_e260 => '確認';
   @override
   String get nePoluchiliKodOtpravitPovtorno_c1d2 =>
       'Не получили код? Отправить повторно';

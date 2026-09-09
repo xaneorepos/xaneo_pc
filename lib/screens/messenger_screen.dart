@@ -24,6 +24,7 @@ import '../providers/scale_provider.dart';
 import '../providers/playback_provider.dart';
 import '../utils/audio_metadata.dart';
 import '../l10n/app_localizations.dart';
+import '../l10n/community_settings_localizations.dart';
 import '../widgets/advanced_background.dart';
 import '../widgets/voice_waveform_slider.dart';
 import '../widgets/track_artwork.dart';
@@ -33,6 +34,7 @@ import '../widgets/global_search_modal.dart';
 import '../widgets/create_options_modal.dart';
 import '../widgets/create_channel_modal.dart';
 import '../widgets/create_group_modal.dart';
+import '../widgets/edit_community_modal.dart';
 import '../widgets/music_playlist_modal.dart';
 import '../services/api_service.dart';
 import '../services/crypto_service.dart';
@@ -157,6 +159,8 @@ class _MessengerScreenState extends State<MessengerScreen> {
   final Map<String, _TypingState> _activeTypingUsers = {};
   Timer? _typingExpiryTimer;
   Timer? _typingTimer;
+  Timer? _slowModeTimer;
+  DateTime? _slowModeEndsAt;
   bool _isMeTyping = false;
   bool _showSendButton = false;
   bool _isVoiceMode = true;
@@ -307,6 +311,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
     _sessionEventsReconnectTimer?.cancel();
     _typingExpiryTimer?.cancel();
     _typingTimer?.cancel();
+    _slowModeTimer?.cancel();
     _searchController.dispose();
     _messageController.dispose();
     _messageFocusNode.dispose();
@@ -1526,6 +1531,13 @@ class _MessengerScreenState extends State<MessengerScreen> {
   ) async {
     final type = data['type'] as String?;
 
+    if (type == 'slow_mode_activated') {
+      if (_areSameChat(_selectedChat?['chat_id']?.toString(), activeChatId)) {
+        _startSlowModeTimer(data['duration_seconds']);
+      }
+      return;
+    }
+
     if (type == 'session_revoked') {
       await _logout();
       return;
@@ -2407,11 +2419,25 @@ class _MessengerScreenState extends State<MessengerScreen> {
     final isPinned = chat['is_pinned'] as bool? ?? false;
     final isMuted = chat['is_muted'] as bool? ?? false;
     final isFavorites = _chatTypeForApi(chat) == 'favorites';
+    final chatType = _chatTypeForApi(chat);
+    final canEditCommunity =
+        (chatType == 'group' || chatType == 'channel') &&
+        _isChannelOwnerOrAdmin(chat);
 
     CustomContextMenu.show(
       context: context,
       position: position,
       items: [
+        if (canEditCommunity)
+          CustomContextMenuItem(
+            icon: FaIcon(FontAwesomeIcons.pen, size: 16 * scale),
+            label: CommunitySettingsLocalizations.of(context).text(
+              chatType == 'group'
+                  ? 'messenger.editChat.settingsGroup'
+                  : 'messenger.editChat.settingsChannel',
+            ),
+            onTap: () => _openCommunitySettings(chat),
+          ),
         if (!isArchived)
           CustomContextMenuItem(
             icon: FaIcon(FontAwesomeIcons.thumbtack, size: 16 * scale),
@@ -2451,6 +2477,44 @@ class _MessengerScreenState extends State<MessengerScreen> {
           ),
       ],
     );
+  }
+
+  Future<void> _openCommunitySettings(Map<String, dynamic> chat) async {
+    final chatId = chat['chat_id']?.toString();
+    if (chatId == null) return;
+    final isGroup = _chatTypeForApi(chat) == 'group';
+    final result = isGroup
+        ? await EditGroupModal.show(context: context, chatId: chatId)
+        : await EditChannelModal.show(
+            context: context,
+            chatId: chatId,
+            availableGroups: _chats
+                .where(
+                  (item) =>
+                      _chatTypeForApi(Map<String, dynamic>.from(item as Map)) ==
+                      'group',
+                )
+                .toList(),
+          );
+    if (!mounted || result == null) return;
+    setState(() {
+      chat.addAll({
+        'name': result['name'],
+        'group_name': isGroup ? result['name'] : chat['group_name'],
+        'channel_name': !isGroup ? result['name'] : chat['channel_name'],
+        'description': result['description'],
+        'username': result['username'],
+        'avatar': result['avatar_url'] ?? result['avatar'],
+        'avatar_url': result['avatar_url'],
+        'avatar_gradient': result['avatar_gradient'],
+        'group_calls_enabled': result['group_calls_enabled'],
+        'discussion_group_id': result['discussion_group_id'],
+        'discussion_group_name': result['discussion_group_name'],
+      });
+      if (_selectedChat?['chat_id'] == chatId) _selectedChat = chat;
+    });
+    await _saveChatsToLocalCache();
+    await _loadChats(silent: true);
   }
 
   Widget _buildArchiveFolderItem(
@@ -3625,6 +3689,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
     if ((text.isEmpty && _attachedFile == null) || _selectedChat == null)
       return;
 
+    if (_isSlowModeActive) {
+      _showSlowModeBlockedToast();
+      return;
+    }
+
     if (_isMeTyping) {
       _sendTypingStatus(false, 'typing');
     }
@@ -4086,6 +4155,8 @@ class _MessengerScreenState extends State<MessengerScreen> {
     }
 
     _typingTimer?.cancel();
+    _slowModeTimer?.cancel();
+    _slowModeEndsAt = null;
     _isMeTyping = false;
     _activeTypingUsers.clear();
 
@@ -5318,10 +5389,86 @@ class _MessengerScreenState extends State<MessengerScreen> {
     );
   }
 
-  void _showGroupProfileDialog(
+  Widget _buildCommunityInfoMenu({
+    required BuildContext dialogContext,
+    required Map<String, dynamic> chat,
+    required bool isDark,
+    required double scale,
+  }) {
+    final isGroup = _chatTypeForApi(chat) == 'group';
+    final label = CommunitySettingsLocalizations.of(dialogContext).text(
+      isGroup
+          ? 'messenger.editChat.settingsGroup'
+          : 'messenger.editChat.settingsChannel',
+    );
+    return SizedBox(
+      width: 28 * scale,
+      height: 28 * scale,
+      child: PopupMenuButton<String>(
+        padding: EdgeInsets.zero,
+        tooltip: label,
+        position: PopupMenuPosition.under,
+        color: isDark ? const Color(0xFF18181B) : Colors.white,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(9 * scale),
+          side: BorderSide(
+            color: isDark ? const Color(0xFF2A2A2E) : const Color(0xFFE4E4E7),
+          ),
+        ),
+        icon: Icon(
+          Icons.more_vert_rounded,
+          size: 18 * scale,
+          color: isDark ? Colors.white54 : Colors.black54,
+        ),
+        onSelected: (_) {
+          Navigator.of(dialogContext).pop();
+          Future.microtask(() => _openCommunitySettings(chat));
+        },
+        itemBuilder: (_) => [
+          PopupMenuItem<String>(
+            value: 'settings',
+            height: 40 * scale,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.edit_rounded,
+                  size: 16 * scale,
+                  color: isDark ? Colors.white70 : Colors.black87,
+                ),
+                SizedBox(width: 10 * scale),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 12.5 * scale,
+                    color: isDark ? Colors.white : Colors.black87,
+                    fontFamily: 'Inter',
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showGroupProfileDialog(
     BuildContext context,
     Map<String, dynamic> chat,
-  ) {
+  ) async {
+    final chatId = chat['chat_id']?.toString();
+    if (chatId != null) {
+      final details = await _apiService.getCommunityDetails(
+        chatId: chatId,
+        isGroup: true,
+      );
+      if (!mounted) return;
+      if (details.success && details.data != null) {
+        chat.addAll(details.data!);
+      }
+    }
     final l10n = AppLocalizations.of(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final scaleProvider = Provider.of<ScaleProvider>(context, listen: false);
@@ -5405,16 +5552,32 @@ class _MessengerScreenState extends State<MessengerScreen> {
                             fontFamily: 'Inter',
                           ),
                         ),
-                        GestureDetector(
-                          onTap: () => Navigator.of(context).pop(),
-                          child: MouseRegion(
-                            cursor: SystemMouseCursors.click,
-                            child: Icon(
-                              Icons.close_rounded,
-                              size: 16 * scale,
-                              color: isDark ? Colors.white38 : Colors.black38,
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (_isChannelOwnerOrAdmin(chat)) ...[
+                              _buildCommunityInfoMenu(
+                                dialogContext: context,
+                                chat: chat,
+                                isDark: isDark,
+                                scale: scale,
+                              ),
+                              SizedBox(width: 4 * scale),
+                            ],
+                            GestureDetector(
+                              onTap: () => Navigator.of(context).pop(),
+                              child: MouseRegion(
+                                cursor: SystemMouseCursors.click,
+                                child: Icon(
+                                  Icons.close_rounded,
+                                  size: 16 * scale,
+                                  color: isDark
+                                      ? Colors.white38
+                                      : Colors.black38,
+                                ),
+                              ),
                             ),
-                          ),
+                          ],
                         ),
                       ],
                     ),
@@ -5486,10 +5649,21 @@ class _MessengerScreenState extends State<MessengerScreen> {
     );
   }
 
-  void _showChannelProfileDialog(
+  Future<void> _showChannelProfileDialog(
     BuildContext context,
     Map<String, dynamic> chat,
-  ) {
+  ) async {
+    final chatId = chat['chat_id']?.toString();
+    if (chatId != null) {
+      final details = await _apiService.getCommunityDetails(
+        chatId: chatId,
+        isGroup: false,
+      );
+      if (!mounted) return;
+      if (details.success && details.data != null) {
+        chat.addAll(details.data!);
+      }
+    }
     final l10n = AppLocalizations.of(context);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final scaleProvider = Provider.of<ScaleProvider>(context, listen: false);
@@ -5573,16 +5747,32 @@ class _MessengerScreenState extends State<MessengerScreen> {
                             fontFamily: 'Inter',
                           ),
                         ),
-                        GestureDetector(
-                          onTap: () => Navigator.of(context).pop(),
-                          child: MouseRegion(
-                            cursor: SystemMouseCursors.click,
-                            child: Icon(
-                              Icons.close_rounded,
-                              size: 16 * scale,
-                              color: isDark ? Colors.white38 : Colors.black38,
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (_isChannelOwnerOrAdmin(chat)) ...[
+                              _buildCommunityInfoMenu(
+                                dialogContext: context,
+                                chat: chat,
+                                isDark: isDark,
+                                scale: scale,
+                              ),
+                              SizedBox(width: 4 * scale),
+                            ],
+                            GestureDetector(
+                              onTap: () => Navigator.of(context).pop(),
+                              child: MouseRegion(
+                                cursor: SystemMouseCursors.click,
+                                child: Icon(
+                                  Icons.close_rounded,
+                                  size: 16 * scale,
+                                  color: isDark
+                                      ? Colors.white38
+                                      : Colors.black38,
+                                ),
+                              ),
                             ),
-                          ),
+                          ],
                         ),
                       ],
                     ),
@@ -11612,6 +11802,110 @@ class _MessengerScreenState extends State<MessengerScreen> {
     );
   }
 
+  int get _slowModeRemainingSeconds {
+    final endsAt = _slowModeEndsAt;
+    if (endsAt == null) return 0;
+    final milliseconds = endsAt.difference(DateTime.now()).inMilliseconds;
+    if (milliseconds <= 0) return 0;
+    return (milliseconds / 1000).ceil();
+  }
+
+  bool get _isSlowModeActive => _slowModeRemainingSeconds > 0;
+
+  String get _slowModeTimeLabel {
+    final remaining = _slowModeRemainingSeconds;
+    final minutes = remaining ~/ 60;
+    final seconds = remaining % 60;
+    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+  }
+
+  void _startSlowModeTimer(dynamic rawDurationSeconds) {
+    final durationSeconds = rawDurationSeconds is num
+        ? rawDurationSeconds.toInt()
+        : int.tryParse(rawDurationSeconds?.toString() ?? '') ?? 0;
+
+    _slowModeTimer?.cancel();
+    if (durationSeconds <= 0) {
+      if (mounted) setState(() => _slowModeEndsAt = null);
+      return;
+    }
+
+    if (mounted) {
+      setState(() {
+        _slowModeEndsAt = DateTime.now().add(
+          Duration(seconds: durationSeconds),
+        );
+      });
+    }
+
+    _slowModeTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (_slowModeRemainingSeconds <= 0) {
+        timer.cancel();
+        setState(() => _slowModeEndsAt = null);
+      } else {
+        setState(() {});
+      }
+    });
+  }
+
+  void _showSlowModeBlockedToast() {
+    if (!mounted) return;
+    CustomToast.show(
+      context,
+      CommunitySettingsLocalizations.of(context).text(
+        'messenger.errors.slowModeWait',
+        params: {'time': _slowModeTimeLabel},
+      ),
+      type: ToastType.info,
+    );
+  }
+
+  Widget _buildSlowModeIndicator(bool isDark, double scale) {
+    final foreground = isDark ? Colors.white : const Color(0xFF334155);
+    return Tooltip(
+      message: CommunitySettingsLocalizations.of(
+        context,
+      ).text('messenger.slowMode.title'),
+      child: Container(
+        padding: EdgeInsets.symmetric(
+          horizontal: 8 * scale,
+          vertical: 4 * scale,
+        ),
+        decoration: BoxDecoration(
+          color: isDark
+              ? Colors.white.withOpacity(0.1)
+              : Colors.black.withOpacity(0.05),
+          borderRadius: BorderRadius.circular(12 * scale),
+          border: Border.all(
+            color: isDark
+                ? Colors.white.withOpacity(0.2)
+                : Colors.black.withOpacity(0.1),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            FaIcon(FontAwesomeIcons.clock, size: 11 * scale, color: foreground),
+            SizedBox(width: 4 * scale),
+            Text(
+              _slowModeTimeLabel,
+              style: TextStyle(
+                color: foreground,
+                fontSize: 11 * scale,
+                fontWeight: FontWeight.w600,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildMessageInput(bool isDark, double scale) {
     final l10n = AppLocalizations.of(context);
     final showRecordTooltip =
@@ -12046,6 +12340,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
                               ),
                             ),
                             SizedBox(width: 4),
+                            if (_isSlowModeActive) ...[
+                              _buildSlowModeIndicator(isDark, scale),
+                              SizedBox(width: 4 * scale),
+                            ],
                             if (_currentBotCommands.isNotEmpty) ...[
                               Tooltip(
                                 message: 'Команды бота',
@@ -12086,6 +12384,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
                               child: GestureDetector(
                                 key: _attachmentKey,
                                 onTap: () {
+                                  if (_isSlowModeActive) {
+                                    _showSlowModeBlockedToast();
+                                    return;
+                                  }
                                   final renderBox =
                                       _attachmentKey.currentContext
                                               ?.findRenderObject()
@@ -12146,8 +12448,12 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                     child: FaIcon(
                                       FontAwesomeIcons.paperclip,
                                       color: isDark
-                                          ? Colors.white70
-                                          : Colors.black54,
+                                          ? Colors.white.withOpacity(
+                                              _isSlowModeActive ? 0.28 : 0.7,
+                                            )
+                                          : Colors.black.withOpacity(
+                                              _isSlowModeActive ? 0.22 : 0.54,
+                                            ),
                                       size: 14 * scale,
                                     ),
                                   ),
@@ -12170,6 +12476,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
                             },
                             child: GestureDetector(
                               onTap: () {
+                                if (_isSlowModeActive) {
+                                  _showSlowModeBlockedToast();
+                                  return;
+                                }
                                 if (_showSendButton) {
                                   _sendMessage();
                                 } else {
@@ -12185,11 +12495,17 @@ class _MessengerScreenState extends State<MessengerScreen> {
                               },
                               onLongPressStart: _showSendButton
                                   ? null
+                                  : _isSlowModeActive
+                                  ? null
                                   : (_) => _startRecording(),
                               onLongPressEnd: _showSendButton
                                   ? null
+                                  : _isSlowModeActive
+                                  ? null
                                   : (_) => _stopAndSendRecording(),
                               onLongPressCancel: _showSendButton
+                                  ? null
+                                  : _isSlowModeActive
                                   ? null
                                   : () => _cancelRecording(),
                               child: AnimatedContainer(
@@ -12199,7 +12515,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                 margin: const EdgeInsets.only(right: 4),
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
-                                  color: _isRecording
+                                  color: _isSlowModeActive
+                                      ? (isDark
+                                            ? Colors.white.withOpacity(0.08)
+                                            : Colors.black.withOpacity(0.06))
+                                      : _isRecording
                                       ? Colors.red
                                       : (isDark
                                             ? Colors.white.withOpacity(0.9)
@@ -12231,7 +12551,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                             ? 'send'
                                             : (_isVoiceMode ? 'mic' : 'video'),
                                       ),
-                                      color: _isRecording
+                                      color: _isSlowModeActive
+                                          ? (isDark
+                                                ? Colors.white30
+                                                : Colors.black26)
+                                          : _isRecording
                                           ? Colors.white
                                           : (_showSendButton
                                                 ? const Color(0xFF2563EB)
@@ -14513,6 +14837,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
   Future<void> _sendCustomMessage(String text) async {
     if (_selectedChat == null) return;
+
+    if (_isSlowModeActive) {
+      _showSlowModeBlockedToast();
+      return;
+    }
 
     final chatId = _selectedChat!['chat_id'] as String;
     final myUserId = _myId?.toString();

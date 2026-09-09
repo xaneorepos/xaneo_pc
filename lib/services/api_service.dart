@@ -1872,6 +1872,63 @@ class ApiService {
     }
   }
 
+  /// Получить актуальные настройки группы или канала.
+  Future<ApiResponse> getCommunityDetails({
+    required String chatId,
+    required bool isGroup,
+  }) async {
+    try {
+      final options = await _getAuthOptions();
+      final id = chatId.replaceFirst('group_', '').replaceFirst('channel_', '');
+      final resource = isGroup ? 'groups' : 'channels';
+      final response = await _dio.get(
+        '$_baseUrl/$resource/$id/',
+        options: options,
+      );
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(
+        success: false,
+        error: 'Не удалось загрузить настройки: $e',
+      );
+    }
+  }
+
+  /// Сохранить настройки группы или канала тем же PATCH-контрактом, что и web.
+  Future<ApiResponse> updateCommunity({
+    required String chatId,
+    required bool isGroup,
+    required Map<String, dynamic> data,
+    File? avatarFile,
+  }) async {
+    try {
+      final options = await _getAuthOptions();
+      final id = chatId.replaceFirst('group_', '').replaceFirst('channel_', '');
+      final resource = isGroup ? 'groups' : 'channels';
+      dynamic body = data;
+      if (avatarFile != null) {
+        body = FormData.fromMap({
+          ...data,
+          'avatar': await MultipartFile.fromFile(
+            avatarFile.path,
+            filename: avatarFile.path.split(Platform.pathSeparator).last,
+          ),
+        });
+      }
+      final response = await _dio.patch(
+        '$_baseUrl/$resource/$id/',
+        data: body,
+        options: options,
+      );
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(
+        success: false,
+        error: 'Не удалось сохранить настройки: $e',
+      );
+    }
+  }
+
   /// Получить подробную информацию о канале (включая owner_id, can_post, is_owner и т.д.)
   Future<ApiResponse> getChannelDetails(dynamic channelId) async {
     try {

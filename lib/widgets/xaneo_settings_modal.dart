@@ -603,6 +603,26 @@ class _XaneoSettingsModalState
       'ko': '종료',
       'ar': 'إنهاء',
     },
+    'terminateAll': {
+      'ru': 'Завершить все сеансы и быстрые входы',
+      'en': 'End all sessions and quick logins',
+      'fr': 'Terminer toutes les sessions et connexions rapides',
+      'es': 'Cerrar todas las sesiones y accesos rápidos',
+      'zh': '结束所有会话和快速登录',
+      'ja': 'すべてのセッションとクイックログインを終了',
+      'ko': '모든 세션과 빠른 로그인 종료',
+      'ar': 'إنهاء جميع الجلسات وعمليات الدخول السريع',
+    },
+    'terminateAllConfirm': {
+      'ru': 'Все устройства выйдут из аккаунта. Сохранённый быстрый вход также перестанет работать.',
+      'en': 'All devices will be signed out. Saved quick logins will stop working too.',
+      'fr': 'Tous les appareils seront déconnectés. Les connexions rapides enregistrées cesseront aussi de fonctionner.',
+      'es': 'Se cerrará la sesión en todos los dispositivos. Los accesos rápidos guardados dejarán de funcionar.',
+      'zh': '所有设备都将退出登录，已保存的快速登录也将失效。',
+      'ja': 'すべてのデバイスからログアウトし、保存済みのクイックログインも無効になります。',
+      'ko': '모든 기기에서 로그아웃되며 저장된 빠른 로그인도 사용할 수 없게 됩니다.',
+      'ar': 'سيتم تسجيل الخروج من جميع الأجهزة، وستتوقف عمليات الدخول السريع المحفوظة أيضًا.',
+    },
   };
 
   static const Map<String, List<String>> _securityManifestKeys = {
@@ -752,6 +772,52 @@ class _XaneoSettingsModalState
         _securityError = _securityText('terminateError');
       }
     });
+  }
+
+  Future<void> _terminateAllSecuritySessions() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(_securityText('terminateAll')),
+        content: Text(_securityText('terminateAllConfirm')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(MaterialLocalizations.of(dialogContext).cancelButtonLabel),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(_securityText('terminate')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() {
+      _securityBusy = true;
+      _securityError = null;
+    });
+    final result = await ApiService().terminateAllSessions();
+    if (!mounted) return;
+    if (!result.success) {
+      setState(() {
+        _securityBusy = false;
+        _securityError = _securityText('terminateError');
+      });
+      return;
+    }
+    final userId = await AccountService().getActiveUserId();
+    try {
+      if (userId != null) {
+        await AccountService().removeAccount(userId, revoke: false);
+      }
+    } finally {
+      if (widget.onLogout != null) {
+        widget.onLogout!();
+      } else {
+        await ApiService().logout();
+      }
+    }
   }
 
   String _dynamicVersion = '1.0.14';
@@ -2527,6 +2593,12 @@ class _XaneoSettingsModalState
               ),
             );
           }),
+        SizedBox(height: 12 * scale),
+        OutlinedButton.icon(
+          onPressed: _securityBusy ? null : _terminateAllSecuritySessions,
+          icon: Icon(Icons.phonelink_erase_rounded, size: 17 * scale),
+          label: Text(_securityText('terminateAll')),
+        ),
       ],
     );
   }

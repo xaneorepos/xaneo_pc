@@ -66,16 +66,12 @@ class _LoginScreenState extends State<LoginScreen>
   int _codeStep = 0;
   bool _isCodeLoading = false;
   String? _codeError;
-  bool _allowEmailFallback = false;
-  bool _emailFallbackSent = false;
-  bool _isRequestingEmailFallback = false;
-  bool _emailToastShown = false;
-  int _emailFallbackSeconds = 60;
   int _passwordFallbackSeconds = 120;
   bool _allowPasswordFallback = false;
   bool _isPasswordMode = false;
-  Timer? _emailFallbackTimer;
-  String? _maskedEmail;
+  String? _passwordHint;
+  bool _passwordHintLoading = false;
+  Timer? _passwordFallbackTimer;
   final TextEditingController _codeTextController = TextEditingController();
   final FocusNode _codeFocus = FocusNode();
   final TextEditingController _codePasswordController = TextEditingController();
@@ -480,7 +476,7 @@ class _LoginScreenState extends State<LoginScreen>
     _loginFocus.dispose();
     _passwordFocus.dispose();
     _codePollTimer?.cancel();
-    _emailFallbackTimer?.cancel();
+    _passwordFallbackTimer?.cancel();
     _codeTextController.dispose();
     _codeFocus.dispose();
     _codePasswordController.dispose();
@@ -533,13 +529,11 @@ class _LoginScreenState extends State<LoginScreen>
         setState(() {
           _isCodeLoading = false;
           _codeStep = 1;
-          _allowEmailFallback = false;
           _allowPasswordFallback = false;
-          _emailFallbackSent = false;
-          _maskedEmail = null;
-          _emailFallbackSeconds = 60;
           _passwordFallbackSeconds = 120;
           _isPasswordMode = false;
+          _passwordHint = null;
+          _passwordHintLoading = false;
           _codePasswordController.clear();
         });
         _codePollTimer?.cancel();
@@ -549,19 +543,12 @@ class _LoginScreenState extends State<LoginScreen>
         );
         _pollCodeLoginStatus();
 
-        _emailFallbackTimer?.cancel();
-        _emailFallbackTimer = Timer.periodic(const Duration(seconds: 1), (
+        _passwordFallbackTimer?.cancel();
+        _passwordFallbackTimer = Timer.periodic(const Duration(seconds: 1), (
           timer,
         ) {
           if (!mounted) return;
           setState(() {
-            if (_emailFallbackSeconds > 0) {
-              _emailFallbackSeconds--;
-              if (_emailFallbackSeconds == 0) _allowEmailFallback = true;
-            } else {
-              _allowEmailFallback = true;
-            }
-
             if (_passwordFallbackSeconds > 0) {
               _passwordFallbackSeconds--;
               if (_passwordFallbackSeconds == 0) _allowPasswordFallback = true;
@@ -569,7 +556,7 @@ class _LoginScreenState extends State<LoginScreen>
               _allowPasswordFallback = true;
             }
 
-            if (_allowEmailFallback && _allowPasswordFallback) {
+            if (_allowPasswordFallback) {
               timer.cancel();
             }
           });
@@ -810,6 +797,28 @@ class _LoginScreenState extends State<LoginScreen>
     }
   }
 
+  String _authText(String ru, String en) =>
+      Localizations.localeOf(context).languageCode == 'ru' ? ru : en;
+
+  Future<void> _showPasswordHint() async {
+    final challenge = _codeChallengeId;
+    final secret = _codePollSecret;
+    if (challenge == null || secret == null || _passwordHintLoading) return;
+    setState(() => _passwordHintLoading = true);
+    final response = await _apiService.getNotificationLoginPasswordHint(
+      challengeId: challenge,
+      pollSecret: secret,
+    );
+    if (!mounted || challenge != _codeChallengeId) return;
+    setState(() {
+      _passwordHintLoading = false;
+      _passwordHint = response.success
+          ? (response.data?['hint']?.toString() ?? '')
+          : (response.error ?? _authText(
+              'Не удалось получить подсказку', 'Could not load hint'));
+    });
+  }
+
   Future<void> _pollCodeLoginStatus() async {
     final l10n = AppLocalizations.of(context);
     final challenge = _codeChallengeId;
@@ -826,38 +835,16 @@ class _LoginScreenState extends State<LoginScreen>
 
       final status = response.data?['status']?.toString();
       if (response.data != null) {
-        final allowFallback = response.data!['allow_email_fallback'] == true;
         final allowPassFallback =
             response.data!['allow_password_fallback'] == true;
-        final fallbackSent = response.data!['email_fallback_sent'] == true;
-        final maskedEmail = response.data!['email_masked']?.toString();
         if (mounted) {
           setState(() {
-            if (allowFallback) {
-              _allowEmailFallback = true;
-              _emailFallbackSeconds = 0;
-            }
             if (allowPassFallback) {
               _allowPasswordFallback = true;
               _passwordFallbackSeconds = 0;
-            }
-            if (allowFallback && allowPassFallback) {
-              _emailFallbackTimer?.cancel();
-            }
-            if (fallbackSent) _emailFallbackSent = true;
-            if (maskedEmail != null && maskedEmail.isNotEmpty) {
-              _maskedEmail = maskedEmail;
+              _passwordFallbackTimer?.cancel();
             }
           });
-          if (fallbackSent && !_emailToastShown) {
-            _emailToastShown = true;
-            CustomToast.show(
-              context,
-              l10n?.emailCodeSent(_maskedEmail ?? '') ??
-                  'Код отправлен на почту',
-              type: ToastType.success,
-            );
-          }
         }
       }
 
@@ -925,73 +912,9 @@ class _LoginScreenState extends State<LoginScreen>
     }
   }
 
-  Future<void> _requestEmailFallbackCode() async {
-    final l10n = AppLocalizations.of(context);
-    final challenge = _codeChallengeId;
-    final secret = _codePollSecret;
-    if (challenge == null || secret == null) return;
-
-    setState(() {
-      _isRequestingEmailFallback = true;
-      _codeError = null;
-    });
-
-    try {
-      final response = await _apiService.requestNotificationEmailFallback(
-        challengeId: challenge,
-        pollSecret: secret,
-      );
-
-      if (!mounted) return;
-
-      if (response.success) {
-        final dataMap = response.data is Map ? (response.data as Map) : {};
-        final emailMasked = dataMap['email_masked']?.toString();
-        setState(() {
-          _isRequestingEmailFallback = false;
-          _emailFallbackSent = true;
-          if (emailMasked != null && emailMasked.isNotEmpty) {
-            _maskedEmail = emailMasked;
-          }
-          _codeStep = 1;
-        });
-        if (!_emailToastShown) {
-          _emailToastShown = true;
-          CustomToast.show(
-            context,
-            l10n?.emailCodeSent(_maskedEmail ?? '') ?? 'Код отправлен на почту',
-            type: ToastType.success,
-          );
-        }
-      } else {
-        final dataMap = response.data is Map ? (response.data as Map) : null;
-        final errorMsg =
-            response.error ??
-            dataMap?['message']?.toString() ??
-            l10n?.emailCodeFailed ??
-            'Не удалось отправить код на email';
-        setState(() {
-          _isRequestingEmailFallback = false;
-          _codeError = errorMsg;
-        });
-        CustomToast.show(context, errorMsg, type: ToastType.error);
-      }
-    } catch (e) {
-      if (mounted) {
-        final errorMsg =
-            '${l10n?.emailCodeFailed ?? "Не удалось отправить код на email"}: $e';
-        setState(() {
-          _isRequestingEmailFallback = false;
-          _codeError = errorMsg;
-        });
-        CustomToast.show(context, errorMsg, type: ToastType.error);
-      }
-    }
-  }
-
   void _cancelCodeLogin() {
     _codePollTimer?.cancel();
-    _emailFallbackTimer?.cancel();
+    _passwordFallbackTimer?.cancel();
     if (_codeChallengeId != null && _codePollSecret != null) {
       unawaited(
         _apiService.cancelNotificationLogin(
@@ -1005,15 +928,12 @@ class _LoginScreenState extends State<LoginScreen>
       _codeChallengeId = null;
       _codePollSecret = null;
       _codeError = null;
-      _allowEmailFallback = false;
       _allowPasswordFallback = false;
-      _emailFallbackSent = false;
-      _isRequestingEmailFallback = false;
-      _emailFallbackSeconds = 60;
       _passwordFallbackSeconds = 120;
       _isPasswordMode = false;
+      _passwordHint = null;
+      _passwordHintLoading = false;
       _codePasswordController.clear();
-      _maskedEmail = null;
       _isCodeLoading = false;
       _codeTextController.clear();
     });
@@ -1480,9 +1400,7 @@ class _LoginScreenState extends State<LoginScreen>
                 _codeStep == 0
                     ? l10n.codeInstructionText
                     : _codeStep == 1
-                    ? (_emailFallbackSent
-                          ? l10n.emailCodeSent(_maskedEmail ?? '')
-                          : l10n.codeSentToBot)
+                    ? l10n.codeSentToBot
                     : l10n.confirmDeviceRequestText,
                 style: TextStyle(
                   fontSize: 14,
@@ -1495,60 +1413,12 @@ class _LoginScreenState extends State<LoginScreen>
           ),
         ),
 
-        if (_codeStep == 1) ...[
-          const SizedBox(height: 16),
-          Center(
-            child:
-                (!_allowEmailFallback &&
-                    _emailFallbackSeconds > 0 &&
-                    !_emailFallbackSent)
-                ? Text(
-                    l10n.requestCodeViaEmailIn(_emailFallbackSeconds),
-                    style: TextStyle(
-                      color: isDark
-                          ? Colors.grey.shade500
-                          : Colors.grey.shade600,
-                      fontSize: 13,
-                      fontFamily: 'Inter',
-                    ),
-                  )
-                : MouseRegion(
-                    cursor: SystemMouseCursors.click,
-                    child: GestureDetector(
-                      onTap: _isRequestingEmailFallback
-                          ? null
-                          : _requestEmailFallbackCode,
-                      child: Text(
-                        _emailFallbackSent
-                            ? l10n.resendCodeToEmail
-                            : l10n.cantLoginSendToEmail,
-                        style: TextStyle(
-                          color: isDark
-                              ? const Color(0xFF60A5FA)
-                              : const Color(0xFF2563EB),
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          decoration: TextDecoration.underline,
-                          fontFamily: 'Inter',
-                        ),
-                      ),
-                    ),
-                  ),
-          ),
-        ],
-
         if (_codeStep == 1 && !_isPasswordMode) ...[
           const SizedBox(height: 8),
           Center(
             child: (!_allowPasswordFallback && _passwordFallbackSeconds > 0)
                 ? Text(
-                    l10n.requestCodeViaPasswordIn(
-                      _allowEmailFallback
-                          ? (_passwordFallbackSeconds > 60
-                                ? _passwordFallbackSeconds - 60
-                                : _passwordFallbackSeconds)
-                          : _passwordFallbackSeconds,
-                    ),
+                    l10n.requestCodeViaPasswordIn(_passwordFallbackSeconds),
                     style: TextStyle(
                       color: isDark
                           ? Colors.grey.shade500
@@ -1581,6 +1451,23 @@ class _LoginScreenState extends State<LoginScreen>
                     ),
                   ),
           ),
+        ],
+
+        if (_codeStep == 1 && _isPasswordMode) ...[
+          const SizedBox(height: 8),
+          TextButton(
+            onPressed: _passwordHintLoading ? null : _showPasswordHint,
+            child: Text(_passwordHintLoading
+                ? _authText('Загрузка подсказки…', 'Loading hint…')
+                : _authText('Показать подсказку к паролю', 'Show password hint')),
+          ),
+          if (_passwordHint != null)
+            Text(_passwordHint!.isEmpty
+                ? _authText('Подсказка не задана', 'No hint set')
+                : _passwordHint!, style: TextStyle(
+              color: isDark ? Colors.white70 : Colors.black87,
+              fontSize: 13,
+            )),
         ],
 
         const SizedBox(height: 32),

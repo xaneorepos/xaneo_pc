@@ -470,22 +470,6 @@ class ApiService {
     }
   }
 
-  Future<ApiResponse> requestNotificationEmailFallback({
-    required String challengeId,
-    required String pollSecret,
-  }) async {
-    try {
-      final response = await _dio.post(
-        '$_baseUrl/auth/notification-login/fallback-email/',
-        data: {'challenge_id': challengeId, 'poll_secret': pollSecret},
-        options: _getOptions(contentType: 'application/json'),
-      );
-      return _handleDioResponse(response, isAuthRequest: true);
-    } catch (e) {
-      return ApiResponse(success: false, error: e.toString());
-    }
-  }
-
   Future<ApiResponse> verifyNotificationLoginPassword({
     required String challengeId,
     required String pollSecret,
@@ -499,6 +483,22 @@ class ApiService {
           'poll_secret': pollSecret,
           'password': password,
         },
+        options: _getOptions(contentType: 'application/json'),
+      );
+      return _handleDioResponse(response, isAuthRequest: true);
+    } catch (e) {
+      return ApiResponse(success: false, error: e.toString());
+    }
+  }
+
+  Future<ApiResponse> getNotificationLoginPasswordHint({
+    required String challengeId,
+    required String pollSecret,
+  }) async {
+    try {
+      final response = await _dio.post(
+        '$_baseUrl/auth/notification-login/password-hint/',
+        data: {'challenge_id': challengeId, 'poll_secret': pollSecret},
         options: _getOptions(contentType: 'application/json'),
       );
       return _handleDioResponse(response, isAuthRequest: true);
@@ -1525,6 +1525,19 @@ class ApiService {
       return _handleDioResponse(response);
     } catch (e) {
       return ApiResponse(success: false, error: 'Ошибка завершения сессии: $e');
+    }
+  }
+
+  Future<ApiResponse> terminateAllSessions() async {
+    try {
+      final options = await _getAuthOptions();
+      final response = await _dio.delete(
+        '$_baseUrl/security/sessions/',
+        options: options,
+      );
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(success: false, error: 'Ошибка завершения всех сессий: $e');
     }
   }
 

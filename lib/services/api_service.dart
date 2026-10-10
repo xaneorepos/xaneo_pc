@@ -31,6 +31,8 @@ class ApiService {
   final SecureSessionStorage _secureStorage = SecureSessionStorage();
 
   Future<void> Function()? onSessionExpired;
+  Future<void> Function()? onBeforeLogout;
+  void Function()? onLogout;
 
   // Throttling protection
   DateTime? _throttledUntil;
@@ -84,6 +86,31 @@ class ApiService {
 
   // Геттер для базового URL
   static String get baseUrl => _baseUrl;
+
+  static bool get isLocalBuild {
+    final host = Uri.tryParse(_baseUrl)?.host.toLowerCase() ?? '';
+    if (host == 'localhost' ||
+        host.endsWith('.local') ||
+        host == '::1' ||
+        host.startsWith('127.') ||
+        host.startsWith('10.') ||
+        host.startsWith('192.168.') ||
+        host.startsWith('169.254.') ||
+        (host.contains(':') &&
+            (host.startsWith('fc') ||
+                host.startsWith('fd') ||
+                host.startsWith('fe80:')))) {
+      return true;
+    }
+    final parts = host.split('.');
+    if (parts.length == 4 && parts.first == '172') {
+      final second = int.tryParse(parts[1]);
+      return second != null && second >= 16 && second <= 31;
+    }
+    return false;
+  }
+
+  static String get appDisplayName => isLocalBuild ? 'Xaneo Beta' : 'Xaneo';
 
   /// Публичный доступ к Dio для использования в виджетах
   Dio get dio => _dio;
@@ -1347,6 +1374,7 @@ class ApiService {
     String fileType,
     String chatId, {
     String? description,
+    ProgressCallback? onSendProgress,
   }) async {
     try {
       final options = await _getAuthOptions();
@@ -1368,6 +1396,7 @@ class ApiService {
         '$_baseUrl/files/upload/',
         options: options,
         data: formData,
+        onSendProgress: onSendProgress,
       );
       return _handleDioResponse(response);
     } catch (e) {
@@ -1398,6 +1427,7 @@ class ApiService {
 
   /// Выход из системы
   Future<void> logout() async {
+    await onBeforeLogout?.call();
     await beginSessionCommit();
     try {
       final refresh = await getRefreshToken();
@@ -1407,6 +1437,7 @@ class ApiService {
       await _secureStorage.clearActiveSession();
       await clearCookies();
     } finally {
+      onLogout?.call();
       endSessionCommit();
     }
   }
@@ -1537,7 +1568,10 @@ class ApiService {
       );
       return _handleDioResponse(response);
     } catch (e) {
-      return ApiResponse(success: false, error: 'Ошибка завершения всех сессий: $e');
+      return ApiResponse(
+        success: false,
+        error: 'Ошибка завершения всех сессий: $e',
+      );
     }
   }
 
@@ -1972,6 +2006,61 @@ class ApiService {
     }
   }
 
+  Future<ApiResponse> getChannelPostComments(
+    int channelId,
+    int postId, {
+    int offset = 0,
+    int limit = 100,
+  }) async {
+    try {
+      final response = await _dio.get(
+        '$_baseUrl/channels/$channelId/posts/$postId/comments/',
+        queryParameters: {'offset': offset, 'limit': limit},
+        options: await _getAuthOptions(),
+      );
+      return _handleDioResponse(response);
+    } catch (error) {
+      return ApiResponse(success: false, error: error.toString());
+    }
+  }
+
+  Future<ApiResponse> getChannelCommentSummary(int channelId, int postId) =>
+      getChannelCommentSummaries(channelId, [postId]);
+
+  Future<ApiResponse> getChannelCommentSummaries(
+    int channelId,
+    Iterable<int> postIds,
+  ) async {
+    try {
+      final response = await _dio.get(
+        '$_baseUrl/channels/$channelId/comments/summaries/',
+        queryParameters: {'post_ids': postIds.join(',')},
+        options: await _getAuthOptions(),
+      );
+      return _handleDioResponse(response);
+    } catch (error) {
+      return ApiResponse(success: false, error: error.toString());
+    }
+  }
+
+  Future<ApiResponse> createChannelPostComment(
+    int channelId,
+    int postId, {
+    required String encryptedText,
+    required String signature,
+  }) async {
+    try {
+      final response = await _dio.post(
+        '$_baseUrl/channels/$channelId/posts/$postId/comments/create/',
+        data: {'encrypted_text': encryptedText, 'signature': signature},
+        options: await _getAuthOptions(),
+      );
+      return _handleDioResponse(response);
+    } catch (error) {
+      return ApiResponse(success: false, error: error.toString());
+    }
+  }
+
   /// Присоединиться к группе или подписаться на канал
   Future<ApiResponse> joinChat(String chatId) async {
     try {
@@ -2038,6 +2127,68 @@ class ApiService {
       return ApiResponse(
         success: false,
         error: 'Ошибка при выходе/отписке: $e',
+      );
+    }
+  }
+
+  /// Получить статус подписки XB (GET /api/xb/subscription/status/)
+  Future<ApiResponse> getXbSubscriptionStatus() async {
+    try {
+      final options = await _getAuthOptions();
+      final uri = Uri.parse(_baseUrl);
+      final origin =
+          '${uri.scheme}://${uri.host}${uri.hasPort ? ':${uri.port}' : ''}';
+      final response = await _dio.get(
+        '$origin/api/xb/subscription/status/',
+        options: options,
+      );
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(
+        success: false,
+        error: 'Ошибка получения статуса подписки: $e',
+      );
+    }
+  }
+
+  /// Оформить подписку XB (POST /api/xb/subscription/checkout/)
+  Future<ApiResponse> createXbSubscriptionCheckout(String plan) async {
+    try {
+      final options = await _getAuthOptions();
+      final uri = Uri.parse(_baseUrl);
+      final origin =
+          '${uri.scheme}://${uri.host}${uri.hasPort ? ':${uri.port}' : ''}';
+      final response = await _dio.post(
+        '$origin/api/xb/subscription/checkout/',
+        data: {'plan': plan},
+        options: options,
+      );
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(
+        success: false,
+        error: 'Ошибка оформления подписки: $e',
+      );
+    }
+  }
+
+  /// Отключить автопродление подписки XB (POST /api/xb/subscription/stop/)
+  Future<ApiResponse> stopXbSubscription() async {
+    try {
+      final options = await _getAuthOptions();
+      final uri = Uri.parse(_baseUrl);
+      final origin =
+          '${uri.scheme}://${uri.host}${uri.hasPort ? ':${uri.port}' : ''}';
+      final response = await _dio.post(
+        '$origin/api/xb/subscription/stop/',
+        data: {},
+        options: options,
+      );
+      return _handleDioResponse(response);
+    } catch (e) {
+      return ApiResponse(
+        success: false,
+        error: 'Ошибка отключения автопродления: $e',
       );
     }
   }

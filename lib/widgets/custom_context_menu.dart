@@ -235,7 +235,7 @@ class _CustomContextMenuItemWidgetState extends State<_CustomContextMenuItemWidg
                         fontSize: 14 * scale,
                         fontWeight:
                             hasSubtitle ? FontWeight.w600 : FontWeight.w500,
-                        fontFamily: 'Inter',
+                        fontFamily: null,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -250,7 +250,7 @@ class _CustomContextMenuItemWidgetState extends State<_CustomContextMenuItemWidg
                               : Colors.black.withOpacity(0.55),
                           fontSize: 12 * scale,
                           fontWeight: FontWeight.w400,
-                          fontFamily: 'Inter',
+                          fontFamily: null,
                           height: 1.2,
                         ),
                         maxLines: 2,

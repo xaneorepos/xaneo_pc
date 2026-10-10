@@ -11,42 +11,42 @@ class AppStyles {
 
   static Color backgroundColor(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context);
-    return themeProvider.isDarkMode ? Colors.black : Colors.white;
+    return themeProvider.xnxColor('bg') ?? (themeProvider.isDarkMode ? Colors.black : Colors.white);
   }
 
   static Color textPrimaryColor(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
-    return themeProvider.isDarkMode ? Colors.white : Colors.black;
+    return themeProvider.xnxColor('text') ?? (themeProvider.isDarkMode ? Colors.white : Colors.black);
   }
 
   static Color textSecondaryColor(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
-    return themeProvider.isDarkMode ? Colors.grey.shade400 : Colors.grey.shade600;
+    return themeProvider.xnxColor('text-secondary') ?? (themeProvider.isDarkMode ? Colors.grey.shade400 : Colors.grey.shade600);
   }
 
   static Color textMutedColor(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
-    return themeProvider.isDarkMode ? Colors.grey : Colors.grey.shade500;
+    return themeProvider.xnxColor('text-muted') ?? (themeProvider.isDarkMode ? Colors.grey : Colors.grey.shade500);
   }
 
   static Color buttonBackgroundColor(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
-    return themeProvider.isDarkMode ? Colors.white : Colors.black;
+    return themeProvider.xnxColor('btn-primary-bg') ?? (themeProvider.isDarkMode ? Colors.white : Colors.black);
   }
 
   static Color buttonTextColor(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
-    return themeProvider.isDarkMode ? Colors.black : Colors.white;
+    return themeProvider.xnxColor('btn-primary-text') ?? (themeProvider.isDarkMode ? Colors.black : Colors.white);
   }
 
   static Color modalBackgroundColor(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
-    return themeProvider.isDarkMode ? Colors.grey.shade900 : Colors.white;
+    return themeProvider.xnxColor('surface') ?? (themeProvider.isDarkMode ? Colors.grey.shade900 : Colors.white);
   }
 
   static Color modalHandleColor(BuildContext context) {
     final themeProvider = Provider.of<ThemeProvider>(context, listen: false);
-    return themeProvider.isDarkMode ? Colors.grey.shade600 : Colors.grey.shade400;
+    return themeProvider.xnxColor('border') ?? (themeProvider.isDarkMode ? Colors.grey.shade600 : Colors.grey.shade400);
   }
 
   // === ШРИФТЫ И РАЗМЕРЫ ===
@@ -68,7 +68,7 @@ class AppStyles {
       fontVariations: const [FontVariation('wght', 600)],
       color: textPrimaryColor(context),
       height: 1.1,
-      fontFamily: fontFamily,
+      fontFamily: null,
     );
   }
 
@@ -78,7 +78,7 @@ class AppStyles {
       fontSize: fontSizeMedium,
       fontWeight: FontWeight.w400,
       color: textSecondaryColor(context),
-      fontFamily: fontFamily,
+      fontFamily: null,
     );
   }
 
@@ -88,7 +88,7 @@ class AppStyles {
       fontSize: fontSizeMedium,
       fontWeight: FontWeight.w400,
       color: textMutedColor(context),
-      fontFamily: fontFamily,
+      fontFamily: null,
     );
   }
 
@@ -98,7 +98,7 @@ class AppStyles {
       fontSize: fontSizeNormal,
       fontVariations: const [FontVariation('wght', 600)],
       color: buttonTextColor(context),
-      fontFamily: fontFamily,
+      fontFamily: null,
     );
   }
 
@@ -108,7 +108,7 @@ class AppStyles {
       color: textPrimaryColor(context),
       fontSize: fontSizeTitle,
       fontVariations: const [FontVariation('wght', 600)],
-      fontFamily: fontFamily,
+      fontFamily: null,
     );
   }
 
@@ -118,7 +118,7 @@ class AppStyles {
       color: textPrimaryColor(context),
       fontSize: fontSizeNormal,
       fontWeight: FontWeight.w500,
-      fontFamily: fontFamily,
+      fontFamily: null,
     );
   }
 
@@ -126,7 +126,7 @@ class AppStyles {
   static TextStyle menuSubtitle(BuildContext context) {
     return TextStyle(
       color: textSecondaryColor(context),
-      fontFamily: fontFamily,
+      fontFamily: null,
       fontSize: fontSizeSmall,
     );
   }

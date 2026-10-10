@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
@@ -39,12 +40,24 @@ final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Desktop chat thumbnails do not need Flutter's 100 MiB default cache.
+  // Keeping this bounded also prevents decoded full-resolution media from
+  // dominating the process after browsing several chats.
+  PaintingBinding.instance.imageCache
+    ..maximumSize = 300
+    ..maximumSizeBytes = 48 << 20;
+
   if (args.firstOrNull == 'multi_window') {
     final windowId = int.parse(args[1]);
     final arguments = args[2].isEmpty
         ? const <String, dynamic>{}
         : jsonDecode(args[2]) as Map<String, dynamic>;
-    runApp(NotificationOverlayApp(windowId: windowId, arguments: arguments));
+    runApp(
+      ChangeNotifierProvider(
+        create: (_) => ThemeProvider(),
+        child: NotificationOverlayApp(windowId: windowId, arguments: arguments),
+      ),
+    );
     return;
   }
 
@@ -91,6 +104,7 @@ void main(List<String> args) async {
 
   // Initialize window manager
   await windowManager.ensureInitialized();
+  await windowManager.setTitle(ApiService.appDisplayName);
   await windowManager.setPreventClose(true);
 
   // Initialize System Tray Service
@@ -139,9 +153,12 @@ void main(List<String> args) async {
           dispose: (context, service) => service.dispose(),
         ),
         ChangeNotifierProvider<CallManager>(
+          lazy: false,
           create: (context) {
             final signaling = context.read<WebRTCSignalingService>();
-            return CallManager(signalingService: signaling);
+            final manager = CallManager(signalingService: signaling);
+            NotificationService().attachCallManager(manager);
+            return manager;
           },
         ),
       ],
@@ -158,6 +175,8 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> with WindowListener {
+  Timer? _windowStateSaveTimer;
+
   @override
   void initState() {
     super.initState();
@@ -166,22 +185,29 @@ class _MyAppState extends State<MyApp> with WindowListener {
 
   @override
   void dispose() {
+    _windowStateSaveTimer?.cancel();
     windowManager.removeListener(this);
     super.dispose();
   }
 
   @override
   void onWindowResize() {
-    _saveWindowState();
+    _windowStateSaveTimer?.cancel();
+    _windowStateSaveTimer = Timer(
+      const Duration(milliseconds: 300),
+      _saveWindowState,
+    );
   }
 
   @override
   void onWindowMaximize() {
+    _windowStateSaveTimer?.cancel();
     _saveWindowState();
   }
 
   @override
   void onWindowUnmaximize() {
+    _windowStateSaveTimer?.cancel();
     _saveWindowState();
   }
 
@@ -242,7 +268,7 @@ class _MyAppState extends State<MyApp> with WindowListener {
 
         return MaterialApp(
           navigatorKey: navigatorKey,
-          title: 'Xaneo',
+          title: ApiService.appDisplayName,
           locale: localeProvider.locale ?? const Locale('ru'),
           localizationsDelegates: const [
             AppLocalizations.delegate,
@@ -253,7 +279,7 @@ class _MyAppState extends State<MyApp> with WindowListener {
           supportedLocales: AppLocalizations.supportedLocales,
           theme: themeProvider.themeData.copyWith(
             textTheme: themeProvider.themeData.textTheme.apply(
-              fontFamily: 'Inter',
+              fontFamily: themeProvider.fontFamily,
             ),
             visualDensity: VisualDensity.adaptivePlatformDensity,
           ),
@@ -366,6 +392,7 @@ class NotificationOverlayApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
+      theme: context.watch<ThemeProvider>().themeData,
       home: NotificationOverlayScreen(windowId: windowId, arguments: arguments),
     );
   }

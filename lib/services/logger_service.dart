@@ -1,7 +1,9 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 
 class Logger {
   static File? _logFile;
+  static Future<void> _writeQueue = Future<void>.value();
 
   /// Initialize file logging
   static Future<void> init() async {
@@ -69,12 +71,20 @@ class Logger {
   static void _log(String level, String tag, String message) {
     final timestamp = DateTime.now().toIso8601String();
     final logLine = '[$timestamp] [$level] [$tag] ${_sanitize(message)}';
-    print(logLine);
-    try {
-      _logFile?.writeAsStringSync('$logLine\n', mode: FileMode.append);
-    } catch (_) {
-      // Ignore write failures to prevent crash in read-only filesystems
+    if (!kReleaseMode || level != 'INFO') {
+      debugPrint(logLine);
     }
+
+    final file = _logFile;
+    if (file == null) return;
+
+    // Keep writes ordered, but never block Flutter's UI isolate on disk I/O.
+    _writeQueue = _writeQueue
+        .then((_) => file.writeAsString('$logLine\n', mode: FileMode.append))
+        .then<void>((_) {})
+        .catchError((_) {
+          // Logging must never affect the application flow.
+        });
   }
 
   /// Removes credentials and user-specific identifiers before a message is

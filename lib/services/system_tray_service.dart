@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 import '../l10n/app_localizations.dart';
+import 'api_service.dart';
 
 class SystemTrayService with TrayListener {
   static final SystemTrayService _instance = SystemTrayService._internal();
@@ -27,7 +28,7 @@ class SystemTrayService with TrayListener {
             ? 'assets/tray_icon.ico'
             : 'assets/logo.png';
         await trayManager.setIcon(iconPath);
-        await trayManager.setToolTip('Xaneo PC');
+        await trayManager.setToolTip(ApiService.appDisplayName);
       } catch (e) {
         debugPrint('Failed to set system tray icon: $e');
       }

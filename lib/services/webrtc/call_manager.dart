@@ -9,17 +9,12 @@ import 'webrtc_signaling_service.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:xaneo/services/notification_service.dart';
 
-enum CallState {
-  idle,
-  outgoing,
-  incoming,
-  connected,
-}
+enum CallState { idle, outgoing, incoming, connected }
 
 class CallManager extends ChangeNotifier {
   final ApiService _apiService;
   final WebRTCSignalingService _signalingService;
-  final AudioPlayer _ringtonePlayer = AudioPlayer();
+  AudioPlayer? _ringtonePlayer;
 
   CallState _state = CallState.idle;
   CallState get state => _state;
@@ -74,8 +69,8 @@ class CallManager extends ChangeNotifier {
   CallManager({
     ApiService? apiService,
     required WebRTCSignalingService signalingService,
-  })  : _apiService = apiService ?? ApiService(),
-        _signalingService = signalingService {
+  }) : _apiService = apiService ?? ApiService(),
+       _signalingService = signalingService {
     // Подписываемся на события сигнального WebSocket
     _signalingService.onIncomingCall = _handleIncomingCall;
     _signalingService.onCallAnswered = _handleCallAnswered;
@@ -113,10 +108,7 @@ class CallManager extends ChangeNotifier {
       _startRingtone(isIncoming: false);
       notifyListeners();
 
-      _signalingService.startGroupCall(
-        groupId: groupId,
-        callType: callType,
-      );
+      _signalingService.startGroupCall(groupId: groupId, callType: callType);
     } catch (e, stack) {
       debugPrint('CallManager: error starting outgoing group call: $e\n$stack');
       rethrow;
@@ -141,7 +133,7 @@ class CallManager extends ChangeNotifier {
     _isMicrophoneMuted = false;
     _isCameraOff = false;
     _groupParticipants.clear();
-    
+
     // Добавляем инициатора в список участников
     final initId = data['initiator_id']?.toString();
     if (initId != null) {
@@ -177,7 +169,10 @@ class CallManager extends ChangeNotifier {
   void _handleGroupParticipantJoined(Map<String, dynamic> data) {
     final uid = data['user_id']?.toString();
     if (uid != null) {
-      final name = data['first_name']?.toString() ?? data['username']?.toString() ?? 'Участник $uid';
+      final name =
+          data['first_name']?.toString() ??
+          data['username']?.toString() ??
+          'Участник $uid';
       _groupParticipants[uid] = {
         'user_id': uid,
         'name': name.isNotEmpty ? name : 'Участник $uid',
@@ -289,9 +284,15 @@ class CallManager extends ChangeNotifier {
   }
 
   /// Принять звонок по ID
-  Future<void> acceptCallById(String callId, {String? callerName, String? callerId}) async {
-    debugPrint('CallManager: acceptCallById $callId, callerName=$callerName, callerId=$callerId');
-    
+  Future<void> acceptCallById(
+    String callId, {
+    String? callerName,
+    String? callerId,
+  }) async {
+    debugPrint(
+      'CallManager: acceptCallById $callId, callerName=$callerName, callerId=$callerId',
+    );
+
     _activeCallId = callId;
     _state = CallState.incoming;
     if (callerName != null) _targetName = callerName;
@@ -371,7 +372,7 @@ class CallManager extends ChangeNotifier {
   void _handleCallOfferSent(Map<String, dynamic> data) {
     if (_state != CallState.outgoing) return;
     _activeCallId = data['call_id']?.toString();
-    
+
     // Подключаемся к LiveKit комнате сразу и ждем собеседника
     if (_activeCallId != null) {
       _connectToLiveKit(_activeCallId!);
@@ -391,7 +392,10 @@ class CallManager extends ChangeNotifier {
     _state = CallState.incoming;
     _activeCallId = data['call_id']?.toString();
     _targetUserId = data['caller_id']?.toString();
-    _targetName = data['caller_first_name']?.toString() ?? data['caller_name']?.toString() ?? 'Пользователь';
+    _targetName =
+        data['caller_first_name']?.toString() ??
+        data['caller_name']?.toString() ??
+        'Пользователь';
     _targetAvatar = data['caller_avatar']?.toString();
     _targetGradient = data['caller_gradient']?.toString();
     _callType = data['call_type']?.toString() ?? 'audio';
@@ -411,6 +415,12 @@ class CallManager extends ChangeNotifier {
         );
       }
     });
+  }
+
+  /// Wake the existing incoming-call UI from the direct notification socket.
+  void handlePushIncomingCall(Map<String, dynamic> data) {
+    if (_state != CallState.idle || data['call_id'] == null) return;
+    _handleIncomingCall(data);
   }
 
   void _handleCallAnswered(Map<String, dynamic> data) {
@@ -493,9 +503,7 @@ class CallManager extends ChangeNotifier {
       await _room!.connect(
         lkUrl,
         token,
-        connectOptions: const ConnectOptions(
-          autoSubscribe: true,
-        ),
+        connectOptions: const ConnectOptions(autoSubscribe: true),
       );
 
       // 4. Публикуем микрофон
@@ -504,9 +512,11 @@ class CallManager extends ChangeNotifier {
       // 5. Публикуем камеру, если видеозвонок
       if (_callType == 'video') {
         await _room!.localParticipant?.setCameraEnabled(true);
-        _localVideoTrack = _room!.localParticipant?.videoTrackPublications.firstOrNull?.track as VideoTrack?;
+        _localVideoTrack =
+            _room!.localParticipant?.videoTrackPublications.firstOrNull?.track
+                as VideoTrack?;
       }
-      
+
       notifyListeners();
     } catch (e) {
       debugPrint('CallManager: LiveKit connection error: $e');
@@ -516,13 +526,14 @@ class CallManager extends ChangeNotifier {
 
   void _startRingtone({bool isIncoming = true}) async {
     try {
+      final player = _ringtonePlayer ??= AudioPlayer();
       final assetPath = isIncoming
           ? 'assets/sounds/incoming-call.mp3'
           : 'assets/sounds/outgoing-call.mp3';
-      await _ringtonePlayer.setAsset(assetPath);
-      await _ringtonePlayer.setLoopMode(LoopMode.one);
-      await _ringtonePlayer.setVolume(isIncoming ? 0.7 : 0.6);
-      _ringtonePlayer.play();
+      await player.setAsset(assetPath);
+      await player.setLoopMode(LoopMode.one);
+      await player.setVolume(isIncoming ? 0.7 : 0.6);
+      player.play();
     } catch (e) {
       debugPrint('CallManager: error playing ringtone: $e');
     }
@@ -530,8 +541,9 @@ class CallManager extends ChangeNotifier {
 
   void _stopRingtone() async {
     try {
-      if (_ringtonePlayer.playing) {
-        await _ringtonePlayer.stop();
+      final player = _ringtonePlayer;
+      if (player?.playing == true) {
+        await player!.stop();
       }
     } catch (e) {
       debugPrint('CallManager: error stopping ringtone: $e');
@@ -597,7 +609,8 @@ class CallManager extends ChangeNotifier {
   @override
   void dispose() {
     _cleanup();
-    _ringtonePlayer.dispose();
+    _ringtonePlayer?.dispose();
+    _ringtonePlayer = null;
     super.dispose();
   }
 }

@@ -5,6 +5,7 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import '../api_service.dart';
+import '../notification_service.dart';
 import '../../utils/ssl_helper.dart';
 
 class WebRTCSignalingService {
@@ -193,6 +194,7 @@ class WebRTCSignalingService {
   }
 
   void acceptCall(String callId) {
+    if (NotificationService().sendCallAnswer(callId)) return;
     send({'type': 'call_answer', 'call_id': callId, 'answer': 'livekit'});
   }
 

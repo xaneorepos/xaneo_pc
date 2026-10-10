@@ -1,3 +1,4 @@
+import '../config/feature_flags.dart';
 import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
@@ -5,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:file_picker/file_picker.dart';
 import 'color_picker_modal.dart';
+import 'xnx_theme_editor.dart';
 import '../providers/theme_provider.dart';
 import '../providers/locale_provider.dart';
 import '../providers/appearance_provider.dart';
@@ -19,7 +21,10 @@ import 'base_custom_modal.dart';
 import 'custom_language_pack_dialogs.dart';
 import 'avatar_cropper.dart';
 import '../l10n/app_localizations.dart';
+import '../l10n/appearance_strings.dart';
+import '../l10n/xb_subscription_localizations.dart';
 import '../services/runtime_translations.dart';
+import 'xb_subscription_modal.dart';
 
 // ─── Описание раздела настроек ──────────────────────────────────────────────
 
@@ -104,21 +109,34 @@ List<_SettingsSection> _getAccountSections(BuildContext context) {
       icon: Icons.shield_rounded,
       gradient: const [Color(0xFF2563EB), Color(0xFF1D4ED8)],
     ),
+    if (FeatureFlags.xbSubscriptionEnabled)
+      _SettingsSection(
+      id: 'xb',
+      title: XbSubscriptionLocalizations.of(context)
+          .text('messenger.premium.menuTitle'),
+      description: XbSubscriptionLocalizations.of(context)
+          .text('messenger.premium.menuSubtitle'),
+      icon: Icons.workspace_premium_rounded,
+      gradient: const [Color(0xFF2563EB), Color(0xFF1D4ED8)],
+    ),
   ];
 }
 
 // Разделы интерфейса (доступны всегда)
 List<_SettingsSection> _getInterfaceSections(BuildContext context) {
   final l10n = AppLocalizations.of(context);
+  final appearanceStrings = AppearanceStrings.of(context);
   return [
     _SettingsSection(
+      id: 'xctheme',
+      title: appearanceStrings.get('themeSection'),
+      description: appearanceStrings.get('themeSectionDesc'),
+      icon: Icons.color_lens_outlined,
+    ),
+    _SettingsSection(
       id: 'appearance',
-      title:
-          l10n?.appearance ??
-          (AppLocalizations.of(context)?.vneshniyVid_6873 ?? 'Fallback'),
-      description:
-          l10n?.appearanceDesc ??
-          (AppLocalizations.of(context)?.temaShriftMasshtab_d8c9 ?? 'Fallback'),
+      title: appearanceStrings.get('chatSection'),
+      description: appearanceStrings.get('chatSectionDesc'),
       icon: Icons.palette_rounded,
       gradient: const [Color(0xFF2563EB), Color(0xFF1D4ED8)],
     ),
@@ -1242,7 +1260,7 @@ class _XaneoSettingsModalState
             'Xaneo PC v$_dynamicVersion',
             style: TextStyle(
               fontSize: 11 * scale,
-              color: isDark ? Colors.white24 : Colors.black26,
+              color: context.xnxColor("border") ?? (isDark ? Colors.white24 : Colors.black26),
               letterSpacing: 0.5,
             ),
           ),
@@ -1277,7 +1295,7 @@ class _XaneoSettingsModalState
                   child: Icon(
                     Icons.arrow_back_ios_new_rounded,
                     size: 14 * scale,
-                    color: isDark ? Colors.white70 : Colors.black54,
+                    color: context.xnxColor("text-secondary") ?? (isDark ? Colors.white70 : Colors.black54),
                   ),
                 ),
               ),
@@ -1288,7 +1306,7 @@ class _XaneoSettingsModalState
               style: TextStyle(
                 fontSize: 17 * scale,
                 fontWeight: FontWeight.w700,
-                color: isDark ? Colors.white : Colors.black87,
+                color: context.xnxColor("text") ?? (isDark ? Colors.white : Colors.black87),
               ),
             ),
           ],
@@ -1305,8 +1323,10 @@ class _XaneoSettingsModalState
 
   String _sectionTitle(String id) {
     final l10n = AppLocalizations.of(context);
+    final appearanceStrings = AppearanceStrings.of(context);
     var m = {
-      'appearance': l10n?.appearance ?? 'Внешний вид',
+      'appearance': appearanceStrings.get('chatSection'),
+      'xctheme': appearanceStrings.get('themeSection'),
       'window': l10n?.closeActionTitle ?? 'Действие при закрытии окна',
       'language': l10n?.language ?? 'Язык',
       'notifications': l10n?.notifications ?? 'Уведомления',
@@ -1316,6 +1336,8 @@ class _XaneoSettingsModalState
       'privacy': l10n?.privacyDesc ?? 'Приватность',
       'contacts': l10n?.contacts ?? 'Контакты',
       'security': l10n?.security ?? 'Безопасность',
+      'xb': XbSubscriptionLocalizations.of(context)
+          .text('messenger.premium.menuTitle'),
       'about': l10n?.about ?? 'О приложении',
     };
     return m[id] ?? id;
@@ -1328,6 +1350,17 @@ class _XaneoSettingsModalState
     double scale,
   ) {
     switch (id) {
+      case 'xctheme':
+        final themeProvider = context.watch<ThemeProvider>();
+        return XnxThemeEditor(
+          theme: themeProvider.xnxTheme,
+          isDark: themeProvider.isDarkMode,
+          onApply: themeProvider.importXnx,
+          onModeChanged: themeProvider.setDarkMode,
+          onClear: themeProvider.clearXnx,
+          pickColor: (context, initial, title) => ColorPickerModal.pick(
+            context: context, initial: initial, title: title),
+        );
       case 'appearance':
         return _buildAppearance(context, isDark, scale);
       case 'window':
@@ -1441,7 +1474,7 @@ class _XaneoSettingsModalState
                         border: Border.all(
                           color: isSelected
                               ? (isDark ? Colors.white : Colors.black)
-                              : (isDark ? Colors.white38 : Colors.black38),
+                              : (context.xnxColor("text-muted") ?? (isDark ? Colors.white38 : Colors.black38)),
                           width: 2 * scale,
                         ),
                       ),
@@ -1462,7 +1495,7 @@ class _XaneoSettingsModalState
                     Icon(
                       opt['icon'] as IconData,
                       size: 20 * scale,
-                      color: isDark ? Colors.white70 : Colors.black87,
+                      color: context.xnxColor("text-secondary") ?? (isDark ? Colors.white70 : Colors.black87),
                     ),
                     SizedBox(width: 12 * scale),
                     Expanded(
@@ -1477,16 +1510,16 @@ class _XaneoSettingsModalState
                               fontWeight: isSelected
                                   ? FontWeight.w600
                                   : FontWeight.w500,
-                              fontFamily: 'Inter',
+                              fontFamily: null,
                             ),
                           ),
                           SizedBox(height: 3 * scale),
                           Text(
                             opt['subtitle'] as String,
                             style: TextStyle(
-                              color: isDark ? Colors.white54 : Colors.black54,
+                              color: context.xnxColor("text-muted") ?? (isDark ? Colors.white54 : Colors.black54),
                               fontSize: 12 * scale,
-                              fontFamily: 'Inter',
+                              fontFamily: null,
                             ),
                           ),
                         ],
@@ -1532,7 +1565,7 @@ class _XaneoSettingsModalState
                   Icon(
                     Icons.desktop_windows_rounded,
                     size: 24 * scale,
-                    color: isDark ? Colors.white : Colors.black87,
+                    color: context.xnxColor("text") ?? (isDark ? Colors.white : Colors.black87),
                   ),
                   SizedBox(width: 12 * scale),
                   Column(
@@ -1543,16 +1576,16 @@ class _XaneoSettingsModalState
                         style: TextStyle(
                           fontSize: 16 * scale,
                           fontWeight: FontWeight.bold,
-                          color: isDark ? Colors.white : Colors.black87,
-                          fontFamily: 'Inter',
+                          color: context.xnxColor("text") ?? (isDark ? Colors.white : Colors.black87),
+                          fontFamily: null,
                         ),
                       ),
                       Text(
                         '${l10n?.version ?? "Версия"}: $_dynamicVersion+$_dynamicBuildNumber (Linux / Windows / macOS)',
                         style: TextStyle(
                           fontSize: 12 * scale,
-                          color: isDark ? Colors.white54 : Colors.black54,
-                          fontFamily: 'Inter',
+                          color: context.xnxColor("text-muted") ?? (isDark ? Colors.white54 : Colors.black54),
+                          fontFamily: null,
                         ),
                       ),
                     ],
@@ -1568,8 +1601,8 @@ class _XaneoSettingsModalState
                     fontWeight: FontWeight.w500,
                     color: _foundUpdateInfo != null
                         ? Colors.greenAccent
-                        : (isDark ? Colors.white70 : Colors.black87),
-                    fontFamily: 'Inter',
+                        : (context.xnxColor("text-secondary") ?? (isDark ? Colors.white70 : Colors.black87)),
+                    fontFamily: null,
                   ),
                 ),
                 SizedBox(height: 12 * scale),
@@ -1596,11 +1629,11 @@ class _XaneoSettingsModalState
                           : (l10n?.checkUpdates ?? 'Проверить обновления'),
                       style: TextStyle(
                         fontSize: 13 * scale,
-                        fontFamily: 'Inter',
+                        fontFamily: null,
                       ),
                     ),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: isDark ? Colors.white : Colors.black87,
+                      backgroundColor: context.xnxColor("text") ?? (isDark ? Colors.white : Colors.black87),
                       foregroundColor: isDark ? Colors.black : Colors.white,
                       padding: EdgeInsets.symmetric(
                         horizontal: 16 * scale,
@@ -1631,7 +1664,7 @@ class _XaneoSettingsModalState
                         '${l10n?.downloadVersion ?? "Скачать"} v${_foundUpdateInfo!.version}',
                         style: TextStyle(
                           fontSize: 13 * scale,
-                          fontFamily: 'Inter',
+                          fontFamily: null,
                         ),
                       ),
                       style: OutlinedButton.styleFrom(
@@ -1692,7 +1725,7 @@ class _XaneoSettingsModalState
                     right: -4 * scale,
                     bottom: -4 * scale,
                     child: Material(
-                      color: isDark ? Colors.white : Colors.black87,
+                      color: context.xnxColor("text") ?? (isDark ? Colors.white : Colors.black87),
                       shape: const CircleBorder(),
                       child: InkWell(
                         customBorder: const CircleBorder(),
@@ -2035,7 +2068,7 @@ class _XaneoSettingsModalState
           l10n?.addContactTitle ??
               (AppLocalizations.of(context)?.dobavitKontakt_4278 ?? 'Fallback'),
           style: TextStyle(
-            color: isDark ? Colors.white : Colors.black87,
+            color: context.xnxColor("text") ?? (isDark ? Colors.white : Colors.black87),
             fontSize: 16 * scale,
             fontWeight: FontWeight.bold,
           ),
@@ -2046,7 +2079,7 @@ class _XaneoSettingsModalState
             TextField(
               controller: usernameCtrl,
               style: TextStyle(
-                color: isDark ? Colors.white : Colors.black87,
+                color: context.xnxColor("text") ?? (isDark ? Colors.white : Colors.black87),
                 fontSize: 14 * scale,
               ),
               decoration: InputDecoration(
@@ -2055,7 +2088,7 @@ class _XaneoSettingsModalState
                     (AppLocalizations.of(context)?.nikneymPolzovatelya_5610 ??
                         'Fallback'),
                 hintStyle: TextStyle(
-                  color: isDark ? Colors.white38 : Colors.black38,
+                  color: context.xnxColor("text-muted") ?? (isDark ? Colors.white38 : Colors.black38),
                   fontSize: 13 * scale,
                 ),
                 filled: true,
@@ -2076,7 +2109,7 @@ class _XaneoSettingsModalState
             TextField(
               controller: nameCtrl,
               style: TextStyle(
-                color: isDark ? Colors.white : Colors.black87,
+                color: context.xnxColor("text") ?? (isDark ? Colors.white : Colors.black87),
                 fontSize: 14 * scale,
               ),
               decoration: InputDecoration(
@@ -2087,7 +2120,7 @@ class _XaneoSettingsModalState
                         )?.otobrazhaemoeImyaOptsionalno_bbd1 ??
                         'Fallback'),
                 hintStyle: TextStyle(
-                  color: isDark ? Colors.white38 : Colors.black38,
+                  color: context.xnxColor("text-muted") ?? (isDark ? Colors.white38 : Colors.black38),
                   fontSize: 13 * scale,
                 ),
                 filled: true,
@@ -2112,12 +2145,12 @@ class _XaneoSettingsModalState
             child: Text(
               l10n?.cancel ??
                   (AppLocalizations.of(context)?.otmena_987b ?? 'Fallback'),
-              style: TextStyle(color: isDark ? Colors.white54 : Colors.black54),
+              style: TextStyle(color: context.xnxColor("text-muted") ?? (isDark ? Colors.white54 : Colors.black54)),
             ),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: isDark ? Colors.white : Colors.black87,
+              backgroundColor: context.xnxColor("text") ?? (isDark ? Colors.white : Colors.black87),
               foregroundColor: isDark ? Colors.black : Colors.white,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(10),
@@ -2180,7 +2213,7 @@ class _XaneoSettingsModalState
               icon: Icon(
                 Icons.person_add_rounded,
                 size: 16 * scale,
-                color: isDark ? Colors.white70 : Colors.black87,
+                color: context.xnxColor("text-secondary") ?? (isDark ? Colors.white70 : Colors.black87),
               ),
               label: Text(
                 l10n?.addContact ??
@@ -2188,7 +2221,7 @@ class _XaneoSettingsModalState
                 style: TextStyle(
                   fontSize: 13 * scale,
                   fontWeight: FontWeight.w600,
-                  color: isDark ? Colors.white70 : Colors.black87,
+                  color: context.xnxColor("text-secondary") ?? (isDark ? Colors.white70 : Colors.black87),
                 ),
               ),
             ),
@@ -2201,7 +2234,7 @@ class _XaneoSettingsModalState
             child: Center(
               child: CircularProgressIndicator(
                 strokeWidth: 2,
-                color: isDark ? Colors.white70 : Colors.black54,
+                color: context.xnxColor("text-secondary") ?? (isDark ? Colors.white70 : Colors.black54),
               ),
             ),
           )
@@ -2233,7 +2266,7 @@ class _XaneoSettingsModalState
                             'Fallback'),
                     style: TextStyle(
                       fontSize: 13 * scale,
-                      color: isDark ? Colors.white38 : Colors.black38,
+                      color: context.xnxColor("text-muted") ?? (isDark ? Colors.white38 : Colors.black38),
                     ),
                   ),
                 ],
@@ -2295,7 +2328,7 @@ class _XaneoSettingsModalState
                             style: TextStyle(
                               fontSize: 14 * scale,
                               fontWeight: FontWeight.w600,
-                              color: isDark ? Colors.white : Colors.black87,
+                              color: context.xnxColor("text") ?? (isDark ? Colors.white : Colors.black87),
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -2305,7 +2338,7 @@ class _XaneoSettingsModalState
                               '@$username',
                               style: TextStyle(
                                 fontSize: 11 * scale,
-                                color: isDark ? Colors.white38 : Colors.black38,
+                                color: context.xnxColor("text-muted") ?? (isDark ? Colors.white38 : Colors.black38),
                               ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
@@ -2316,7 +2349,7 @@ class _XaneoSettingsModalState
                     // Действия (Позвонить, Написать, Вертикальное троеточие)
                     IconButton(
                       icon: Icon(Icons.phone_rounded, size: 18 * scale),
-                      color: isDark ? Colors.white70 : Colors.black87,
+                      color: context.xnxColor("text-secondary") ?? (isDark ? Colors.white70 : Colors.black87),
                       tooltip: l10n?.call ?? 'Позвонить',
                       onPressed: () {
                         if (widget.onStartCall != null) {
@@ -2326,7 +2359,7 @@ class _XaneoSettingsModalState
                     ),
                     IconButton(
                       icon: Icon(Icons.chat_bubble_rounded, size: 18 * scale),
-                      color: isDark ? Colors.white70 : Colors.black87,
+                      color: context.xnxColor("text-secondary") ?? (isDark ? Colors.white70 : Colors.black87),
                       tooltip: l10n?.sendMessage ?? 'Написать',
                       onPressed: () {
                         Navigator.of(context).pop();
@@ -2339,7 +2372,7 @@ class _XaneoSettingsModalState
                       icon: Icon(
                         Icons.more_vert_rounded,
                         size: 18 * scale,
-                        color: isDark ? Colors.white54 : Colors.black54,
+                        color: context.xnxColor("text-muted") ?? (isDark ? Colors.white54 : Colors.black54),
                       ),
                       color: isDark ? const Color(0xFF1E1E22) : Colors.white,
                       shape: RoundedRectangleBorder(
@@ -2479,7 +2512,7 @@ class _XaneoSettingsModalState
                   style: TextStyle(
                     letterSpacing: 7 * scale,
                     fontSize: 18 * scale,
-                    color: isDark ? Colors.white : Colors.black87,
+                    color: context.xnxColor("text") ?? (isDark ? Colors.white : Colors.black87),
                   ),
                   decoration: InputDecoration(
                     counterText: '',
@@ -2536,7 +2569,7 @@ class _XaneoSettingsModalState
           Text(
             _securityText('noSessions'),
             style: TextStyle(
-              color: isDark ? Colors.white38 : Colors.black38,
+              color: context.xnxColor("text-muted") ?? (isDark ? Colors.white38 : Colors.black38),
               fontSize: 12 * scale,
             ),
           )
@@ -2606,25 +2639,11 @@ class _XaneoSettingsModalState
   // ── Appearance ───────────────────────────────────────────────────────────────
 
   Widget _buildAppearance(BuildContext context, bool isDark, double scale) {
-    final themeProvider = Provider.of<ThemeProvider>(context);
     final appearance = Provider.of<AppearanceProvider>(context);
     final l10n = AppLocalizations.of(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _sectionHeader(l10n?.theme ?? 'Тема', isDark, scale),
-        SizedBox(height: 8 * scale),
-        _switchRow(
-          label: l10n?.darkTheme ?? 'Тёмная тема',
-          description:
-              l10n?.darkThemeDesc ??
-              'Переключить между тёмным и светлым оформлением',
-          value: themeProvider.isDarkMode,
-          isDark: isDark,
-          scale: scale,
-          onChanged: (v) => themeProvider.setDarkMode(v),
-        ),
-        SizedBox(height: 20 * scale),
         _sectionHeader(l10n?.chatFontSize ?? 'Chat font size', isDark, scale),
         SizedBox(height: 8 * scale),
         Row(
@@ -2633,7 +2652,7 @@ class _XaneoSettingsModalState
               'A',
               style: TextStyle(
                 fontSize: 12 * scale,
-                color: isDark ? Colors.white38 : Colors.black38,
+                color: context.xnxColor("text-muted") ?? (isDark ? Colors.white38 : Colors.black38),
               ),
             ),
             Expanded(
@@ -2654,7 +2673,7 @@ class _XaneoSettingsModalState
               'A',
               style: TextStyle(
                 fontSize: 20 * scale,
-                color: isDark ? Colors.white38 : Colors.black38,
+                color: context.xnxColor("text-muted") ?? (isDark ? Colors.white38 : Colors.black38),
               ),
             ),
           ],
@@ -2664,7 +2683,7 @@ class _XaneoSettingsModalState
             '${appearance.chatFontSize.round()} px',
             style: TextStyle(
               fontSize: 11 * scale,
-              color: isDark ? Colors.white38 : Colors.black38,
+              color: context.xnxColor("text-muted") ?? (isDark ? Colors.white38 : Colors.black38),
             ),
           ),
         ),
@@ -2832,7 +2851,7 @@ class _XaneoSettingsModalState
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Не удалось загрузить обои: $e')),
+          SnackBar(content: Text(AppearanceStrings.of(context).get('wallpaperError', e))),
         );
       }
     }
@@ -3104,7 +3123,7 @@ class _XaneoSettingsModalState
               style: TextStyle(
                 fontSize: 14 * scale,
                 fontWeight: FontWeight.w600,
-                color: isDark ? Colors.white : Colors.black87,
+                color: context.xnxColor("text") ?? (isDark ? Colors.white : Colors.black87),
               ),
             ),
             ElevatedButton.icon(
@@ -3145,7 +3164,7 @@ class _XaneoSettingsModalState
               ),
               style: TextStyle(
                 fontSize: 12 * scale,
-                color: isDark ? Colors.white38 : Colors.black38,
+                color: context.xnxColor("text-muted") ?? (isDark ? Colors.white38 : Colors.black38),
               ),
             ),
           ),
@@ -3179,7 +3198,7 @@ class _XaneoSettingsModalState
                   size: 18 * scale,
                   color: isSelected
                       ? const Color(0xFF00FFCC)
-                      : (isDark ? Colors.white38 : Colors.black38),
+                      : (context.xnxColor("text-muted") ?? (isDark ? Colors.white38 : Colors.black38)),
                 ),
                 title: Text(
                   '${pack.name} (${pack.nativeName})',
@@ -3188,14 +3207,14 @@ class _XaneoSettingsModalState
                     fontWeight: isSelected
                         ? FontWeight.w600
                         : FontWeight.normal,
-                    color: isDark ? Colors.white : Colors.black87,
+                    color: context.xnxColor("text") ?? (isDark ? Colors.white : Colors.black87),
                   ),
                 ),
                 subtitle: Text(
                   '${pack.locale} • ${pack.stringCount} строк • fallback: ${pack.fallbackLocale}',
                   style: TextStyle(
                     fontSize: 11 * scale,
-                    color: isDark ? Colors.white38 : Colors.black38,
+                    color: context.xnxColor("text-muted") ?? (isDark ? Colors.white38 : Colors.black38),
                   ),
                 ),
                 trailing: IconButton(
@@ -3341,14 +3360,14 @@ class _XaneoSettingsModalState
             Icon(
               Icons.construction_rounded,
               size: 32 * scale,
-              color: isDark ? Colors.white24 : Colors.black26,
+              color: context.xnxColor("border") ?? (isDark ? Colors.white24 : Colors.black26),
             ),
             SizedBox(height: 12 * scale),
             Text(
               l10n?.comingSoon ?? 'Скоро будет доступно',
               style: TextStyle(
                 fontSize: 14 * scale,
-                color: isDark ? Colors.white38 : Colors.black38,
+                color: context.xnxColor("text-muted") ?? (isDark ? Colors.white38 : Colors.black38),
               ),
             ),
           ],
@@ -3485,7 +3504,7 @@ class _XaneoSettingsModalState
                   style: TextStyle(
                     fontSize: 16 * scale,
                     fontWeight: FontWeight.w700,
-                    color: isDark ? Colors.white : Colors.black87,
+                    color: context.xnxColor("text") ?? (isDark ? Colors.white : Colors.black87),
                   ),
                 ),
                 if (username.isNotEmpty)
@@ -3493,7 +3512,7 @@ class _XaneoSettingsModalState
                     '@$username',
                     style: TextStyle(
                       fontSize: 12 * scale,
-                      color: isDark ? Colors.white38 : Colors.black38,
+                      color: context.xnxColor("text-muted") ?? (isDark ? Colors.white38 : Colors.black38),
                     ),
                   ),
               ],
@@ -3520,7 +3539,7 @@ class _XaneoSettingsModalState
               child: Icon(
                 Icons.person_off_rounded,
                 size: 22 * scale,
-                color: isDark ? Colors.white38 : Colors.black38,
+                color: context.xnxColor("text-muted") ?? (isDark ? Colors.white38 : Colors.black38),
               ),
             ),
           ),
@@ -3534,7 +3553,7 @@ class _XaneoSettingsModalState
                 style: TextStyle(
                   fontSize: 15 * scale,
                   fontWeight: FontWeight.w600,
-                  color: isDark ? Colors.white : Colors.black87,
+                  color: context.xnxColor("text") ?? (isDark ? Colors.white : Colors.black87),
                 ),
               ),
               SizedBox(height: 2 * scale),
@@ -3545,7 +3564,7 @@ class _XaneoSettingsModalState
                     'Fallback'),
                 style: TextStyle(
                   fontSize: 12 * scale,
-                  color: isDark ? Colors.white38 : Colors.black38,
+                  color: context.xnxColor("text-muted") ?? (isDark ? Colors.white38 : Colors.black38),
                 ),
               ),
             ],
@@ -3590,7 +3609,7 @@ class _XaneoSettingsModalState
           fontSize: 10 * scale,
           fontWeight: FontWeight.w700,
           letterSpacing: 1.4 * scale,
-          color: isDark ? Colors.white24 : Colors.black26,
+          color: context.xnxColor("border") ?? (isDark ? Colors.white24 : Colors.black26),
         ),
       ),
     );
@@ -3616,6 +3635,10 @@ class _XaneoSettingsModalState
       cursor: SystemMouseCursors.click,
       child: GestureDetector(
         onTap: () {
+          if (section.id == 'xb') {
+            XbSubscriptionModal.show(context: context);
+            return;
+          }
           setState(() => _activeSection = section.id);
           if (section.id == 'security') _loadSecurity();
         },
@@ -3650,7 +3673,7 @@ class _XaneoSettingsModalState
                   child: Icon(
                     section.icon,
                     size: 17 * scale,
-                    color: isDark ? Colors.white : Colors.black87,
+                    color: context.xnxColor("text") ?? (isDark ? Colors.white : Colors.black87),
                   ),
                 ),
               ),
@@ -3664,7 +3687,7 @@ class _XaneoSettingsModalState
                       style: TextStyle(
                         fontSize: 14 * scale,
                         fontWeight: FontWeight.w600,
-                        color: isDark ? Colors.white : Colors.black87,
+                        color: context.xnxColor("text") ?? (isDark ? Colors.white : Colors.black87),
                       ),
                     ),
                     SizedBox(height: 2 * scale),
@@ -3681,7 +3704,7 @@ class _XaneoSettingsModalState
               Icon(
                 Icons.chevron_right_rounded,
                 size: 18 * scale,
-                color: isDark ? Colors.white24 : Colors.black26,
+                color: context.xnxColor("border") ?? (isDark ? Colors.white24 : Colors.black26),
               ),
             ],
           ),
@@ -3759,7 +3782,7 @@ class _XaneoSettingsModalState
                 style: TextStyle(
                   fontSize: 14 * scale,
                   fontWeight: FontWeight.w600,
-                  color: isDark ? Colors.white : Colors.black87,
+                  color: context.xnxColor("text") ?? (isDark ? Colors.white : Colors.black87),
                 ),
               ),
               SizedBox(height: 2 * scale),
@@ -3795,7 +3818,7 @@ class _XaneoSettingsModalState
         label,
         style: TextStyle(
           fontSize: 14 * scale,
-          color: isDark ? Colors.white : Colors.black87,
+          color: context.xnxColor("text") ?? (isDark ? Colors.white : Colors.black87),
         ),
       ),
       value: value,
@@ -3823,7 +3846,7 @@ class _XaneoSettingsModalState
               label,
               style: TextStyle(
                 fontSize: 13 * scale,
-                color: isDark ? Colors.white70 : Colors.black87,
+                color: context.xnxColor("text-secondary") ?? (isDark ? Colors.white70 : Colors.black87),
               ),
             ),
           ),
@@ -3865,12 +3888,12 @@ class _XaneoSettingsModalState
           readOnly: readOnly,
           style: TextStyle(
             fontSize: 14 * scale,
-            color: isDark ? Colors.white : Colors.black87,
+            color: context.xnxColor("text") ?? (isDark ? Colors.white : Colors.black87),
           ),
           decoration: InputDecoration(
             hintText: hint,
             hintStyle: TextStyle(
-              color: isDark ? Colors.white24 : Colors.black26,
+              color: context.xnxColor("border") ?? (isDark ? Colors.white24 : Colors.black26),
               fontSize: 13 * scale,
             ),
             filled: true,
@@ -3917,7 +3940,7 @@ class _XaneoSettingsModalState
             note,
             style: TextStyle(
               fontSize: 10 * scale,
-              color: isDark ? Colors.white24 : Colors.black26,
+              color: context.xnxColor("border") ?? (isDark ? Colors.white24 : Colors.black26),
             ),
           ),
         ],
@@ -3949,12 +3972,12 @@ class _XaneoSettingsModalState
           maxLines: 3,
           style: TextStyle(
             fontSize: 14 * scale,
-            color: isDark ? Colors.white : Colors.black87,
+            color: context.xnxColor("text") ?? (isDark ? Colors.white : Colors.black87),
           ),
           decoration: InputDecoration(
             hintText: hint,
             hintStyle: TextStyle(
-              color: isDark ? Colors.white24 : Colors.black26,
+              color: context.xnxColor("border") ?? (isDark ? Colors.white24 : Colors.black26),
               fontSize: 13 * scale,
             ),
             filled: true,
@@ -4011,7 +4034,7 @@ class _XaneoSettingsModalState
           padding: EdgeInsets.symmetric(vertical: 12 * scale),
           decoration: BoxDecoration(
             color: onTap != null
-                ? (isDark ? Colors.white : Colors.black87)
+                ? (context.xnxColor("text") ?? (isDark ? Colors.white : Colors.black87))
                 : (isDark ? Colors.white12 : Colors.black12),
             borderRadius: BorderRadius.circular(10 * scale),
           ),
@@ -4041,7 +4064,7 @@ class _XaneoSettingsModalState
     Color? color,
     Widget? trailing,
   }) {
-    final c = color ?? (isDark ? Colors.white70 : Colors.black87);
+    final c = color ?? (context.xnxColor("text-secondary") ?? (isDark ? Colors.white70 : Colors.black87));
     return Container(
       padding: EdgeInsets.symmetric(
         horizontal: 12 * scale,
@@ -4079,7 +4102,7 @@ class _XaneoSettingsModalState
                   subtitle,
                   style: TextStyle(
                     fontSize: 11 * scale,
-                    color: isDark ? Colors.white38 : Colors.black38,
+                    color: context.xnxColor("text-muted") ?? (isDark ? Colors.white38 : Colors.black38),
                   ),
                 ),
               ],
@@ -4293,7 +4316,7 @@ class _XaneoCustomDropdownState extends State<XaneoCustomDropdown> {
                     fontWeight: FontWeight.w500,
                     color: _isOpen
                         ? const Color(0xFF2563EB)
-                        : (isDark ? Colors.white : Colors.black87),
+                        : (context.xnxColor("text") ?? (isDark ? Colors.white : Colors.black87)),
                   ),
                 ),
                 SizedBox(width: 6 * scale),
@@ -4306,7 +4329,7 @@ class _XaneoCustomDropdownState extends State<XaneoCustomDropdown> {
                     size: 16 * scale,
                     color: _isOpen
                         ? const Color(0xFF2563EB)
-                        : (isDark ? Colors.white54 : Colors.black54),
+                        : (context.xnxColor("text-muted") ?? (isDark ? Colors.white54 : Colors.black54)),
                   ),
                 ),
               ],
@@ -4474,7 +4497,7 @@ class __XaneoDropdownItemRowState extends State<_XaneoDropdownItemRow> {
                       : FontWeight.w400,
                   color: widget.isSelected
                       ? const Color(0xFF2563EB)
-                      : (isDark ? Colors.white70 : Colors.black87),
+                      : (context.xnxColor("text-secondary") ?? (isDark ? Colors.white70 : Colors.black87)),
                 ),
               ),
               if (widget.isSelected) ...[

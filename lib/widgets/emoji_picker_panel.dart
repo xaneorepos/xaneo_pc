@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../l10n/emoji_picker_localizations.dart';
+
 const _recentEmojiKey = 'xaneo_recent_message_emojis';
 const _accentColor = Color(0xFF6366F1);
 bool _emojiPickerVisible = false;
@@ -23,13 +25,13 @@ class _EmojiItem {
   final String category;
 
   factory _EmojiItem.fromJson(Map<String, dynamic> json) => _EmojiItem(
-        emoji: json['emoji']?.toString() ?? '',
-        name: json['name']?.toString() ?? '',
-        keywords: (json['keywords'] as List<dynamic>? ?? const [])
-            .map((value) => value.toString())
-            .toList(growable: false),
-        category: json['category']?.toString() ?? 'Symbols',
-      );
+    emoji: json['emoji']?.toString() ?? '',
+    name: json['name']?.toString() ?? '',
+    keywords: (json['keywords'] as List<dynamic>? ?? const [])
+        .map((value) => value.toString())
+        .toList(growable: false),
+    category: json['category']?.toString() ?? 'Symbols',
+  );
 
   bool matches(String query) {
     final normalized = query.toLowerCase();
@@ -48,16 +50,16 @@ class _EmojiCategory {
 }
 
 const _categories = <_EmojiCategory>[
-  _EmojiCategory('recent', '🕐', 'Недавние'),
-  _EmojiCategory('Smileys & Emotion', '😀', 'Смайлы'),
-  _EmojiCategory('People & Body', '👋', 'Люди'),
-  _EmojiCategory('Animals & Nature', '🐱', 'Животные'),
-  _EmojiCategory('Food & Drink', '🍕', 'Еда'),
-  _EmojiCategory('Activities', '⚽', 'Активности'),
-  _EmojiCategory('Travel & Places', '🚗', 'Путешествия'),
-  _EmojiCategory('Objects', '💡', 'Объекты'),
-  _EmojiCategory('Symbols', '❤️', 'Символы'),
-  _EmojiCategory('Flags', '🏳️', 'Флаги'),
+  _EmojiCategory('recent', '🕐', 'messenger.emoji.category.recent'),
+  _EmojiCategory('Smileys & Emotion', '😀', 'messenger.emoji.category.smileys'),
+  _EmojiCategory('People & Body', '👋', 'messenger.emoji.category.people'),
+  _EmojiCategory('Animals & Nature', '🐱', 'messenger.emoji.category.animals'),
+  _EmojiCategory('Food & Drink', '🍕', 'messenger.emoji.category.food'),
+  _EmojiCategory('Activities', '⚽', 'messenger.emoji.category.activities'),
+  _EmojiCategory('Travel & Places', '🚗', 'messenger.emoji.category.travel'),
+  _EmojiCategory('Objects', '💡', 'messenger.emoji.category.objects'),
+  _EmojiCategory('Symbols', '❤️', 'messenger.emoji.category.symbols'),
+  _EmojiCategory('Flags', '🏳️', 'messenger.emoji.category.flags'),
 ];
 
 Future<void> showEmojiPickerPanel({
@@ -80,8 +82,8 @@ Future<void> showEmojiPickerPanel({
     final selection = value.selection.isValid
         ? value.selection
         : insertionSelection.isValid
-            ? insertionSelection
-            : TextSelection.collapsed(offset: value.text.length);
+        ? insertionSelection
+        : TextSelection.collapsed(offset: value.text.length);
     final start = math.max(0, selection.start);
     final end = math.max(start, selection.end);
     final newText = value.text.replaceRange(start, end, emoji);
@@ -97,7 +99,9 @@ Future<void> showEmojiPickerPanel({
     await showGeneralDialog<void>(
       context: context,
       barrierDismissible: true,
-      barrierLabel: 'Закрыть панель эмодзи',
+      barrierLabel: EmojiPickerLocalizations.of(
+        context,
+      ).text('messenger.emoji.closePanel'),
       barrierColor: Colors.black.withValues(alpha: 0.12),
       transitionDuration: const Duration(milliseconds: 160),
       transitionBuilder: (context, animation, secondaryAnimation, child) {
@@ -124,12 +128,16 @@ Future<void> showEmojiPickerPanel({
         );
         final left = anchorRect == Rect.zero
             ? (media.size.width - panelWidth) / 2
-            : (anchorRect.center.dx - panelWidth / 2)
-                .clamp(12.0, media.size.width - panelWidth - 12.0);
+            : (anchorRect.center.dx - panelWidth / 2).clamp(
+                12.0,
+                media.size.width - panelWidth - 12.0,
+              );
         final top = anchorRect == Rect.zero
             ? math.max(12.0, media.size.height - panelHeight - 80)
-            : (anchorRect.top - panelHeight - 8)
-                .clamp(12.0, media.size.height - panelHeight - 12.0);
+            : (anchorRect.top - panelHeight - 8).clamp(
+                12.0,
+                media.size.height - panelHeight - 12.0,
+              );
 
         return Stack(
           children: [
@@ -221,8 +229,21 @@ class _EmojiPickerPanelState extends State<_EmojiPickerPanel> {
 
   List<_EmojiItem> get _visibleItems {
     if (_query.isNotEmpty) {
+      final strings = EmojiPickerLocalizations.of(context);
+      final query = _query.toLowerCase();
+      final matchingCategories = _categories
+          .where(
+            (category) =>
+                strings.text(category.label).toLowerCase().contains(query),
+          )
+          .map((category) => category.id)
+          .toSet();
       return _items
-          .where((item) => item.matches(_query))
+          .where(
+            (item) =>
+                item.matches(_query) ||
+                matchingCategories.contains(item.category),
+          )
           .toList(growable: false);
     }
     if (_category == 'recent') {
@@ -259,8 +280,9 @@ class _EmojiPickerPanelState extends State<_EmojiPickerPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final background =
-        widget.isDark ? const Color(0xFF1A1A1A) : const Color(0xFFFDFDFD);
+    final background = widget.isDark
+        ? const Color(0xFF1A1A1A)
+        : const Color(0xFFFDFDFD);
     final foreground = widget.isDark ? Colors.white : const Color(0xFF111827);
     final muted = widget.isDark ? Colors.white54 : Colors.black54;
     final border = widget.isDark
@@ -269,6 +291,7 @@ class _EmojiPickerPanelState extends State<_EmojiPickerPanel> {
     final surface = widget.isDark
         ? Colors.white.withValues(alpha: 0.06)
         : Colors.black.withValues(alpha: 0.045);
+    final strings = EmojiPickerLocalizations.of(context);
     final visibleItems = _visibleItems;
 
     return Material(
@@ -295,7 +318,7 @@ class _EmojiPickerPanelState extends State<_EmojiPickerPanel> {
                 children: [
                   Expanded(
                     child: Text(
-                      'Эмодзи',
+                      strings.text('messenger.emoji.title'),
                       style: TextStyle(
                         color: foreground,
                         fontSize: 15,
@@ -305,7 +328,7 @@ class _EmojiPickerPanelState extends State<_EmojiPickerPanel> {
                   ),
                   IconButton(
                     visualDensity: VisualDensity.compact,
-                    tooltip: 'Закрыть',
+                    tooltip: strings.text('messenger.emoji.close'),
                     onPressed: widget.onClose,
                     icon: Icon(Icons.close_rounded, color: muted, size: 19),
                   ),
@@ -321,10 +344,13 @@ class _EmojiPickerPanelState extends State<_EmojiPickerPanel> {
                 style: TextStyle(color: foreground, fontSize: 14),
                 decoration: InputDecoration(
                   isDense: true,
-                  hintText: 'Поиск эмодзи...',
+                  hintText: strings.text('messenger.emoji.searchPlaceholder'),
                   hintStyle: TextStyle(color: muted),
-                  prefixIcon:
-                      Icon(Icons.search_rounded, color: muted, size: 19),
+                  prefixIcon: Icon(
+                    Icons.search_rounded,
+                    color: muted,
+                    size: 19,
+                  ),
                   suffixIcon: _query.isEmpty
                       ? null
                       : IconButton(
@@ -332,8 +358,11 @@ class _EmojiPickerPanelState extends State<_EmojiPickerPanel> {
                             _searchController.clear();
                             setState(() => _query = '');
                           },
-                          icon:
-                              Icon(Icons.close_rounded, color: muted, size: 17),
+                          icon: Icon(
+                            Icons.close_rounded,
+                            color: muted,
+                            size: 17,
+                          ),
                         ),
                   filled: true,
                   fillColor: surface,
@@ -352,14 +381,16 @@ class _EmojiPickerPanelState extends State<_EmojiPickerPanel> {
               height: 43,
               child: ListView.builder(
                 scrollDirection: Axis.horizontal,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 itemCount: _categories.length,
                 itemBuilder: (context, index) {
                   final category = _categories[index];
                   final selected = _query.isEmpty && _category == category.id;
                   return Tooltip(
-                    message: category.label,
+                    message: strings.text(category.label),
                     child: InkWell(
                       borderRadius: BorderRadius.circular(8),
                       onTap: () {
@@ -379,8 +410,10 @@ class _EmojiPickerPanelState extends State<_EmojiPickerPanel> {
                           borderRadius: BorderRadius.circular(8),
                         ),
                         alignment: Alignment.center,
-                        child: Text(category.icon,
-                            style: const TextStyle(fontSize: 18)),
+                        child: Text(
+                          category.icon,
+                          style: const TextStyle(fontSize: 18),
+                        ),
                       ),
                     ),
                   );
@@ -394,50 +427,49 @@ class _EmojiPickerPanelState extends State<_EmojiPickerPanel> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
                   : visibleItems.isEmpty
-                      ? Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(24),
-                            child: Text(
-                              _category == 'recent' && _query.isEmpty
-                                  ? 'Недавние эмодзи появятся здесь'
-                                  : 'Ничего не найдено',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(color: muted, fontSize: 13),
-                            ),
-                          ),
-                        )
-                      : LayoutBuilder(
-                          builder: (context, constraints) {
-                            final columns = constraints.maxWidth < 350 ? 7 : 8;
-                            return GridView.builder(
-                              padding: const EdgeInsets.all(10),
-                              gridDelegate:
-                                  SliverGridDelegateWithFixedCrossAxisCount(
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Text(
+                          _category == 'recent' && _query.isEmpty
+                              ? strings.text('messenger.emoji.recentEmpty')
+                              : strings.text('messenger.emoji.notFound'),
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: muted, fontSize: 13),
+                        ),
+                      ),
+                    )
+                  : LayoutBuilder(
+                      builder: (context, constraints) {
+                        final columns = constraints.maxWidth < 350 ? 7 : 8;
+                        return GridView.builder(
+                          padding: const EdgeInsets.all(10),
+                          gridDelegate:
+                              SliverGridDelegateWithFixedCrossAxisCount(
                                 crossAxisCount: columns,
                                 mainAxisSpacing: 3,
                                 crossAxisSpacing: 3,
                               ),
-                              itemCount: visibleItems.length,
-                              itemBuilder: (context, index) {
-                                final item = visibleItems[index];
-                                return MouseRegion(
-                                  onEnter: (_) =>
-                                      setState(() => _preview = item),
-                                  child: InkWell(
-                                    borderRadius: BorderRadius.circular(8),
-                                    onTap: () => _select(item),
-                                    child: Center(
-                                      child: Text(
-                                        item.emoji,
-                                        style: const TextStyle(fontSize: 23),
-                                      ),
-                                    ),
+                          itemCount: visibleItems.length,
+                          itemBuilder: (context, index) {
+                            final item = visibleItems[index];
+                            return MouseRegion(
+                              onEnter: (_) => setState(() => _preview = item),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(8),
+                                onTap: () => _select(item),
+                                child: Center(
+                                  child: Text(
+                                    item.emoji,
+                                    style: const TextStyle(fontSize: 23),
                                   ),
-                                );
-                              },
+                                ),
+                              ),
                             );
                           },
-                        ),
+                        );
+                      },
+                    ),
             ),
             Divider(height: 1, color: border),
             SizedBox(
@@ -456,10 +488,18 @@ class _EmojiPickerPanelState extends State<_EmojiPickerPanel> {
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        _preview?.name ??
-                            _categories
-                                .firstWhere((item) => item.id == _category)
-                                .label,
+                        strings.text(
+                          _categories
+                              .firstWhere(
+                                (item) =>
+                                    item.id ==
+                                    (_preview?.category ?? _category),
+                                orElse: () => _categories.firstWhere(
+                                  (item) => item.id == 'Symbols',
+                                ),
+                              )
+                              .label,
+                        ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(color: muted, fontSize: 12),

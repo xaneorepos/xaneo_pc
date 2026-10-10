@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/theme_provider.dart';
 
 /// Продвинутый анимированный фон с 3D эффектами
 class AdvancedBackground extends StatefulWidget {
@@ -91,15 +93,17 @@ class _AdvancedBackgroundState extends State<AdvancedBackground>
             gradient: RadialGradient(
               center: Alignment.center,
               radius: 1.5,
-              colors: widget.isDark
-                  ? [
-                      Colors.grey.shade900.withOpacity(0.3),
-                      Colors.black,
-                    ]
+              colors: context.read<ThemeProvider>().xnxTheme == null
+                  ? (widget.isDark
+                      ? [Colors.grey.shade900.withOpacity(0.3), Colors.black]
+                      : [Colors.grey.shade200.withOpacity(0.5), Colors.white])
                   : [
-                      Colors.grey.shade200.withOpacity(0.5),
-                      Colors.white,
-                    ],
+                Color.alphaBlend(
+                  Theme.of(context).colorScheme.onSurface.withValues(alpha: widget.isDark ? 0.055 : 0.035),
+                  Theme.of(context).scaffoldBackgroundColor,
+                ),
+                Theme.of(context).scaffoldBackgroundColor,
+              ],
             ),
           ),
         ),

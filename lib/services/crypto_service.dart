@@ -5,6 +5,7 @@ import 'package:cryptography/cryptography.dart' as crypto;
 import 'package:pointycastle/digests/blake2b.dart';
 import 'package:x25519/x25519.dart' as x25519;
 import 'package:argon2/argon2.dart';
+import 'package:flutter/foundation.dart';
 import 'logger_service.dart';
 import 'secure_session_storage.dart';
 
@@ -22,6 +23,20 @@ import 'secure_session_storage.dart';
 /// The web client uses Web Crypto AES-GCM which appends the tag to ciphertext,
 /// so the full encrypted payload is: nonce(12) || ciphertext || tag(16)
 class CryptoService {
+  /// A discussion-group mirror retains the channel's ciphertext and key.
+  static String decryptionChatIdForMessage(
+    String chatId,
+    Map<String, dynamic>? message,
+  ) {
+    if (message?['message_type'] != 'channel_post_mirror') return chatId;
+    final metadata = message?['message_data'];
+    final rawChannelId =
+        (metadata is Map ? metadata['channel_id'] : null) ??
+        message?['channel_id'];
+    final channelId = int.tryParse(rawChannelId?.toString() ?? '');
+    return channelId != null && channelId > 0 ? 'channel_$channelId' : chatId;
+  }
+
   static final CryptoService _instance = CryptoService._internal();
   factory CryptoService() => _instance;
   CryptoService._internal();
@@ -690,7 +705,10 @@ class CryptoService {
   /// Web client: deriveAESKeyFromSharedSecret(sharedSecret, chatId)
   /// chatId is something like "personal_1_4"
   Uint8List derivePersonalChatKey(String theirPublicKeyHex, String chatId) {
-    final cacheKey = 'personal:$chatId';
+    // A peer may rotate their X25519 key while this chat stays open. A cache
+    // entry derived from the previous public key must not be reused.
+    final cacheKey =
+        'personal:$chatId:${theirPublicKeyHex.trim().toLowerCase()}';
     final cached = _chatKeyCache[cacheKey];
     if (cached != null) return cached;
 
@@ -1116,10 +1134,12 @@ class CryptoService {
         quiet: true,
       );
       if (decrypted != "[Ошибка дешифрования]") {
-        Logger.info(
-          'E2EE-DIAG',
-          'Personal message decrypted: candidate=$index',
-        );
+        if (kDebugMode) {
+          Logger.info(
+            'E2EE-DIAG',
+            'Personal message decrypted: candidate=$index',
+          );
+        }
         return decrypted;
       }
     }
@@ -1338,7 +1358,9 @@ class CryptoService {
     // 1. Server-escrowed key fallback
     final serverKey = data['server_epoch_key'] as String?;
     if (serverKey != null && serverKey.isNotEmpty) {
-      Logger.info('CryptoService', 'Using server epoch key');
+      if (kDebugMode) {
+        Logger.info('CryptoService', 'Using server epoch key');
+      }
       return serverKey;
     }
 

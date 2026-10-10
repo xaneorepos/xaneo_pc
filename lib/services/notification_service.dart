@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
@@ -34,10 +36,26 @@ class NotificationService {
   LocalNotification? _activeCallNotification;
   int? _activeCallOverlayWindowId;
   int? _overlayWindowId;
+  CallManager? _callManager;
+  Future<void> Function()? onMessagePush;
+  WebSocket? _pushSocket;
+
+  void attachCallManager(CallManager manager) => _callManager = manager;
+
+  bool sendCallAnswer(String callId) {
+    final socket = _pushSocket;
+    if (socket == null || socket.readyState != WebSocket.open) return false;
+    socket.add(jsonEncode({
+      'type': 'call_answer', 'call_id': callId, 'answer': 'livekit',
+    }));
+    return true;
+  }
 
   /// Инициализация сервиса уведомлений
   Future<void> init() async {
     if (_initialized) return;
+    ApiService().onBeforeLogout = () async => _pushSocket?.close();
+    ApiService().onLogout = () => _pushSocket?.close();
 
     try {
       if (!kIsWeb && Platform.isWindows) {
@@ -53,7 +71,75 @@ class NotificationService {
     }
 
     _initialized = true;
+    unawaited(_listenToPush());
     debugPrint('NotificationService: Initialized successfully');
+  }
+
+  Future<void> _listenToPush() async {
+    var retries = 0;
+    while (_initialized) {
+      try {
+        final token = await ApiService().getAccessToken();
+        if (token == null || token.isEmpty) {
+          await Future.delayed(const Duration(seconds: 5));
+          continue;
+        }
+        final api = Uri.parse(ApiService.baseUrl);
+        final uri = api.replace(
+          scheme: api.scheme == 'https' ? 'wss' : 'ws',
+          path: '/ws/notifications/', query: '', fragment: '',
+        );
+        final socket = await WebSocket.connect(uri.toString(),
+          headers: {'Authorization': 'Bearer $token'},
+        ).timeout(const Duration(seconds: 10));
+        _pushSocket = socket;
+        socket.pingInterval = const Duration(minutes: 3);
+        retries = 0;
+        final accountWatch = Timer.periodic(const Duration(seconds: 15), (_) async {
+          if (await ApiService().getAccessToken() != token) socket.close();
+        });
+        try {
+          await for (final frame in socket) {
+            if (frame is String) await _onPushEvent(frame);
+          }
+        } finally {
+          accountWatch.cancel();
+        }
+      } catch (error) {
+        debugPrint('NotificationService: direct socket failed: $error');
+      } finally {
+        _pushSocket?.close();
+        _pushSocket = null;
+      }
+      retries = (retries + 1).clamp(0, 6);
+      await Future.delayed(Duration(seconds: min(60, 1 << retries)));
+    }
+  }
+
+  Future<void> _onPushEvent(String raw) async {
+    final dynamic event;
+    try {
+      event = jsonDecode(raw);
+    } catch (_) {
+      return;
+    }
+    if (event is! Map<String, dynamic>) return;
+    if (event['type'] == 'call') {
+      _callManager?.handlePushIncomingCall(event);
+    } else if (event['type'] == 'message') {
+      final refresh = onMessagePush;
+      if (refresh != null) {
+        await refresh();
+        return;
+      }
+      final focused = await windowManager.isFocused();
+      if (!focused) {
+        await showMessageNotification(
+          chatId: event['chat_id']?.toString() ?? '',
+          title: 'Xaneo', body: 'Новое зашифрованное сообщение',
+        );
+      }
+    }
   }
 
   /// Проверяет, поддерживается ли кастомный оверлей на текущей платформе и сессии.

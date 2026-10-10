@@ -154,6 +154,9 @@ flutter run -d macos
 flutter build linux --release
 flutter build windows --release
 flutter build macos --release
+
+# Для локального API окно приложения называется Xaneo Beta:
+flutter build linux --release --dart-define=API_BASE_URL=http://192.168.1.10:8000/api/v1
 ```
 
 #### Сборка всех дистрибутивов через скрипт

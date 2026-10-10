@@ -140,6 +140,29 @@ void main() {
       },
     );
 
+    test(
+      'personal chat key changes when the peer public key changes',
+      () async {
+        final ownBlob = await cryptoService.generateAndStoreKeys(password);
+        await cryptoService.generateAndStoreKeys(password);
+        final oldPeerPublicKey = cryptoService.x25519PublicKeyHex!;
+        await cryptoService.generateAndStoreKeys(password);
+        final newPeerPublicKey = cryptoService.x25519PublicKeyHex!;
+
+        await cryptoService.unlockFromBlob(ownBlob, password);
+        final oldKey = cryptoService.derivePersonalChatKey(
+          oldPeerPublicKey,
+          'personal_1_2',
+        );
+        final newKey = cryptoService.derivePersonalChatKey(
+          newPeerPublicKey,
+          'personal_1_2',
+        );
+
+        expect(newKey, isNot(equals(oldKey)));
+      },
+    );
+
     test('Group message encrypt and decrypt roundtrip', () async {
       const chatKeyHex =
           "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"; // 32-byte key

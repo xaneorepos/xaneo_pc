@@ -65,6 +65,7 @@ import '../widgets/update_banner_widget.dart';
 import '../widgets/emoji_picker_panel.dart';
 import '../widgets/forward_message_modal.dart';
 import '../widgets/blur_hash_placeholder.dart';
+import '../widgets/channel_comment_footer.dart';
 import '../providers/appearance_provider.dart';
 import '../models/message_color_presets.dart';
 
@@ -76,6 +77,19 @@ class MessengerScreen extends StatefulWidget {
 }
 
 class _MessengerScreenState extends State<MessengerScreen> {
+  final Map<int, Map<String, dynamic>> _commentSummaries = {};
+  final Set<int> _requestedCommentSummaryIds = {};
+  final Set<int> _pendingCommentSummaryIds = {};
+  Timer? _commentSummaryTimer;
+  int? _commentSummaryChannelId;
+  Map<String, dynamic>? _chatBeforeComments;
+  String? _draftBeforeComments;
+  Map<String, dynamic>? _replyBeforeComments;
+  int? _commentChannelId;
+  int? _commentPostId;
+  int? _commentMirrorId;
+  int _commentStartOffset = 0;
+  final List<Map<String, dynamic>> _commentRows = [];
   final ApiService _apiService = ApiService();
   final CryptoService _cryptoService = CryptoService();
   final GlobalKey<SettingsButtonState> _settingsKey =
@@ -83,7 +97,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
   final GlobalKey _attachmentKey = GlobalKey();
   final GlobalKey _emojiButtonKey = GlobalKey();
   final GlobalKey _botCommandsKey = GlobalKey();
-  Map<String, dynamic>? _attachedFile;
+  final List<Map<String, dynamic>> _attachedFiles = [];
+  final List<Map<String, dynamic>> _uploadingFiles = [];
+  int _nextAttachmentOrder = 0;
   final Map<String, Map<String, dynamic>> _fileMetadataCache = {};
   final Set<String> _fetchingFileMetadata = {};
   final Set<int> _loggedRestoredVideoFileIds = {};
@@ -107,7 +123,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
   // Keys cache
   final Map<String, String> _peerPublicKeys = {};
+  final Map<String, Future<String?>> _peerPublicKeyFetches = {};
+  final Map<String, DateTime> _peerPublicKeyRefreshTimes = {};
   final Map<String, String> _chatSymmetricKeys = {};
+  final Map<String, String?> _legacyChatKeys = {};
 
   // Current user info
   Map<String, dynamic>? _myProfile;
@@ -135,6 +154,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
   final GlobalKey _messageListKey = GlobalKey();
   String? _floatingDateText;
   bool _showFloatingDate = false;
+  bool _floatingDateUpdateScheduled = false;
 
   // Polling timer
   Timer? _pollingTimer;
@@ -201,6 +221,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
   @override
   void initState() {
     super.initState();
+    NotificationService().onMessagePush = () => _loadChats(silent: true);
     _apiService.onSessionExpired = _logout;
     _messageController.addListener(_onMessageTextChanged);
     _scrollController.addListener(_onScroll);
@@ -291,7 +312,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
   @override
   void dispose() {
+    _commentSummaryTimer?.cancel();
     _apiService.onSessionExpired = null;
+    NotificationService().onMessagePush = null;
     // На Linux не трогаем AudioRecorder — он не используется.
     // Убиваем arecord если вдруг запущен.
     if (Platform.isLinux) {
@@ -467,8 +490,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
       final myIdStr = _myId?.toString() ?? 'default';
 
       final peerKeysRaw = prefs.getString('cached_peer_public_keys_$myIdStr');
+      _peerPublicKeys.clear();
+      _peerPublicKeyFetches.clear();
+      _peerPublicKeyRefreshTimes.clear();
       if (peerKeysRaw != null) {
-        _peerPublicKeys.clear();
         final map = jsonDecode(peerKeysRaw) as Map<String, dynamic>;
         map.forEach((k, v) {
           if (v is String && k != myIdStr) _peerPublicKeys[k] = v;
@@ -479,6 +504,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
         'cached_chat_symmetric_keys_$myIdStr',
       );
       _chatSymmetricKeys.clear();
+      _legacyChatKeys.clear();
       if (chatKeysRaw != null) {
         // Legacy plaintext key cache. Never restore secret chat keys from
         // SharedPreferences; fetch them again for the active session.
@@ -948,10 +974,12 @@ class _MessengerScreenState extends State<MessengerScreen> {
         );
       },
       pageBuilder: (context, anim1, anim2) {
-        final bgColor = isDark ? const Color(0xFF0C0C0C) : Colors.white;
-        final borderColor = isDark
-            ? const Color(0xFF1E1E1E)
-            : const Color(0xFFEBEBEB);
+        final bgColor =
+            context.xnxColor("surface") ??
+            (isDark ? const Color(0xFF0C0C0C) : Colors.white);
+        final borderColor =
+            context.xnxColor("border") ??
+            (isDark ? const Color(0xFF1E1E1E) : const Color(0xFFEBEBEB));
 
         return Material(
           type: MaterialType.transparency,
@@ -992,8 +1020,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
                             style: TextStyle(
                               fontSize: 17 * scale,
                               fontWeight: FontWeight.bold,
-                              color: isDark ? Colors.white : Colors.black87,
-                              fontFamily: 'Inter',
+                              color:
+                                  context.xnxColor("text") ??
+                                  (isDark ? Colors.white : Colors.black87),
+                              fontFamily: null,
                             ),
                           ),
                         ),
@@ -1065,9 +1095,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                     ),
                                     child: Icon(
                                       Icons.videocam_rounded,
-                                      color: isDark
-                                          ? Colors.white70
-                                          : Colors.black87,
+                                      color:
+                                          context.xnxColor("text-secondary") ??
+                                          (isDark
+                                              ? Colors.white70
+                                              : Colors.black87),
                                       size: 22 * scale,
                                     ),
                                   ),
@@ -1085,7 +1117,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                                 : Colors.black87,
                                             fontSize: 14 * scale,
                                             fontWeight: FontWeight.w600,
-                                            fontFamily: 'Inter',
+                                            fontFamily: null,
                                           ),
                                         ),
                                         SizedBox(height: 3 * scale),
@@ -1097,7 +1129,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                                 ? Colors.white60
                                                 : Colors.black54,
                                             fontSize: 12 * scale,
-                                            fontFamily: 'Inter',
+                                            fontFamily: null,
                                           ),
                                         ),
                                       ],
@@ -1154,9 +1186,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                     ),
                                     child: Icon(
                                       Icons.phone_rounded,
-                                      color: isDark
-                                          ? Colors.white70
-                                          : Colors.black87,
+                                      color:
+                                          context.xnxColor("text-secondary") ??
+                                          (isDark
+                                              ? Colors.white70
+                                              : Colors.black87),
                                       size: 20 * scale,
                                     ),
                                   ),
@@ -1174,7 +1208,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                                 : Colors.black87,
                                             fontSize: 14 * scale,
                                             fontWeight: FontWeight.w600,
-                                            fontFamily: 'Inter',
+                                            fontFamily: null,
                                           ),
                                         ),
                                         SizedBox(height: 3 * scale),
@@ -1185,7 +1219,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                                 ? Colors.white60
                                                 : Colors.black54,
                                             fontSize: 12 * scale,
-                                            fontFamily: 'Inter',
+                                            fontFamily: null,
                                           ),
                                         ),
                                       ],
@@ -1235,7 +1269,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
           myUserId,
         );
       } else if (chatId.startsWith('personal_')) {
-        final peerPubKey = await _getPeerPublicKey(otherUser, chatId: chatId);
+        final peerPubKey = await _getPeerPublicKey(
+          otherUser,
+          chatId: chatId,
+          refresh: true,
+        );
         if (peerPubKey == null) return;
         if (peerPubKey == 'bot') {
           final chatKeyHex = await _getGroupChatKey(chatId);
@@ -1347,7 +1385,12 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
         String body = "";
         try {
-          body = await _decryptForChat(encryptedText, chatId, otherUser);
+          body = await _decryptForChat(
+            encryptedText,
+            chatId,
+            otherUser,
+            message: lastMsg is Map ? Map<String, dynamic>.from(lastMsg) : null,
+          );
         } catch (_) {
           body =
               (AppLocalizations.of(context)?.zashifrovannoeSoobschenie_ca35 ??
@@ -1548,6 +1591,33 @@ class _MessengerScreenState extends State<MessengerScreen> {
       return;
     }
 
+    if (_commentChannelId != null) {
+      final replyId = int.tryParse(
+        (data['reply_to'] ?? data['reply_to_id'])?.toString() ?? '',
+      );
+      if ((type == 'channel_comment' || type == 'encrypted_message') &&
+          replyId == _commentMirrorId) {
+        await _loadCommentDiscussion();
+      }
+      return;
+    }
+
+    if (type == 'comment_count_update') {
+      final postId = int.tryParse(data['post_id']?.toString() ?? '');
+      final channelId = int.tryParse(
+        (_selectedChat?['chat_id']?.toString() ?? '').replaceFirst(
+          'channel_',
+          '',
+        ),
+      );
+      if (postId != null && channelId != null) {
+        _commentSummaries.remove(postId);
+        _requestedCommentSummaryIds.remove(postId);
+        _queueCommentSummary(postId);
+      }
+      return;
+    }
+
     if (type == 'encrypted_message' ||
         type == 'todo_list_message' ||
         type == 'poll_message' ||
@@ -1556,9 +1626,22 @@ class _MessengerScreenState extends State<MessengerScreen> {
         type == 'file_message' ||
         type == 'file' ||
         type == 'new_message' ||
-        type == 'message') {
-      final msgChatId = data['chat_id']?.toString();
+        type == 'message' ||
+        type == 'channel_post_mirror' ||
+        type == 'channel_comment') {
+      final msgChatId =
+          data['chat_id']?.toString() ??
+          (type == 'channel_post_mirror' ? activeChatId : null);
       if (msgChatId == null) return;
+      if (type == 'channel_post_mirror') {
+        data['chat_id'] = msgChatId;
+        data['id'] ??= data['group_message_id'];
+        data['message_type'] = 'channel_post_mirror';
+      }
+      if (type == 'channel_comment') {
+        data['chat_id'] = msgChatId;
+        data['message_type'] = 'regular';
+      }
 
       // Обновляем список чатов
       _loadChats(silent: true);
@@ -1642,6 +1725,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                   encryptedText,
                   activeChatId,
                   otherUser,
+                  message: data,
                 );
               } catch (_) {
                 decryptedText =
@@ -1751,6 +1835,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                   encryptedText,
                   msgChatId,
                   otherUser,
+                  message: data,
                 );
               } catch (_) {
                 body =
@@ -2013,7 +2098,12 @@ class _MessengerScreenState extends State<MessengerScreen> {
   void _onMessageTextChanged() {
     final text = _messageController.text;
 
-    final bool hasText = text.trim().isNotEmpty || _attachedFile != null;
+    final currentChatId = (_selectedChat?['chat_id'] ?? _selectedChat?['id'])
+        ?.toString();
+    final bool hasText =
+        text.trim().isNotEmpty ||
+        _attachedFiles.any((file) => file['chat_id'] == currentChatId) ||
+        _uploadingFiles.any((file) => file['chat_id'] == currentChatId);
     if (hasText != _showSendButton) {
       setState(() {
         _showSendButton = hasText;
@@ -2552,7 +2642,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
                 ),
                 child: Icon(
                   Icons.archive_outlined,
-                  color: isDark ? Colors.white70 : Colors.black54,
+                  color:
+                      context.xnxColor("text-secondary") ??
+                      (isDark ? Colors.white70 : Colors.black54),
                   size: 20 * scale,
                 ),
               ),
@@ -2566,8 +2658,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
                       style: TextStyle(
                         fontWeight: FontWeight.w500,
                         fontSize: 13.5 * scale,
-                        color: isDark ? Colors.white : Colors.black87,
-                        fontFamily: 'Inter',
+                        color:
+                            context.xnxColor("text") ??
+                            (isDark ? Colors.white : Colors.black87),
+                        fontFamily: null,
                       ),
                     ),
                     const SizedBox(height: 2),
@@ -2577,7 +2671,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                       style: TextStyle(
                         fontSize: 11 * scale,
                         color: isDark ? Colors.white30 : Colors.black38,
-                        fontFamily: 'Inter',
+                        fontFamily: null,
                       ),
                     ),
                   ],
@@ -2600,8 +2694,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
                     style: TextStyle(
                       fontSize: 10 * scale,
                       fontWeight: FontWeight.w600,
-                      color: isDark ? Colors.white : Colors.black87,
-                      fontFamily: 'Inter',
+                      color:
+                          context.xnxColor("text") ??
+                          (isDark ? Colors.white : Colors.black87),
+                      fontFamily: null,
                     ),
                   ),
                 ),
@@ -2967,6 +3063,8 @@ class _MessengerScreenState extends State<MessengerScreen> {
           url,
           width: size,
           height: size,
+          cacheWidth: (size * MediaQuery.devicePixelRatioOf(context)).ceil(),
+          cacheHeight: (size * MediaQuery.devicePixelRatioOf(context)).ceil(),
           fit: BoxFit.cover,
           errorBuilder: (_, __, ___) =>
               _buildGradientAvatar(gradientColors, initial, size),
@@ -3003,6 +3101,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
   }
 
   Future<void> _loadMessages(String chatId, {bool silent = false}) async {
+    if (_commentChannelId != null && chatId == _selectedChat?['chat_id']) {
+      await _loadCommentDiscussion();
+      return;
+    }
     await _loadMessagesFromLocalCache(chatId);
     if (!_isCurrentChat(chatId)) return;
 
@@ -3086,7 +3188,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
   }
 
   void _onScroll() {
-    _updateFloatingDate();
+    _scheduleFloatingDateUpdate();
     if (_scrollController.hasClients) {
       final maxScroll = _scrollController.position.maxScrollExtent;
       final currentScroll = _scrollController.position.pixels;
@@ -3098,6 +3200,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
   Future<void> _loadMoreMessages() async {
     if (_isLoadingMore || !_hasMoreMessages || _selectedChat == null) return;
+    if (_commentChannelId != null) {
+      await _loadCommentDiscussion(more: true);
+      return;
+    }
 
     final chatId = (_selectedChat!['chat_id'] ?? _selectedChat!['id'])
         ?.toString();
@@ -3147,6 +3253,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
   Future<String?> _getPeerPublicKey(
     Map<String, dynamic>? otherUser, {
     String? chatId,
+    bool refresh = false,
   }) async {
     String? targetUserIdStr;
     final myIdStr = _myId?.toString();
@@ -3194,7 +3301,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
     final myPubKeyHex = _cryptoService.x25519PublicKeyHex;
 
     // Check cached peer keys, but invalidate if cached key erroneously matches my own public key!
-    if (_peerPublicKeys.containsKey(targetUserIdStr)) {
+    if (!refresh && _peerPublicKeys.containsKey(targetUserIdStr)) {
       final cachedKey = _peerPublicKeys[targetUserIdStr];
       if (cachedKey != null &&
           cachedKey != 'bot' &&
@@ -3206,32 +3313,40 @@ class _MessengerScreenState extends State<MessengerScreen> {
       }
     }
 
-    // The endpoint is username-based. User ID 1 is a valid regular account and
-    // must not be treated as a bot without an explicit API flag.
-    final peerUsername = otherUser?['username']?.toString().trim();
-    final lookup = peerUsername != null && peerUsername.isNotEmpty
-        ? peerUsername
-        : targetUserIdStr;
-    final res = await _apiService.getUserPublicKey(lookup);
-    if (res.success && res.data != null) {
-      if (res.data!['is_bot'] == true) {
-        _peerPublicKeys[targetUserIdStr] = 'bot';
-        _savePeerPublicKeys();
-        return 'bot';
-      }
-      final key = res.data!['x25519_public_key'] as String?;
-      if (key != null) {
-        if (myPubKeyHex != null && key == myPubKeyHex) {
-          print(
-            "WARNING: API returned own public key for peer $targetUserIdStr",
-          );
-        }
-        _peerPublicKeys[targetUserIdStr] = key;
-        _savePeerPublicKeys();
-        return key;
-      }
+    // Match the web and mobile clients: resolve the peer by the immutable user
+    // ID from the chat, since the username in cached chat metadata can change.
+    final inFlight = _peerPublicKeyFetches[targetUserIdStr];
+    if (inFlight != null) return inFlight;
+    final lastRefresh = _peerPublicKeyRefreshTimes[targetUserIdStr];
+    if (refresh &&
+        lastRefresh != null &&
+        DateTime.now().difference(lastRefresh) < const Duration(seconds: 30)) {
+      return _peerPublicKeys[targetUserIdStr];
     }
-    return null;
+    final future = () async {
+      final res = await _apiService.getUserPublicKey(targetUserIdStr!);
+      if (res.success && res.data != null) {
+        if (res.data!['is_bot'] == true) {
+          _peerPublicKeys[targetUserIdStr] = 'bot';
+          await _savePeerPublicKeys();
+          return 'bot';
+        }
+        final key = res.data!['x25519_public_key'] as String?;
+        if (key != null && key.isNotEmpty && key != myPubKeyHex) {
+          _peerPublicKeys[targetUserIdStr] = key;
+          await _savePeerPublicKeys();
+          return key;
+        }
+      }
+      return _peerPublicKeys[targetUserIdStr];
+    }();
+    _peerPublicKeyFetches[targetUserIdStr] = future;
+    try {
+      return await future;
+    } finally {
+      _peerPublicKeyFetches.remove(targetUserIdStr);
+      if (refresh) _peerPublicKeyRefreshTimes[targetUserIdStr] = DateTime.now();
+    }
   }
 
   /// Get the server-managed symmetric key for group/channel chats (with E2EE epoch support)
@@ -3272,6 +3387,29 @@ class _MessengerScreenState extends State<MessengerScreen> {
     return null;
   }
 
+  Future<String?> _getLegacyGroupChatKey(
+    String chatId, {
+    bool forceRefresh = false,
+  }) async {
+    if (!forceRefresh && _legacyChatKeys.containsKey(chatId)) {
+      return _legacyChatKeys[chatId];
+    }
+
+    try {
+      final response = await _apiService.getChatKey(chatId);
+      final key = response.success && response.data != null
+          ? response.data!['key'] as String?
+          : null;
+      _legacyChatKeys[chatId] = key;
+      return key;
+    } catch (_) {
+      // Cache the miss as well: retrying the same request for every message
+      // turns loading a page into an avoidable N+1 network operation.
+      _legacyChatKeys[chatId] = null;
+      return null;
+    }
+  }
+
   bool _isBase64(String str) {
     try {
       final trimmed = str.trim();
@@ -3287,8 +3425,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
   Future<String> _decryptForChat(
     String encryptedText,
     String chatId,
-    Map<String, dynamic>? otherUser,
-  ) async {
+    Map<String, dynamic>? otherUser, {
+    Map<String, dynamic>? message,
+  }) async {
     final looksEncrypted = _isBase64(encryptedText);
     if (!looksEncrypted) {
       Logger.warning(
@@ -3311,9 +3450,14 @@ class _MessengerScreenState extends State<MessengerScreen> {
     }
 
     if (chatId.startsWith('personal_')) {
-      final peerPubKey = await _getPeerPublicKey(otherUser, chatId: chatId);
+      var peerPubKey = await _getPeerPublicKey(otherUser, chatId: chatId);
       if (peerPubKey == null) {
-        return (AppLocalizations.of(context)?.netKlyucha_337b ?? 'Fallback');
+        // Deleted bots no longer expose a public key, but their old chat key
+        // remains available to authorized members for legacy BOT messages.
+        if (await _getGroupChatKey(chatId) == null) {
+          return (AppLocalizations.of(context)?.netKlyucha_337b ?? 'Fallback');
+        }
+        peerPubKey = 'bot';
       }
       if (peerPubKey == 'bot') {
         final chatKeyHex = await _getGroupChatKey(chatId);
@@ -3361,21 +3505,45 @@ class _MessengerScreenState extends State<MessengerScreen> {
         }
         return dec;
       }
-      return await _cryptoService.decryptPersonalMessage(
+      final decrypted = await _cryptoService.decryptPersonalMessage(
         encryptedText,
         peerPubKey,
         chatId,
       );
+      if (decrypted != '[Ошибка дешифрования]') return decrypted;
+
+      // A stored peer key can be stale after a key rotation. Refresh once and
+      // retry with the server's current key without disturbing other chats.
+      final currentPeerKey = await _getPeerPublicKey(
+        otherUser,
+        chatId: chatId,
+        refresh: true,
+      );
+      if (currentPeerKey != null &&
+          currentPeerKey != 'bot' &&
+          currentPeerKey != peerPubKey) {
+        return _cryptoService.decryptPersonalMessage(
+          encryptedText,
+          currentPeerKey,
+          chatId,
+        );
+      }
+      return decrypted;
     }
 
+    final cipherChatId = CryptoService.decryptionChatIdForMessage(
+      chatId,
+      message,
+    );
     final effectiveChatType = _selectedChat?['chat_type'] as String?;
     if (chatId.startsWith('group_') ||
         chatId.startsWith('channel_') ||
         effectiveChatType == 'group' ||
         effectiveChatType == 'channel') {
       final normalizedChatId =
-          (chatId.startsWith('group_') || chatId.startsWith('channel_'))
-          ? chatId
+          (cipherChatId.startsWith('group_') ||
+              cipherChatId.startsWith('channel_'))
+          ? cipherChatId
           : (effectiveChatType == 'channel'
                 ? 'channel_$chatId'
                 : 'group_$chatId');
@@ -3385,13 +3553,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
       }
 
       // Also get raw server ChatKey as fallback candidate
-      String? legacyKey;
-      try {
-        final legacyRes = await _apiService.getChatKey(normalizedChatId);
-        if (legacyRes.success && legacyRes.data != null) {
-          legacyKey = legacyRes.data!['key'] as String?;
-        }
-      } catch (_) {}
+      var legacyKey = await _getLegacyGroupChatKey(normalizedChatId);
 
       final candidates = <String>[
         if (legacyKey != null && legacyKey != chatKeyHex) legacyKey,
@@ -3407,6 +3569,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
         // Очищаем кэш и запрашиваем актуальный ключ с сервера повторно
         final oldKey = _chatSymmetricKeys.remove(normalizedChatId);
         chatKeyHex = await _getGroupChatKey(normalizedChatId);
+        legacyKey = await _getLegacyGroupChatKey(
+          normalizedChatId,
+          forceRefresh: true,
+        );
         if (chatKeyHex != null) {
           decrypted = await _cryptoService.decryptGroupMessage(
             encryptedText,
@@ -3454,9 +3620,14 @@ class _MessengerScreenState extends State<MessengerScreen> {
     }
 
     try {
+      final replyChannelId = int.tryParse(
+        message['reply_channel_id']?.toString() ?? '',
+      );
       final decryptedReply = await _decryptForChat(
         replyTextRaw,
-        chatId,
+        replyChannelId != null && replyChannelId > 0
+            ? 'channel_$replyChannelId'
+            : chatId,
         otherUser,
       );
       if (decryptedReply != replyTextRaw && !decryptedReply.startsWith('[')) {
@@ -3565,7 +3736,12 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
     String decrypted;
     try {
-      decrypted = await _decryptForChat(encryptedText, chatId, otherUser);
+      decrypted = await _decryptForChat(
+        encryptedText,
+        chatId,
+        otherUser,
+        message: Map<String, dynamic>.from(msg),
+      );
     } catch (_) {
       decrypted =
           (AppLocalizations.of(context)?.oshibkaDeshifrovaniya_4146 ??
@@ -3586,108 +3762,138 @@ class _MessengerScreenState extends State<MessengerScreen> {
     String chatId,
     Map<String, dynamic>? otherUser,
   ) async {
-    for (var msg in messages) {
-      final dynamic rawId = msg['id'];
-      final id = rawId is int ? rawId : int.tryParse(rawId.toString());
-      if (id == null) continue;
-      final existing = _decryptedMessages[id];
-      final isCall = (msg['type'] == 'call' || msg['message_type'] == 'call');
-      if (existing != null &&
-          !existing.startsWith('[') &&
-          (!isCall || existing.startsWith('{'))) {
-        // Message objects are recreated after reopening a chat. The main text
-        // may already be cached, but reply_text still needs to be decrypted.
-        await _decryptReplyPreview(msg, chatId, otherUser);
-        continue;
+    // Resolve network-backed keys once before starting the batch. Without this
+    // warm-up every concurrent message could initiate the same key request.
+    if (chatId.startsWith('personal_')) {
+      final peerKey = await _getPeerPublicKey(otherUser, chatId: chatId);
+      if (peerKey == 'bot') {
+        await _getGroupChatKey(chatId);
       }
-
-      final type = msg['type'] as String?;
-      final messageType = msg['message_type'] as String?;
-
-      if (type == 'voice_message' || messageType == 'voice') {
-        if (mounted) {
-          setState(() {
-            _decryptedMessages[id] = jsonEncode({
-              'type': 'voice',
-              'file_id': msg['file_id'],
-              'duration': msg['duration'],
-              'mime_type': msg['mime_type'] ?? 'audio/wav',
-            });
-          });
-        }
-        continue;
-      } else if (type == 'video_message' ||
-          messageType == 'video' ||
-          messageType == 'video_message') {
-        if (mounted) {
-          setState(() {
-            _decryptedMessages[id] = jsonEncode({
-              'type': 'video_message',
-              'file_id': msg['file_id'] ?? msg['attached_file_id'],
-              'file_url': msg['file_url'] ?? msg['attached_file_url'],
-              'duration': msg['duration'] ?? msg['attached_file_duration'],
-              'mime_type':
-                  msg['mime_type'] ?? msg['attached_file_type'] ?? 'video/mp4',
-            });
-          });
-        }
-        continue;
-      } else if (type == 'call' || messageType == 'call') {
-        if (mounted) {
-          setState(() {
-            _decryptedMessages[id] = jsonEncode({
-              'type': 'call',
-              'status':
-                  msg['message_data']?['status'] ??
-                  msg['status'] ??
-                  'connected',
-              'duration':
-                  msg['message_data']?['duration'] ?? msg['duration'] ?? 0,
-              'call_type':
-                  msg['message_data']?['call_type'] ??
-                  msg['call_type'] ??
-                  'audio',
-              'caller_id':
-                  msg['message_data']?['caller_id'] ?? msg['caller_id'],
-              'callee_id':
-                  msg['message_data']?['callee_id'] ?? msg['callee_id'],
-            });
-          });
-        }
-        continue;
-      }
-
-      final encryptedText = msg['encrypted_text'] as String?;
-      if (encryptedText == null || encryptedText.isEmpty) {
-        Logger.warning('E2EE-DIAG', 'Message has no encrypted_text');
-        _decryptedMessages[id] = "";
-        continue;
-      }
-
-      String decrypted;
-      try {
-        decrypted = await _decryptForChat(encryptedText, chatId, otherUser);
-      } catch (error, stackTrace) {
-        Logger.error('E2EE-DIAG', 'Message decrypt threw', error, stackTrace);
-        decrypted =
-            (AppLocalizations.of(context)?.oshibkaDeshifrovaniya_4146 ??
-            'Fallback');
-      }
-
-      await _decryptReplyPreview(msg, chatId, otherUser);
-
-      if (mounted) {
-        setState(() {
-          _decryptedMessages[id] = decrypted;
-        });
+    } else {
+      final effectiveType = _selectedChat?['chat_type'] as String?;
+      if (chatId.startsWith('group_') ||
+          chatId.startsWith('channel_') ||
+          effectiveType == 'group' ||
+          effectiveType == 'channel') {
+        final normalizedChatId =
+            (chatId.startsWith('group_') || chatId.startsWith('channel_'))
+            ? chatId
+            : (effectiveType == 'channel'
+                  ? 'channel_$chatId'
+                  : 'group_$chatId');
+        await Future.wait([
+          _getGroupChatKey(normalizedChatId),
+          _getLegacyGroupChatKey(normalizedChatId),
+        ]);
       }
     }
+
+    await Future.wait(
+      messages.map((msg) async {
+        final dynamic rawId = msg['id'];
+        final id = rawId is int ? rawId : int.tryParse(rawId.toString());
+        if (id == null) return;
+        final existing = _decryptedMessages[id];
+        final isCall = (msg['type'] == 'call' || msg['message_type'] == 'call');
+        if (existing != null &&
+            !existing.startsWith('[') &&
+            (!isCall || existing.startsWith('{'))) {
+          // Message objects are recreated after reopening a chat. The main text
+          // may already be cached, but reply_text still needs to be decrypted.
+          await _decryptReplyPreview(msg, chatId, otherUser);
+          return;
+        }
+
+        final type = msg['type'] as String?;
+        final messageType = msg['message_type'] as String?;
+
+        if (type == 'voice_message' || messageType == 'voice') {
+          _decryptedMessages[id] = jsonEncode({
+            'type': 'voice',
+            'file_id': msg['file_id'],
+            'duration': msg['duration'],
+            'mime_type': msg['mime_type'] ?? 'audio/wav',
+          });
+          return;
+        } else if (type == 'video_message' ||
+            messageType == 'video' ||
+            messageType == 'video_message') {
+          _decryptedMessages[id] = jsonEncode({
+            'type': 'video_message',
+            'file_id': msg['file_id'] ?? msg['attached_file_id'],
+            'file_url': msg['file_url'] ?? msg['attached_file_url'],
+            'duration': msg['duration'] ?? msg['attached_file_duration'],
+            'mime_type':
+                msg['mime_type'] ?? msg['attached_file_type'] ?? 'video/mp4',
+          });
+          return;
+        } else if (type == 'call' || messageType == 'call') {
+          _decryptedMessages[id] = jsonEncode({
+            'type': 'call',
+            'status':
+                msg['message_data']?['status'] ?? msg['status'] ?? 'connected',
+            'duration':
+                msg['message_data']?['duration'] ?? msg['duration'] ?? 0,
+            'call_type':
+                msg['message_data']?['call_type'] ??
+                msg['call_type'] ??
+                'audio',
+            'caller_id': msg['message_data']?['caller_id'] ?? msg['caller_id'],
+            'callee_id': msg['message_data']?['callee_id'] ?? msg['callee_id'],
+          });
+          return;
+        }
+
+        final encryptedText = msg['encrypted_text'] as String?;
+        if (encryptedText == null || encryptedText.isEmpty) {
+          Logger.warning('E2EE-DIAG', 'Message has no encrypted_text');
+          _decryptedMessages[id] = "";
+          return;
+        }
+
+        String decrypted;
+        try {
+          decrypted = await _decryptForChat(
+            encryptedText,
+            chatId,
+            otherUser,
+            message: Map<String, dynamic>.from(msg),
+          );
+        } catch (error, stackTrace) {
+          Logger.error('E2EE-DIAG', 'Message decrypt threw', error, stackTrace);
+          decrypted =
+              (AppLocalizations.of(context)?.oshibkaDeshifrovaniya_4146 ??
+              'Fallback');
+        }
+
+        await _decryptReplyPreview(msg, chatId, otherUser);
+
+        _decryptedMessages[id] = decrypted;
+      }),
+    );
   }
 
   Future<void> _sendMessage() async {
-    final text = _messageController.text.trim();
-    if ((text.isEmpty && _attachedFile == null) || _selectedChat == null)
+    if (_commentChannelId != null) {
+      await _sendCommentMessage();
       return;
+    }
+    final text = _messageController.text.trim();
+    final chatId = (_selectedChat?['chat_id'] ?? _selectedChat?['id'])
+        ?.toString();
+    if (chatId == null ||
+        (text.isEmpty &&
+            !_attachedFiles.any((file) => file['chat_id'] == chatId)))
+      return;
+
+    if (_uploadingFiles.any((file) => file['chat_id'] == chatId)) {
+      CustomToast.show(
+        context,
+        'Дождитесь загрузки файлов или удалите файлы с ошибкой',
+        type: ToastType.warning,
+      );
+      return;
+    }
 
     if (_isSlowModeActive) {
       _showSlowModeBlockedToast();
@@ -3699,31 +3905,38 @@ class _MessengerScreenState extends State<MessengerScreen> {
     }
     _typingTimer?.cancel();
 
-    final chatId = _selectedChat!['chat_id'] as String;
     final myUserId = _myId?.toString();
     final otherUser = _selectedChat!['other_user'] as Map<String, dynamic>?;
 
     _messageController.clear();
 
     String plaintextToEncrypt = text;
-    String? fileIdToSend;
-    final attachedFile = _attachedFile == null
+    final attachedOriginals =
+        _attachedFiles.where((file) => file['chat_id'] == chatId).toList()
+          ..sort((a, b) => (a['order'] as int).compareTo(b['order'] as int));
+    final attachedFiles = attachedOriginals
+        .map((file) => Map<String, dynamic>.from(file))
+        .toList();
+    final fileIdToSend = attachedFiles.isEmpty
         ? null
-        : Map<String, dynamic>.from(_attachedFile!);
-    final bool attachedIsCompressedImage =
-        attachedFile?['send_as_image'] == true;
-
-    if (attachedFile != null) {
-      fileIdToSend = attachedFile['file_id'] as String;
-      if (text.isEmpty) {
-        plaintextToEncrypt = '';
-      }
-
-      setState(() {
-        _attachedFile = null;
-        _showSendButton = false;
-      });
-    }
+        : attachedFiles.first['file_id']?.toString();
+    final fileDescriptors = attachedFiles
+        .map(
+          (file) => <String, dynamic>{
+            'file_id': file['file_id'],
+            'name': file['file_name'],
+            'file_name': file['file_name'],
+            'size': file['file_size'] ?? 0,
+            'file_size': file['file_size'] ?? 0,
+            'type': file['file_type'],
+            'file_type': file['file_type'],
+            'mime_type': file['mime_type'],
+            if (file['blur_hash'] != null) 'blur_hash': file['blur_hash'],
+            if (file['width'] != null) 'width': file['width'],
+            if (file['height'] != null) 'height': file['height'],
+          },
+        )
+        .toList();
 
     String encryptedText = "";
     try {
@@ -3737,7 +3950,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
           myUserId,
         );
       } else if (chatId.startsWith('personal_')) {
-        final peerPubKey = await _getPeerPublicKey(otherUser, chatId: chatId);
+        final peerPubKey = await _getPeerPublicKey(
+          otherUser,
+          chatId: chatId,
+          refresh: true,
+        );
         if (peerPubKey == null) {
           CustomToast.show(
             context,
@@ -3824,31 +4041,22 @@ class _MessengerScreenState extends State<MessengerScreen> {
         // Все вложения несут полный descriptor в images, как mobile/web.
         // Для обычного файла дополнительно сохраняем file_id, чтобы бэк связал
         // сообщение с SecureFileUpload через attached_file.
-        if (fileIdToSend != null)
-          'images': [
-            {
-              'file_id': fileIdToSend,
-              'name': attachedFile!['file_name'],
-              'file_name': attachedFile['file_name'],
-              'size': attachedFile['file_size'] ?? 0,
-              'file_size': attachedFile['file_size'] ?? 0,
-              'type': attachedFile['file_type'],
-              'file_type': attachedFile['file_type'],
-              'mime_type': attachedFile['mime_type'],
-              if (attachedFile['blur_hash'] != null)
-                'blur_hash': attachedFile['blur_hash'],
-              if (attachedFile['width'] != null) 'width': attachedFile['width'],
-              if (attachedFile['height'] != null)
-                'height': attachedFile['height'],
-            },
-          ],
-        if (fileIdToSend != null && !attachedIsCompressedImage)
+        if (fileDescriptors.isNotEmpty) 'images': fileDescriptors,
+        if (attachedFiles.length == 1 && fileIdToSend != null)
           'file_id': fileIdToSend,
         if (replyToId != null) 'reply_to_id': replyToId,
       });
     }
 
     if (sentViaWs) {
+      if (attachedFiles.isNotEmpty && mounted) {
+        setState(() {
+          _attachedFiles.removeWhere(attachedOriginals.contains);
+          _showSendButton =
+              _attachedFiles.any((file) => file['chat_id'] == chatId) ||
+              _messageController.text.trim().isNotEmpty;
+        });
+      }
       final int tempId = -DateTime.now().millisecondsSinceEpoch;
       final tempMsg = {
         'id': tempId,
@@ -3864,29 +4072,13 @@ class _MessengerScreenState extends State<MessengerScreen> {
         'reply_text': replyPreviewText,
         'is_read': false,
         'chat_id': chatId,
-        if (attachedFile != null) ...{
+        if (attachedFiles.isNotEmpty) ...{
           'file_id': fileIdToSend,
           'attached_file_id': fileIdToSend,
-          'attached_file_name': attachedFile['file_name'],
-          'attached_file_size': attachedFile['file_size'] ?? 0,
-          'attached_file_type': attachedFile['file_type'],
-          'images': [
-            {
-              'file_id': fileIdToSend,
-              'file_name': attachedFile['file_name'],
-              'file_size': attachedFile['file_size'] ?? 0,
-              'name': attachedFile['file_name'],
-              'size': attachedFile['file_size'] ?? 0,
-              'type': attachedFile['file_type'],
-              'file_type': attachedFile['file_type'],
-              'mime_type': attachedFile['mime_type'],
-              if (attachedFile['blur_hash'] != null)
-                'blur_hash': attachedFile['blur_hash'],
-              if (attachedFile['width'] != null) 'width': attachedFile['width'],
-              if (attachedFile['height'] != null)
-                'height': attachedFile['height'],
-            },
-          ],
+          'attached_file_name': attachedFiles.first['file_name'],
+          'attached_file_size': attachedFiles.first['file_size'] ?? 0,
+          'attached_file_type': attachedFiles.first['file_type'],
+          'images': fileDescriptors,
         },
       };
 
@@ -3914,6 +4106,17 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
     if (!sentViaWs) {
       _sentPlaintexts.remove(encryptedText);
+      if (attachedFiles.isNotEmpty) {
+        if (mounted) {
+          _messageController.text = text;
+          CustomToast.show(
+            context,
+            'Не удалось отправить файлы: нет соединения',
+            type: ToastType.error,
+          );
+        }
+        return;
+      }
       final res = await _apiService.sendMessage(chatId, encryptedText);
       if (res.success && res.data != null) {
         final newMsg = res.data!;
@@ -3942,6 +4145,73 @@ class _MessengerScreenState extends State<MessengerScreen> {
         }
         _loadChats(silent: true);
       }
+    }
+  }
+
+  Future<void> _sendCommentMessage() async {
+    final channelId = _commentChannelId;
+    final postId = _commentPostId;
+    final mirrorId = _commentMirrorId;
+    final chatId = _selectedChat?['chat_id']?.toString();
+    if (channelId == null ||
+        postId == null ||
+        mirrorId == null ||
+        chatId == null ||
+        !_isUserSubscribedOrJoined(_selectedChat))
+      return;
+    final text = _messageController.text.trim();
+    final files = _attachedFiles
+        .where((file) => file['chat_id'] == chatId)
+        .toList();
+    if (text.isEmpty && files.isEmpty) return;
+    if (_uploadingFiles.any((file) => file['chat_id'] == chatId)) return;
+    try {
+      final key = await _getGroupChatKey(chatId);
+      if (key == null) throw StateError('No group key');
+      final cipher = await _cryptoService.encryptGroupMessage(text, key);
+      final descriptors = files
+          .map(
+            (file) => <String, dynamic>{
+              'file_id': file['file_id'],
+              'name': file['file_name'],
+              'size': file['file_size'] ?? 0,
+              'type': file['file_type'],
+              'mime_type': file['mime_type'] ?? file['file_type'],
+            },
+          )
+          .toList();
+      final sent =
+          _webSocketService?.isConnected == true &&
+          _webSocketService!.sendMessage({
+            'type': 'encrypted_message',
+            'encrypted_text': cipher,
+            'reply_to_id': mirrorId,
+            'is_channel_comment': true,
+            'images': descriptors,
+            if (descriptors.length == 1)
+              'file_id': descriptors.first['file_id'],
+          });
+      if (!sent) {
+        if (files.isNotEmpty) throw StateError('No WebSocket for files');
+        final result = await _apiService.createChannelPostComment(
+          channelId,
+          postId,
+          encryptedText: cipher,
+          signature: await _cryptoService.signMessage(cipher),
+        );
+        if (!result.success) throw StateError(result.error ?? 'Send failed');
+      }
+      if (!mounted) return;
+      _messageController.clear();
+      setState(() => _attachedFiles.removeWhere(files.contains));
+      if (!sent) await _loadCommentDiscussion();
+    } catch (_) {
+      if (mounted)
+        CustomToast.show(
+          context,
+          'Не удалось отправить комментарий',
+          type: ToastType.error,
+        );
     }
   }
 
@@ -4011,7 +4281,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
             child: Text(
               label,
               style: style.copyWith(
-                color: isDark ? Colors.white : Colors.black87,
+                color:
+                    context.xnxColor("text") ??
+                    (isDark ? Colors.white : Colors.black87),
                 fontSize: 13 * scale,
               ),
             ),
@@ -4150,6 +4422,14 @@ class _MessengerScreenState extends State<MessengerScreen> {
   }
 
   void _selectChat(Map<String, dynamic> chat) {
+    final wasViewingComments = _commentChannelId != null;
+    _commentChannelId = null;
+    _commentPostId = null;
+    _commentMirrorId = null;
+    _chatBeforeComments = null;
+    _draftBeforeComments = null;
+    _replyBeforeComments = null;
+    if (wasViewingComments) _selectedChat = null;
     if (_selectedChat != null && _selectedChat!['chat_id'] == chat['chat_id']) {
       return;
     }
@@ -4602,7 +4882,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
           style: TextStyle(
             fontSize: 11.5 * scale,
             fontWeight: FontWeight.w600,
-            color: isDark ? Colors.white70 : Colors.black54,
+            color:
+                context.xnxColor("text-secondary") ??
+                (isDark ? Colors.white70 : Colors.black54),
           ),
         ),
       ),
@@ -4640,10 +4922,19 @@ class _MessengerScreenState extends State<MessengerScreen> {
           fontSize: 11.5 * scale,
           fontWeight: FontWeight.w600,
           color: Colors.white.withOpacity(0.95),
-          fontFamily: 'Inter',
+          fontFamily: null,
         ),
       ),
     );
+  }
+
+  void _scheduleFloatingDateUpdate() {
+    if (!mounted || _floatingDateUpdateScheduled) return;
+    _floatingDateUpdateScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _floatingDateUpdateScheduled = false;
+      if (mounted) _updateFloatingDate();
+    });
   }
 
   void _updateFloatingDate() {
@@ -4886,7 +5177,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
           final existingIndex = _chats.indexWhere(
             (c) => c['chat_id'] == chatId,
           );
-          if (existingIndex < 0) {
+          if (existingIndex < 0 && _commentChannelId == null) {
             _chats.insert(0, chat);
           }
         });
@@ -5201,10 +5492,12 @@ class _MessengerScreenState extends State<MessengerScreen> {
       },
       pageBuilder: (context, anim1, anim2) {
         final screenSize = MediaQuery.of(context).size;
-        final bgColor = isDark ? const Color(0xFF0C0C0C) : Colors.white;
-        final borderColor = isDark
-            ? const Color(0xFF1E1E1E)
-            : const Color(0xFFEBEBEB);
+        final bgColor =
+            context.xnxColor("surface") ??
+            (isDark ? const Color(0xFF0C0C0C) : Colors.white);
+        final borderColor =
+            context.xnxColor("border") ??
+            (isDark ? const Color(0xFF1E1E1E) : const Color(0xFFEBEBEB));
 
         return Material(
           type: MaterialType.transparency,
@@ -5246,8 +5539,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
                             fontSize: 10 * scale,
                             fontWeight: FontWeight.w600,
                             letterSpacing: 1.5 * scale,
-                            color: isDark ? Colors.white38 : Colors.black38,
-                            fontFamily: 'Inter',
+                            color:
+                                context.xnxColor("text-muted") ??
+                                (isDark ? Colors.white38 : Colors.black38),
+                            fontFamily: null,
                           ),
                         ),
                         GestureDetector(
@@ -5257,7 +5552,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
                             child: Icon(
                               Icons.close_rounded,
                               size: 16 * scale,
-                              color: isDark ? Colors.white38 : Colors.black38,
+                              color:
+                                  context.xnxColor("text-muted") ??
+                                  (isDark ? Colors.white38 : Colors.black38),
                             ),
                           ),
                         ),
@@ -5337,7 +5634,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                         color: isDark
                                             ? Colors.white
                                             : Colors.black87,
-                                        fontFamily: 'Inter',
+                                        fontFamily: null,
                                       ),
                                     ),
                                     if (username.isNotEmpty) ...[
@@ -5349,7 +5646,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                           color: isDark
                                               ? Colors.white38
                                               : Colors.black45,
-                                          fontFamily: 'Inter',
+                                          fontFamily: null,
                                         ),
                                       ),
                                     ],
@@ -5419,7 +5716,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
         icon: Icon(
           Icons.more_vert_rounded,
           size: 18 * scale,
-          color: isDark ? Colors.white54 : Colors.black54,
+          color:
+              context.xnxColor("text-muted") ??
+              (isDark ? Colors.white54 : Colors.black54),
         ),
         onSelected: (_) {
           Navigator.of(dialogContext).pop();
@@ -5435,15 +5734,19 @@ class _MessengerScreenState extends State<MessengerScreen> {
                 Icon(
                   Icons.edit_rounded,
                   size: 16 * scale,
-                  color: isDark ? Colors.white70 : Colors.black87,
+                  color:
+                      context.xnxColor("text-secondary") ??
+                      (isDark ? Colors.white70 : Colors.black87),
                 ),
                 SizedBox(width: 10 * scale),
                 Text(
                   label,
                   style: TextStyle(
                     fontSize: 12.5 * scale,
-                    color: isDark ? Colors.white : Colors.black87,
-                    fontFamily: 'Inter',
+                    color:
+                        context.xnxColor("text") ??
+                        (isDark ? Colors.white : Colors.black87),
+                    fontFamily: null,
                   ),
                 ),
               ],
@@ -5504,10 +5807,12 @@ class _MessengerScreenState extends State<MessengerScreen> {
       },
       pageBuilder: (context, anim1, anim2) {
         final screenSize = MediaQuery.of(context).size;
-        final bgColor = isDark ? const Color(0xFF0C0C0C) : Colors.white;
-        final borderColor = isDark
-            ? const Color(0xFF1E1E1E)
-            : const Color(0xFFEBEBEB);
+        final bgColor =
+            context.xnxColor("surface") ??
+            (isDark ? const Color(0xFF0C0C0C) : Colors.white);
+        final borderColor =
+            context.xnxColor("border") ??
+            (isDark ? const Color(0xFF1E1E1E) : const Color(0xFFEBEBEB));
 
         return Material(
           type: MaterialType.transparency,
@@ -5548,8 +5853,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
                             fontSize: 10 * scale,
                             fontWeight: FontWeight.w600,
                             letterSpacing: 1.5 * scale,
-                            color: isDark ? Colors.white38 : Colors.black38,
-                            fontFamily: 'Inter',
+                            color:
+                                context.xnxColor("text-muted") ??
+                                (isDark ? Colors.white38 : Colors.black38),
+                            fontFamily: null,
                           ),
                         ),
                         Row(
@@ -5616,7 +5923,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                     color: isDark
                                         ? Colors.white
                                         : Colors.black87,
-                                    fontFamily: 'Inter',
+                                    fontFamily: null,
                                   ),
                                 ),
                                 SizedBox(height: 3 * scale),
@@ -5628,7 +5935,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                     color: isDark
                                         ? Colors.white38
                                         : Colors.black45,
-                                    fontFamily: 'Inter',
+                                    fontFamily: null,
                                   ),
                                 ),
                               ],
@@ -5699,10 +6006,12 @@ class _MessengerScreenState extends State<MessengerScreen> {
       },
       pageBuilder: (context, anim1, anim2) {
         final screenSize = MediaQuery.of(context).size;
-        final bgColor = isDark ? const Color(0xFF0C0C0C) : Colors.white;
-        final borderColor = isDark
-            ? const Color(0xFF1E1E1E)
-            : const Color(0xFFEBEBEB);
+        final bgColor =
+            context.xnxColor("surface") ??
+            (isDark ? const Color(0xFF0C0C0C) : Colors.white);
+        final borderColor =
+            context.xnxColor("border") ??
+            (isDark ? const Color(0xFF1E1E1E) : const Color(0xFFEBEBEB));
 
         return Material(
           type: MaterialType.transparency,
@@ -5743,8 +6052,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
                             fontSize: 10 * scale,
                             fontWeight: FontWeight.w600,
                             letterSpacing: 1.5 * scale,
-                            color: isDark ? Colors.white38 : Colors.black38,
-                            fontFamily: 'Inter',
+                            color:
+                                context.xnxColor("text-muted") ??
+                                (isDark ? Colors.white38 : Colors.black38),
+                            fontFamily: null,
                           ),
                         ),
                         Row(
@@ -5811,7 +6122,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                     color: isDark
                                         ? Colors.white
                                         : Colors.black87,
-                                    fontFamily: 'Inter',
+                                    fontFamily: null,
                                   ),
                                 ),
                                 SizedBox(height: 3 * scale),
@@ -5823,7 +6134,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                     color: isDark
                                         ? Colors.white38
                                         : Colors.black45,
-                                    fontFamily: 'Inter',
+                                    fontFamily: null,
                                   ),
                                 ),
                               ],
@@ -5877,10 +6188,12 @@ class _MessengerScreenState extends State<MessengerScreen> {
       },
       pageBuilder: (context, anim1, anim2) {
         final screenSize = MediaQuery.of(context).size;
-        final bgColor = isDark ? const Color(0xFF0C0C0C) : Colors.white;
-        final borderColor = isDark
-            ? const Color(0xFF1E1E1E)
-            : const Color(0xFFEBEBEB);
+        final bgColor =
+            context.xnxColor("surface") ??
+            (isDark ? const Color(0xFF0C0C0C) : Colors.white);
+        final borderColor =
+            context.xnxColor("border") ??
+            (isDark ? const Color(0xFF1E1E1E) : const Color(0xFFEBEBEB));
 
         return Material(
           type: MaterialType.transparency,
@@ -5921,8 +6234,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
                             fontSize: 10 * scale,
                             fontWeight: FontWeight.w600,
                             letterSpacing: 1.5 * scale,
-                            color: isDark ? Colors.white38 : Colors.black38,
-                            fontFamily: 'Inter',
+                            color:
+                                context.xnxColor("text-muted") ??
+                                (isDark ? Colors.white38 : Colors.black38),
+                            fontFamily: null,
                           ),
                         ),
                         GestureDetector(
@@ -5932,7 +6247,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
                             child: Icon(
                               Icons.close_rounded,
                               size: 16 * scale,
-                              color: isDark ? Colors.white38 : Colors.black38,
+                              color:
+                                  context.xnxColor("text-muted") ??
+                                  (isDark ? Colors.white38 : Colors.black38),
                             ),
                           ),
                         ),
@@ -5983,7 +6300,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                     color: isDark
                                         ? Colors.white
                                         : Colors.black87,
-                                    fontFamily: 'Inter',
+                                    fontFamily: null,
                                   ),
                                 ),
                                 SizedBox(height: 4 * scale),
@@ -5996,7 +6313,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                     color: isDark
                                         ? Colors.white38
                                         : Colors.black45,
-                                    fontFamily: 'Inter',
+                                    fontFamily: null,
                                   ),
                                 ),
                               ],
@@ -6090,8 +6407,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 12 * scale,
-              color: isDark ? Colors.white38 : Colors.black38,
-              fontFamily: 'Inter',
+              color:
+                  context.xnxColor("text-muted") ??
+                  (isDark ? Colors.white38 : Colors.black38),
+              fontFamily: null,
             ),
           ),
         ),
@@ -6184,8 +6503,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
                         fontSize: 13.5 * scale,
                         fontWeight: FontWeight.w500,
                         height: 1.35,
-                        color: isDark ? Colors.white : Colors.black87,
-                        fontFamily: 'Inter',
+                        color:
+                            context.xnxColor("text") ??
+                            (isDark ? Colors.white : Colors.black87),
+                        fontFamily: null,
                       ),
                     ),
                     SizedBox(height: 2 * scale),
@@ -6193,8 +6514,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
                       label,
                       style: TextStyle(
                         fontSize: 10.5 * scale,
-                        color: isDark ? Colors.white38 : Colors.black38,
-                        fontFamily: 'Inter',
+                        color:
+                            context.xnxColor("text-muted") ??
+                            (isDark ? Colors.white38 : Colors.black38),
+                        fontFamily: null,
                       ),
                     ),
                   ],
@@ -6206,7 +6529,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
                   child: Icon(
                     Icons.copy_rounded,
                     size: 14 * scale,
-                    color: isDark ? Colors.white24 : Colors.black26,
+                    color:
+                        context.xnxColor("border") ??
+                        (isDark ? Colors.white24 : Colors.black26),
                   ),
                 ),
             ],
@@ -6506,7 +6831,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                             : (isDark
                                                   ? Colors.white38
                                                   : Colors.black38),
-                                        fontFamily: 'Inter',
+                                        fontFamily: null,
                                       ),
                                     ),
                                   ),
@@ -6520,9 +6845,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                     fontSize: 8.0 * scale,
                                     color: isSelected
                                         ? const Color(0xFF2563EB)
-                                        : (isDark
-                                              ? Colors.white24
-                                              : Colors.black26),
+                                        : (context.xnxColor("border") ??
+                                              (isDark
+                                                  ? Colors.white24
+                                                  : Colors.black26)),
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
@@ -6563,7 +6889,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
                           Icon(
                             activeTab['icon'] as IconData,
                             size: 24 * scale,
-                            color: isDark ? Colors.white24 : Colors.black26,
+                            color:
+                                context.xnxColor("border") ??
+                                (isDark ? Colors.white24 : Colors.black26),
                           ),
                           SizedBox(height: 6 * scale),
                           Text(
@@ -6580,8 +6908,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                 : (l10n?.noSharedLinks ?? 'Нет ссылок'),
                             style: TextStyle(
                               fontSize: 11 * scale,
-                              color: isDark ? Colors.white38 : Colors.black38,
-                              fontFamily: 'Inter',
+                              color:
+                                  context.xnxColor("text-muted") ??
+                                  (isDark ? Colors.white38 : Colors.black38),
+                              fontFamily: null,
                             ),
                           ),
                         ],
@@ -6624,19 +6954,25 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                           overflow: TextOverflow.ellipsis,
                                           style: TextStyle(
                                             fontSize: 12 * scale,
-                                            color: isDark
-                                                ? Colors.white70
-                                                : Colors.black87,
-                                            fontFamily: 'Inter',
+                                            color:
+                                                context.xnxColor(
+                                                  "text-secondary",
+                                                ) ??
+                                                (isDark
+                                                    ? Colors.white70
+                                                    : Colors.black87),
+                                            fontFamily: null,
                                           ),
                                         ),
                                       ),
                                       Icon(
                                         Icons.copy_rounded,
                                         size: 13 * scale,
-                                        color: isDark
-                                            ? Colors.white24
-                                            : Colors.black26,
+                                        color:
+                                            context.xnxColor("border") ??
+                                            (isDark
+                                                ? Colors.white24
+                                                : Colors.black26),
                                       ),
                                     ],
                                   ),
@@ -6684,10 +7020,12 @@ class _MessengerScreenState extends State<MessengerScreen> {
         return StatefulBuilder(
           builder: (context, setModalState) {
             final screenSize = MediaQuery.of(context).size;
-            final bgColor = isDark ? const Color(0xFF0C0C0C) : Colors.white;
-            final borderColor = isDark
-                ? const Color(0xFF1E1E1E)
-                : const Color(0xFFEBEBEB);
+            final bgColor =
+                context.xnxColor("surface") ??
+                (isDark ? const Color(0xFF0C0C0C) : Colors.white);
+            final borderColor =
+                context.xnxColor("border") ??
+                (isDark ? const Color(0xFF1E1E1E) : const Color(0xFFEBEBEB));
 
             return Material(
               type: MaterialType.transparency,
@@ -6731,8 +7069,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                 fontSize: 10 * scale,
                                 fontWeight: FontWeight.w600,
                                 letterSpacing: 1.5 * scale,
-                                color: isDark ? Colors.white38 : Colors.black38,
-                                fontFamily: 'Inter',
+                                color:
+                                    context.xnxColor("text-muted") ??
+                                    (isDark ? Colors.white38 : Colors.black38),
+                                fontFamily: null,
                               ),
                             ),
                             GestureDetector(
@@ -6879,7 +7219,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                                                 ? Colors.white70
                                                                 : Colors
                                                                       .black87,
-                                                            fontFamily: 'Inter',
+                                                            fontFamily: null,
                                                           ),
                                                         ),
                                                         if (acc.firstName !=
@@ -6900,8 +7240,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                                                         .white38
                                                                   : Colors
                                                                         .black38,
-                                                              fontFamily:
-                                                                  'Inter',
+                                                              fontFamily: null,
                                                             ),
                                                           ),
                                                         ],
@@ -6912,9 +7251,13 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                                   if (isActive)
                                                     Icon(
                                                       Icons.check_rounded,
-                                                      color: isDark
-                                                          ? Colors.white70
-                                                          : Colors.black87,
+                                                      color:
+                                                          context.xnxColor(
+                                                            "text-secondary",
+                                                          ) ??
+                                                          (isDark
+                                                              ? Colors.white70
+                                                              : Colors.black87),
                                                       size: 14 * scale,
                                                     )
                                                   else
@@ -7060,7 +7403,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                             style: TextStyle(
                                               fontWeight: FontWeight.w500,
                                               fontSize: 12 * scale,
-                                              fontFamily: 'Inter',
+                                              fontFamily: null,
                                             ),
                                           ),
                                         ),
@@ -7080,7 +7423,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                                 ? Colors.white38
                                                 : Colors.black38,
                                             fontSize: 11 * scale,
-                                            fontFamily: 'Inter',
+                                            fontFamily: null,
                                           ),
                                         ),
                                       ),
@@ -7105,9 +7448,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _updateFloatingDate();
-    });
+    _scheduleFloatingDateUpdate();
     final themeProvider = Provider.of<ThemeProvider>(context);
     final scaleProvider = Provider.of<ScaleProvider>(context);
     final l10n = AppLocalizations.of(context);
@@ -7115,7 +7456,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
     final scale = scaleProvider.scale;
 
     return Scaffold(
-      backgroundColor: isDark ? Colors.black : Colors.white,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: Stack(
         children: [
           // Background decoration
@@ -7132,61 +7473,69 @@ class _MessengerScreenState extends State<MessengerScreen> {
           Padding(
             padding: const EdgeInsets.only(top: 40),
             child: SafeArea(
-              child: Row(
+              child: Stack(
                 children: [
-                  // 1. Chat List Panel (resizable with Liquid Glass effect)
-                  Container(
-                    width: _chatListWidth * scale,
-                    decoration: BoxDecoration(
-                      color: isDark
-                          ? Colors.black.withOpacity(0.15)
-                          : Colors.white.withOpacity(0.15),
-                      border: Border(
-                        right: BorderSide(
-                          color: isDark
-                              ? Colors.white.withOpacity(0.08)
-                              : Colors.black.withOpacity(0.04),
-                          width: 1,
+                  Row(
+                    children: [
+                      // 1. Chat List Panel (resizable with Liquid Glass effect)
+                      Container(
+                        width: _chatListWidth * scale,
+                        decoration: BoxDecoration(
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.surface.withValues(alpha: 0.15),
+                          border: Border(
+                            right: BorderSide(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.outline.withValues(alpha: 0.25),
+                              width: 1,
+                            ),
+                          ),
+                        ),
+                        child: RepaintBoundary(
+                          child: ClipRect(
+                            child: BackdropFilter(
+                              filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+                              child: _buildChatListPanel(isDark, scale),
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                    child: RepaintBoundary(
-                      child: ClipRect(
-                        child: BackdropFilter(
-                          filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
-                          child: _buildChatListPanel(isDark, scale),
-                        ),
+
+                      // 2. Main Chat Panel (takes the rest)
+                      Expanded(child: _buildChatPanel(isDark, scale)),
+                    ],
+                  ),
+
+                  // Keep the drag target over the border, without reserving
+                  // an unpainted strip between the two panels.
+                  Positioned(
+                    left: _chatListWidth * scale - 4,
+                    top: 0,
+                    bottom: 0,
+                    child: MouseRegion(
+                      cursor: SystemMouseCursors.resizeLeftRight,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onHorizontalDragUpdate: (details) {
+                          setState(() {
+                            _chatListWidth =
+                                (_chatListWidth + details.delta.dx / scale)
+                                    .clamp(240.0, 600.0);
+                          });
+                        },
+                        onHorizontalDragEnd: (details) async {
+                          final prefs = await SharedPreferences.getInstance();
+                          await prefs.setDouble(
+                            'chat_list_width',
+                            _chatListWidth,
+                          );
+                        },
+                        child: const SizedBox(width: 8),
                       ),
                     ),
                   ),
-
-                  // Resizable Divider (overlapping transparent zone for dragging)
-                  MouseRegion(
-                    cursor: SystemMouseCursors.resizeLeftRight,
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.translucent,
-                      onHorizontalDragUpdate: (details) {
-                        setState(() {
-                          _chatListWidth =
-                              (_chatListWidth + details.delta.dx / scale).clamp(
-                                240.0,
-                                600.0,
-                              );
-                        });
-                      },
-                      onHorizontalDragEnd: (details) async {
-                        final prefs = await SharedPreferences.getInstance();
-                        await prefs.setDouble(
-                          'chat_list_width',
-                          _chatListWidth,
-                        );
-                      },
-                      child: const SizedBox(width: 8),
-                    ),
-                  ),
-
-                  // 2. Main Chat Panel (takes the rest)
-                  Expanded(child: _buildChatPanel(isDark, scale)),
                 ],
               ),
             ),
@@ -7238,7 +7587,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
                       _viewingArchive = false;
                     });
                   },
-                  color: isDark ? Colors.white70 : Colors.black54,
+                  color:
+                      context.xnxColor("text-secondary") ??
+                      (isDark ? Colors.white70 : Colors.black54),
                 )
               else
                 IconButton(
@@ -7319,7 +7670,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
                       },
                     ).then((_) => _loadContactsCache());
                   },
-                  color: isDark ? Colors.white70 : Colors.black54,
+                  color:
+                      context.xnxColor("text-secondary") ??
+                      (isDark ? Colors.white70 : Colors.black54),
                 ),
               SizedBox(width: 8),
               Text(
@@ -7331,7 +7684,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 18 * scale,
-                  color: isDark ? Colors.white : Colors.black87,
+                  color:
+                      context.xnxColor("text") ??
+                      (isDark ? Colors.white : Colors.black87),
                 ),
               ),
               const Spacer(),
@@ -7352,7 +7707,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
                       },
                     );
                   },
-                  color: isDark ? Colors.white70 : Colors.black54,
+                  color:
+                      context.xnxColor("text-secondary") ??
+                      (isDark ? Colors.white70 : Colors.black54),
                 ),
                 IconButton(
                   icon: Icon(Icons.search_rounded, size: 20 * scale),
@@ -7365,7 +7722,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
                           _handleSearchResultSelected(item, type),
                     );
                   },
-                  color: isDark ? Colors.white70 : Colors.black54,
+                  color:
+                      context.xnxColor("text-secondary") ??
+                      (isDark ? Colors.white70 : Colors.black54),
                 ),
               ],
             ],
@@ -7383,9 +7742,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
                           AppLocalizations.of(context)?.archiveEmpty ??
                               'Archive is empty',
                           style: TextStyle(
-                            color: isDark ? Colors.white38 : Colors.black38,
+                            color:
+                                context.xnxColor("text-muted") ??
+                                (isDark ? Colors.white38 : Colors.black38),
                             fontSize: 13 * scale,
-                            fontFamily: 'Inter',
+                            fontFamily: null,
                           ),
                         ),
                       )
@@ -7636,7 +7997,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                 ),
                                 tooltip: _TooltipL10n.get('logout', context),
                                 onPressed: _logout,
-                                color: isDark ? Colors.white54 : Colors.black54,
+                                color:
+                                    context.xnxColor("text-muted") ??
+                                    (isDark ? Colors.white54 : Colors.black54),
                                 constraints: const BoxConstraints(),
                                 padding: EdgeInsets.zero,
                               ),
@@ -7904,7 +8267,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
                               fontSize: 14 * scale,
                               color: isSelected
                                   ? (isDark ? Colors.white : activeBrandColor)
-                                  : (isDark ? Colors.white70 : Colors.black87),
+                                  : (context.xnxColor("text-secondary") ??
+                                        (isDark
+                                            ? Colors.white70
+                                            : Colors.black87)),
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -7915,7 +8281,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
                           FaIcon(
                             FontAwesomeIcons.thumbtack,
                             size: 10 * scale,
-                            color: isDark ? Colors.white38 : Colors.black38,
+                            color:
+                                context.xnxColor("text-muted") ??
+                                (isDark ? Colors.white38 : Colors.black38),
                           ),
                         ],
                         if (isMuted) ...[
@@ -7923,7 +8291,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
                           FaIcon(
                             FontAwesomeIcons.bellSlash,
                             size: 10 * scale,
-                            color: isDark ? Colors.white38 : Colors.black38,
+                            color:
+                                context.xnxColor("text-muted") ??
+                                (isDark ? Colors.white38 : Colors.black38),
                           ),
                         ],
                         if ((isPinned || isMuted) && lastMsgTime.isNotEmpty)
@@ -7933,7 +8303,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
                             lastMsgTime,
                             style: TextStyle(
                               fontSize: 11 * scale,
-                              color: isDark ? Colors.white38 : Colors.black38,
+                              color:
+                                  context.xnxColor("text-muted") ??
+                                  (isDark ? Colors.white38 : Colors.black38),
                             ),
                           ),
                       ],
@@ -8174,6 +8546,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
         fullUrl,
         width: radius * 2,
         height: radius * 2,
+        cacheWidth: (radius * 2 * MediaQuery.devicePixelRatioOf(context))
+            .ceil(),
+        cacheHeight: (radius * 2 * MediaQuery.devicePixelRatioOf(context))
+            .ceil(),
         fit: BoxFit.cover,
         errorBuilder: (context, error, stackTrace) {
           print("Error loading avatar from network: $error");
@@ -8386,7 +8762,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
             Icon(
               Icons.chat_bubble_outline_rounded,
               size: 64 * scale,
-              color: isDark ? Colors.white24 : Colors.black26,
+              color:
+                  context.xnxColor("border") ??
+                  (isDark ? Colors.white24 : Colors.black26),
             ),
             SizedBox(height: 16),
             Text(
@@ -8396,7 +8774,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
                       )?.vyberiteChatDlyaNachalaObscheniya_36a5 ??
                       'Fallback'),
               style: TextStyle(
-                color: isDark ? Colors.white54 : Colors.black54,
+                color:
+                    context.xnxColor("text-muted") ??
+                    (isDark ? Colors.white54 : Colors.black54),
                 fontSize: 16 * scale,
                 fontWeight: FontWeight.w500,
               ),
@@ -8406,8 +8786,14 @@ class _MessengerScreenState extends State<MessengerScreen> {
       );
     }
 
-    final displayName = _getChatName(_selectedChat!);
+    final displayName = _commentChannelId != null
+        ? CommunitySettingsLocalizations.of(context).text(
+            'messenger.comments.title',
+          )
+        : _getChatName(_selectedChat!);
     final appearance = Provider.of<AppearanceProvider>(context);
+    final wallpaperBlur =
+        (context.watch<ThemeProvider>().xnxTheme?.blurPercent ?? 0) * 0.24;
     final chatIsDark = appearance.isChatBackgroundDark(isDark);
     final chatType = _selectedChat!['chat_type'] as String?;
     final otherUser = _selectedChat!['other_user'] as Map<String, dynamic>?;
@@ -8442,7 +8828,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
     }
 
     String? typingAction;
-    if (_activeTypingUsers.isNotEmpty) {
+    if (_commentChannelId == null && _activeTypingUsers.isNotEmpty) {
       typingAction = _activeTypingUsers.values.first.action;
     }
 
@@ -8467,6 +8853,12 @@ class _MessengerScreenState extends State<MessengerScreen> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
+              if (_commentChannelId != null)
+                IconButton(
+                  tooltip: 'Назад',
+                  icon: const Icon(Icons.arrow_back_rounded),
+                  onPressed: _closeChannelComments,
+                ),
               // Chat Title & Status
               Expanded(
                 child: Column(
@@ -8477,6 +8869,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                       cursor: SystemMouseCursors.click,
                       child: GestureDetector(
                         onTap: () {
+                          if (_commentChannelId != null) return;
                           if (chatType == 'personal' && otherUser != null) {
                             _showUserProfileDialog(
                               context,
@@ -8499,7 +8892,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
                           style: TextStyle(
                             fontSize: 16 * scale,
                             fontWeight: FontWeight.bold,
-                            color: isDark ? Colors.white : Colors.black87,
+                            color:
+                                context.xnxColor("text") ??
+                                (isDark ? Colors.white : Colors.black87),
                           ),
                         ),
                       ),
@@ -8534,20 +8929,21 @@ class _MessengerScreenState extends State<MessengerScreen> {
                             style: TextStyle(
                               fontSize: 11 * scale,
                               color: const Color(0xFF2563EB),
-                              fontFamily: 'Inter',
+                              fontFamily: null,
                             ),
                           ),
                         ],
                       )
-                    else
+                    else if (_commentChannelId == null)
                       Text(
                         statusText,
                         style: TextStyle(
                           fontSize: 11 * scale,
                           color: chatType == 'personal' && isOnline && !isBot
                               ? Colors.green
-                              : (isDark ? Colors.white38 : Colors.black38),
-                          fontFamily: 'Inter',
+                              : (context.xnxColor("text-muted") ??
+                                    (isDark ? Colors.white38 : Colors.black38)),
+                          fontFamily: null,
                         ),
                       ),
                   ],
@@ -8555,40 +8951,45 @@ class _MessengerScreenState extends State<MessengerScreen> {
               ),
 
               // Action buttons: Call, Settings
-              if (_canMakeCallInCurrentChat())
+              if (_commentChannelId == null && _canMakeCallInCurrentChat())
                 IconButton(
                   icon: Icon(Icons.phone_rounded, size: 20 * scale),
                   tooltip: _TooltipL10n.get('call', context),
                   onPressed: () {
                     _showCallChoiceModal(context, scale, isDark);
                   },
-                  color: isDark ? Colors.white70 : Colors.black54,
+                  color:
+                      context.xnxColor("text-secondary") ??
+                      (isDark ? Colors.white70 : Colors.black54),
                 ),
-              IconButton(
-                key: _headerSettingsKey,
-                icon: FaIcon(
-                  FontAwesomeIcons.ellipsisVertical,
-                  size: 18 * scale,
+              if (_commentChannelId == null)
+                IconButton(
+                  key: _headerSettingsKey,
+                  icon: FaIcon(
+                    FontAwesomeIcons.ellipsisVertical,
+                    size: 18 * scale,
+                  ),
+                  tooltip: _TooltipL10n.get('chat_settings', context),
+                  onPressed: () {
+                    final renderBox =
+                        _headerSettingsKey.currentContext?.findRenderObject()
+                            as RenderBox?;
+                    if (renderBox == null || _selectedChat == null) return;
+                    final position = renderBox.localToGlobal(Offset.zero);
+                    final size = renderBox.size;
+                    _showChatContextMenu(
+                      _selectedChat!,
+                      Offset(
+                        position.dx - (160.0 * scale),
+                        position.dy + size.height + 4,
+                      ),
+                      scale,
+                    );
+                  },
+                  color:
+                      context.xnxColor("text-secondary") ??
+                      (isDark ? Colors.white70 : Colors.black54),
                 ),
-                tooltip: _TooltipL10n.get('chat_settings', context),
-                onPressed: () {
-                  final renderBox =
-                      _headerSettingsKey.currentContext?.findRenderObject()
-                          as RenderBox?;
-                  if (renderBox == null || _selectedChat == null) return;
-                  final position = renderBox.localToGlobal(Offset.zero);
-                  final size = renderBox.size;
-                  _showChatContextMenu(
-                    _selectedChat!,
-                    Offset(
-                      position.dx - (160.0 * scale),
-                      position.dy + size.height + 4,
-                    ),
-                    scale,
-                  );
-                },
-                color: isDark ? Colors.white70 : Colors.black54,
-              ),
             ],
           ),
         ),
@@ -8600,13 +9001,26 @@ class _MessengerScreenState extends State<MessengerScreen> {
             decoration: appearance.wallpaper.resolveDecoration(),
             child: Stack(
               children: [
+                if (wallpaperBlur > 0 &&
+                    appearance.wallpaper.resolveDecoration() != null)
+                  Positioned.fill(
+                    child: ClipRect(
+                      child: BackdropFilter(
+                        filter: ImageFilter.blur(
+                          sigmaX: wallpaperBlur,
+                          sigmaY: wallpaperBlur,
+                        ),
+                        child: const SizedBox.expand(),
+                      ),
+                    ),
+                  ),
                 _isMessagesLoading
                     ? Center(child: CircularProgressIndicator())
                     : _messages.isEmpty
                     ? _buildEmptyMessagesPlaceholder(chatIsDark, scale)
                     : NotificationListener<ScrollNotification>(
                         onNotification: (notification) {
-                          _updateFloatingDate();
+                          _scheduleFloatingDateUpdate();
                           return false;
                         },
                         child: ListView.builder(
@@ -8642,9 +9056,15 @@ class _MessengerScreenState extends State<MessengerScreen> {
                             }
 
                             final msg = _messages[index];
-                            final isMe =
-                                msg['author_id']?.toString() ==
-                                _myId?.toString();
+                            final isChannelPostInGroup =
+                                _selectedChat?['chat_type'] == 'group' &&
+                                msg['message_type'] == 'channel_post_mirror';
+                            final isMe = msg['is_comment_origin'] == true
+                                ? false
+                                : isChannelPostInGroup ||
+                                      (_selectedChat?['chat_type'] != 'channel' &&
+                                          msg['author_id']?.toString() ==
+                                              _myId?.toString());
                             final rawId = msg['id'];
                             final msgId = rawId is int
                                 ? rawId
@@ -8655,6 +9075,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
                             final hasInlineKeyboard = _hasBotInlineKeyboard(
                               msg,
                             );
+                            final discussion = _discussionTargetForMessage(msg);
+                            if (discussion != null)
+                              _queueCommentSummary(discussion.postId);
 
                             bool showDateDivider = false;
                             String? dateDividerText;
@@ -8696,6 +9119,17 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                 isMe,
                                 chatIsDark,
                                 scale,
+                                commentFooter: discussion == null
+                                    ? null
+                                    : ChannelCommentFooter(
+                                        summary:
+                                            _commentSummaries[discussion
+                                                .postId],
+                                        onOpen: () => _openChannelComments(
+                                          discussion.channelId,
+                                          discussion.postId,
+                                        ),
+                                      ),
                               ),
                             );
 
@@ -8775,6 +9209,247 @@ class _MessengerScreenState extends State<MessengerScreen> {
         ),
       ],
     );
+  }
+
+  ({int channelId, int postId})? _discussionTargetForMessage(
+    Map<String, dynamic> message,
+  ) {
+    final chatId = _selectedChat?['chat_id']?.toString() ?? '';
+    if (!chatId.startsWith('channel_') ||
+        _selectedChat?['discussion_group_id'] == null)
+      return null;
+    final channelId = int.tryParse(chatId.replaceFirst('channel_', ''));
+    final postId = int.tryParse(message['id']?.toString() ?? '');
+    final attachedAt = DateTime.tryParse(
+      _selectedChat?['discussion_group_attached_at']?.toString() ?? '',
+    );
+    final postedAt = DateTime.tryParse(message['created_at']?.toString() ?? '');
+    if (attachedAt != null &&
+        postedAt != null &&
+        postedAt.isBefore(attachedAt)) {
+      return null;
+    }
+    if (channelId == null || postId == null || postId <= 0) return null;
+    return (channelId: channelId, postId: postId);
+  }
+
+  void _queueCommentSummary(int postId) {
+    final chatId = _selectedChat?['chat_id']?.toString() ?? '';
+    if (!chatId.startsWith('channel_')) return;
+    final channelId = int.tryParse(chatId.replaceFirst('channel_', ''));
+    if (channelId == null) return;
+    if (_commentSummaryChannelId != channelId) {
+      _commentSummaryChannelId = channelId;
+      _commentSummaries.clear();
+      _requestedCommentSummaryIds.clear();
+      _pendingCommentSummaryIds.clear();
+      _commentSummaryTimer?.cancel();
+    }
+    if (_requestedCommentSummaryIds.contains(postId)) return;
+    _requestedCommentSummaryIds.add(postId);
+    _pendingCommentSummaryIds.add(postId);
+    _commentSummaryTimer?.cancel();
+    _commentSummaryTimer = Timer(
+      const Duration(milliseconds: 40),
+      _loadCommentSummaries,
+    );
+  }
+
+  Future<void> _loadCommentSummaries() async {
+    final chatId = _selectedChat?['chat_id']?.toString() ?? '';
+    if (!chatId.startsWith('channel_') || _pendingCommentSummaryIds.isEmpty)
+      return;
+    final channelId = int.tryParse(chatId.replaceFirst('channel_', ''));
+    if (channelId == null) return;
+    final ids = _pendingCommentSummaryIds.take(100).toList();
+    _pendingCommentSummaryIds.removeAll(ids);
+    final response = await _apiService.getChannelCommentSummaries(
+      channelId,
+      ids,
+    );
+    if (!mounted || _commentSummaryChannelId != channelId) return;
+    if (response.success && response.data != null) {
+      final summaries = Map<String, dynamic>.from(
+        response.data!['summaries'] as Map? ?? {},
+      );
+      setState(() {
+        for (final id in ids) {
+          _commentSummaries[id] = Map<String, dynamic>.from(
+            summaries['$id'] as Map? ?? {'count': 0, 'recent_commenters': []},
+          );
+        }
+      });
+    } else {
+      _requestedCommentSummaryIds.removeAll(ids);
+    }
+    if (_pendingCommentSummaryIds.isNotEmpty) _loadCommentSummaries();
+  }
+
+  Future<void> _openChannelComments(int channelId, int postId) async {
+    final response = await _apiService.getChannelPostComments(
+      channelId,
+      postId,
+    );
+    if (!mounted || !response.success || response.data == null) return;
+    final groupId = int.tryParse(response.data!['group_id']?.toString() ?? '');
+    if (groupId == null) return;
+    final previous = _selectedChat == null
+        ? null
+        : Map<String, dynamic>.from(_selectedChat!);
+    final commentsTitle = CommunitySettingsLocalizations.of(context)
+        .text('messenger.comments.title');
+    setState(() {
+      _chatBeforeComments = previous;
+      _draftBeforeComments = _messageController.text;
+      _replyBeforeComments = _replyingToMessage;
+      _messageController.clear();
+      _replyingToMessage = null;
+      _commentChannelId = channelId;
+      _commentPostId = postId;
+      _selectedChat = {
+        'id': groupId,
+        'chat_id': 'group_$groupId',
+        'chat_type': 'group',
+        'name': commentsTitle,
+        'group_name': commentsTitle,
+        'is_member': response.data!['is_member'] == true,
+      };
+      _messages = [];
+      _isMessagesLoading = true;
+    });
+    await _loadCommentDiscussion(payload: response.data);
+    if (response.data!['is_member'] == true) {
+      await _connectWebSocket('group_$groupId');
+    }
+  }
+
+  void _closeChannelComments() {
+    final previous = _chatBeforeComments;
+    if (previous == null) return;
+    final draft = _draftBeforeComments;
+    final reply = _replyBeforeComments;
+    final postId = _commentPostId;
+    setState(() {
+      _selectedChat = null;
+      _commentChannelId = null;
+      _commentPostId = null;
+      _commentMirrorId = null;
+      _chatBeforeComments = null;
+    });
+    _selectChat(previous);
+    _messageController.text = draft ?? '';
+    if (mounted) setState(() => _replyingToMessage = reply);
+    if (postId != null) {
+      _commentSummaries.remove(postId);
+      _requestedCommentSummaryIds.remove(postId);
+      _queueCommentSummary(postId);
+    }
+  }
+
+  Future<void> _loadCommentDiscussion({
+    bool more = false,
+    Map<String, dynamic>? payload,
+  }) async {
+    final channelId = _commentChannelId;
+    final postId = _commentPostId;
+    if (channelId == null || postId == null) return;
+    if (more) setState(() => _isLoadingMore = true);
+    var offset = more ? max(0, _commentStartOffset - 100) : 0;
+    var data = payload;
+    if (data == null) {
+      final response = await _apiService.getChannelPostComments(
+        channelId,
+        postId,
+        offset: offset,
+        limit: more ? _commentStartOffset - offset : 100,
+      );
+      if (!response.success || response.data == null) {
+        if (mounted)
+          setState(() {
+            _isMessagesLoading = false;
+            _isLoadingMore = false;
+          });
+        return;
+      }
+      data = response.data!;
+    }
+    if (!more) {
+      final count = int.tryParse(data['count']?.toString() ?? '') ?? 0;
+      if (count > 100) {
+        offset = count - 100;
+        final response = await _apiService.getChannelPostComments(
+          channelId,
+          postId,
+          offset: offset,
+        );
+        if (!response.success || response.data == null) {
+          if (mounted)
+            setState(() {
+              _isMessagesLoading = false;
+              _isLoadingMore = false;
+            });
+          return;
+        }
+        data = response.data!;
+      }
+    }
+    final rows = (data['comments'] as List? ?? [])
+        .whereType<Map>()
+        .map((row) => Map<String, dynamic>.from(row))
+        .toList();
+    final previousRows = !more && _commentRows.isNotEmpty
+        ? _commentRows.where(
+            (old) => !rows.any(
+              (fresh) => fresh['id']?.toString() == old['id']?.toString(),
+            ),
+          )
+        : const <Map<String, dynamic>>[];
+    final allRows = more
+        ? [...rows, ..._commentRows]
+        : [...previousRows, ...rows];
+    if (!more && previousRows.isNotEmpty) {
+      offset = min(offset, _commentStartOffset);
+    }
+    final post = data['post'] is Map
+        ? Map<String, dynamic>.from(data['post'] as Map)
+        : null;
+    final displayRows = <Map<String, dynamic>>[
+      ...allRows.reversed,
+      if (post != null)
+        {
+          ...post,
+          'chat_id': _selectedChat?['chat_id'],
+          'message_type': 'channel_post_mirror',
+          'message_data': {
+            'channel_id': channelId,
+            'original_message_id': postId,
+            'channel_name':
+                data['channel_name'] ??
+                _chatBeforeComments?['name'] ??
+                _chatBeforeComments?['channel_name'],
+          },
+          'is_comment_origin': true,
+        },
+    ];
+    await _decryptAllMessages(
+      displayRows,
+      _selectedChat!['chat_id'].toString(),
+      null,
+    );
+    if (!mounted || _commentChannelId != channelId || _commentPostId != postId)
+      return;
+    setState(() {
+      _commentRows
+        ..clear()
+        ..addAll(allRows);
+      _commentMirrorId = int.tryParse(data!['group_post_id']?.toString() ?? '');
+      _commentStartOffset = offset;
+      _hasMoreMessages = offset > 0;
+      _messages = displayRows;
+      _isMessagesLoading = false;
+      _isLoadingMore = false;
+      _selectedChat!['is_member'] = data['is_member'] == true;
+    });
   }
 
   Widget _buildEmptyMessagesPlaceholder(bool isDark, double scale) {
@@ -8897,7 +9572,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                   fontSize: 17 * scale,
                   fontWeight: FontWeight.w700,
                   color: primaryTextColor,
-                  fontFamily: 'Inter',
+                  fontFamily: null,
                   letterSpacing: -0.2,
                 ),
                 textAlign: TextAlign.center,
@@ -8911,7 +9586,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                   fontSize: 13 * scale,
                   height: 1.4,
                   color: secondaryTextColor,
-                  fontFamily: 'Inter',
+                  fontFamily: null,
                 ),
                 textAlign: TextAlign.center,
               ),
@@ -9258,7 +9933,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
           style: TextStyle(
             fontSize: 12.5 * scale,
             fontWeight: FontWeight.w500,
-            color: isDark ? Colors.white70 : Colors.black87,
+            color:
+                context.xnxColor("text-secondary") ??
+                (isDark ? Colors.white70 : Colors.black87),
           ),
           textAlign: TextAlign.center,
         ),
@@ -9432,6 +10109,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
   }
 
   bool _messageAllowsUserActions(Map<String, dynamic> message) {
+    if (message['is_comment_origin'] == true) return false;
     const blockedTypes = {
       'system',
       'user_joined',
@@ -9505,8 +10183,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
     Map<String, dynamic> msg,
     bool isMe,
     bool isDark,
-    double scale,
-  ) {
+    double scale, {
+    Widget? commentFooter,
+  }) {
     final messageType = msg['message_type'] as String?;
     final isSystemMsg =
         msg['is_system'] == true ||
@@ -9698,8 +10377,26 @@ class _MessengerScreenState extends State<MessengerScreen> {
     final authorGradient =
         authorProfile?['avatar_gradient']?.toString() ??
         msg['author_avatar_gradient']?.toString();
-    final isChannel = _selectedChat!['chat_type'] == 'channel';
+    final isChannel =
+        _selectedChat!['chat_type'] == 'channel' ||
+        msg['is_comment_origin'] == true;
     final isGroup = _selectedChat!['chat_type'] == 'group';
+    final isChannelPostInGroup =
+        isGroup && messageType == 'channel_post_mirror';
+    Map? channelMetadata;
+    final rawChannelMetadata = msg['message_data'];
+    if (rawChannelMetadata is Map) {
+      channelMetadata = rawChannelMetadata;
+    } else if (rawChannelMetadata is String) {
+      try {
+        final parsed = jsonDecode(rawChannelMetadata);
+        if (parsed is Map) channelMetadata = parsed;
+      } catch (_) {}
+    }
+    final channelPostName =
+        channelMetadata?['channel_name']?.toString().trim().isNotEmpty == true
+        ? channelMetadata!['channel_name'].toString().trim()
+        : 'Канал';
     final appearance = Provider.of<AppearanceProvider>(context);
     final myColorResolution = appearance.myMessageColor.resolve(
       solidPresets: kMyMessageSolidPresets,
@@ -9715,22 +10412,39 @@ class _MessengerScreenState extends State<MessengerScreen> {
     final activeColorResolution = usesMyBubble
         ? myColorResolution
         : otherColorResolution;
-    final defaultBubbleColors = usesMyBubble
+    final importedTheme = context.read<ThemeProvider>().xnxTheme;
+    final xnxBubble = importedTheme?.messageColor(
+      outgoing: usesMyBubble,
+      text: false,
+      dark: isDark,
+    );
+    final defaultBubbleColors = xnxBubble != null
+        ? [xnxBubble]
+        : usesMyBubble
         ? const [Color(0xFF2563EB), Color(0xFF1D4ED8)]
         : (isDark
               ? const [Color(0xFF2B2B2B), Color(0xFF323232)]
               : const [Color(0xFFF7F7F7), Color(0xFFF0F0F0)]);
-    final messageForeground = _messageForegroundFor(
-      activeColorResolution.solidColor != null
-          ? [activeColorResolution.solidColor!]
-          : activeColorResolution.gradient?.colors ?? defaultBubbleColors,
+    final xnxText = importedTheme?.messageColor(
+      outgoing: usesMyBubble,
+      text: true,
+      dark: isDark,
     );
+    final messageForeground =
+        xnxText ??
+        _messageForegroundFor(
+          xnxBubble != null
+              ? [xnxBubble]
+              : activeColorResolution.solidColor != null
+              ? [activeColorResolution.solidColor!]
+              : activeColorResolution.gradient?.colors ?? defaultBubbleColors,
+        );
     final messageMuted = messageForeground.withValues(alpha: 0.62);
 
     if (customPayload != null &&
         customPayload['type'] == 'video_message' &&
         !showsForwardedFrom) {
-      final alignLeft = isChannel || !isMe;
+      final alignLeft = !isMe;
       return Align(
         alignment: alignLeft ? Alignment.centerLeft : Alignment.centerRight,
         child: Column(
@@ -9738,11 +10452,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
               ? CrossAxisAlignment.start
               : CrossAxisAlignment.end,
           children: [
-            if (isChannel || (!isMe && isGroup))
+            if (isChannelPostInGroup || (!isMe && isGroup))
               Padding(
                 padding: const EdgeInsets.only(left: 4, bottom: 4),
                 child: Text(
-                  isChannel ? _getChatName(_selectedChat!) : authorFirstName,
+                  isChannelPostInGroup ? channelPostName : authorFirstName,
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 12,
@@ -9757,6 +10471,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
               isDark: isDark,
               scale: scale,
             ),
+            if (commentFooter != null)
+              IconTheme(
+                data: IconThemeData(color: messageForeground),
+                child: commentFooter,
+              ),
           ],
         ),
       );
@@ -9774,19 +10493,87 @@ class _MessengerScreenState extends State<MessengerScreen> {
     }
 
     final hasReply =
-        isReplyFieldValid(msg['reply_to_id']) ||
-        isReplyFieldValid(msg['reply_to_ref']) ||
-        isReplyFieldValid(msg['reply_to']) ||
-        isReplyFieldValid(msg['reply_text']);
+        _commentChannelId == null &&
+        (isReplyFieldValid(msg['reply_to_id']) ||
+            isReplyFieldValid(msg['reply_to_ref']) ||
+            isReplyFieldValid(msg['reply_to']) ||
+            isReplyFieldValid(msg['reply_text']));
     final mediaItems = _getMediaItemsFromMsg(msg, customPayload);
+    final documentItems = <Map<String, dynamic>>[];
+    final audioItems = <Map<String, dynamic>>[];
+    final documentIds = <String>{};
+    final audioIds = <String>{};
+    void collectDocuments(dynamic rawFiles) {
+      if (rawFiles is! List) return;
+      for (final raw in rawFiles) {
+        if (raw is! Map) continue;
+        final file = Map<String, dynamic>.from(raw);
+        final kind = (file['file_type'] ?? '').toString().toLowerCase();
+        final fileName = (file['file_name'] ?? file['name'] ?? '').toString();
+        final mime = (file['mime_type'] ?? file['type'] ?? '')
+            .toString()
+            .toLowerCase();
+        final fileId = file['file_id']?.toString();
+        if (fileId == null || fileId.isEmpty) continue;
+        if (_isAudioFile(file)) {
+          if (audioIds.add(fileId)) {
+            audioItems.add({
+              ...file,
+              'type': 'audio',
+              'file_id': fileId,
+              'file_name': fileName.isEmpty ? 'Аудиофайл' : fileName,
+              'file_url': file['file_url'] ?? file['url'],
+            });
+          }
+          continue;
+        }
+        if (kind == 'image' || kind == 'video') continue;
+        if (kind != 'document' &&
+            (_isImageFile(fileName, mime) || _isVideoFile(fileName, mime))) {
+          continue;
+        }
+        if (!documentIds.add(fileId)) {
+          continue;
+        }
+        documentItems.add({
+          'type': 'file',
+          'file_id': fileId,
+          'file_name': fileName.isEmpty ? 'Файл' : fileName,
+          'file_size': file['file_size'] ?? file['size'] ?? 0,
+          'mime_type': file['mime_type'] ?? 'application/octet-stream',
+          'file_url': file['file_url'] ?? file['url'],
+        });
+      }
+    }
+
+    collectDocuments(msg['images']);
+    collectDocuments(msg['files']);
+    collectDocuments(msg['attachments']);
+    collectDocuments(customPayload?['images']);
+    collectDocuments(customPayload?['files']);
     final trimmedText = decryptedText.trim();
     final hasMediaCaption =
         trimmedText.isNotEmpty && !trimmedText.startsWith('{');
     final isOnlyMedia =
         mediaItems.isNotEmpty &&
+        documentItems.isEmpty &&
+        audioItems.isEmpty &&
         !hasMediaCaption &&
         !hasReply &&
         !showsForwardedFrom;
+    double mixedAttachmentWidth = 320 * scale;
+    if (mediaItems.length == 1 &&
+        (documentItems.isNotEmpty || audioItems.isNotEmpty)) {
+      final media = mediaItems.first;
+      final width = double.tryParse(media['width']?.toString() ?? '');
+      final height = double.tryParse(media['height']?.toString() ?? '');
+      final ratio = width != null && width > 0 && height != null && height > 0
+          ? width / height
+          : 16 / 9;
+      if (mixedAttachmentWidth / ratio > 340 * scale) {
+        mixedAttachmentWidth = 340 * scale * ratio;
+      }
+    }
 
     Widget buildTimestampWidget({bool overlay = false}) {
       return Row(
@@ -9799,7 +10586,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
               fontSize: 10,
             ),
           ),
-          if (isMe && !isChannel && customPayload?['type'] != 'call') ...[
+          if (isMe &&
+              !isChannel &&
+              !isChannelPostInGroup &&
+              customPayload?['type'] != 'call') ...[
             const SizedBox(width: 4),
             Builder(
               builder: (context) {
@@ -9824,7 +10614,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
                 );
               },
             ),
-          ] else if (customPayload?['type'] != 'call') ...[
+          ] else if (!isChannel &&
+              !isChannelPostInGroup &&
+              customPayload?['type'] != 'call') ...[
             const SizedBox(width: 4),
             FaIcon(
               FontAwesomeIcons.lock,
@@ -9837,7 +10629,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
     }
 
     final bubbleContent = GestureDetector(
-      onTap: _messageAllowsUserActions(msg)
+      onTap: _commentChannelId == null && _messageAllowsUserActions(msg)
           ? () => setState(() => _replyingToMessage = msg)
           : null,
       onSecondaryTapDown: _messageAllowsUserActions(msg)
@@ -9862,10 +10654,14 @@ class _MessengerScreenState extends State<MessengerScreen> {
         decoration: isOnlyMedia
             ? null
             : BoxDecoration(
-                color: usesMyBubble
-                    ? myColorResolution.solidColor
-                    : otherColorResolution.solidColor,
-                gradient: usesMyBubble
+                color:
+                    xnxBubble ??
+                    (usesMyBubble
+                        ? myColorResolution.solidColor
+                        : otherColorResolution.solidColor),
+                gradient: xnxBubble != null
+                    ? null
+                    : usesMyBubble
                     ? (myColorResolution.gradient ??
                           (myColorResolution.solidColor == null
                               ? const LinearGradient(
@@ -9916,11 +10712,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
                   scale,
                 ),
               // Sender name (channel name for channels, author name for groups if not me)
-              if (isChannel || (!isMe && isGroup))
+              if (isChannelPostInGroup || (!isMe && isGroup))
                 Padding(
                   padding: const EdgeInsets.only(bottom: 4),
                   child: Text(
-                    isChannel ? _getChatName(_selectedChat!) : authorFirstName,
+                    isChannelPostInGroup ? channelPostName : authorFirstName,
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 14,
@@ -9956,6 +10752,29 @@ class _MessengerScreenState extends State<MessengerScreen> {
                   )
                 else
                   _buildMediaCollageWidget(mediaItems, isMe, isDark, scale),
+                for (final document in documentItems) ...[
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: mixedAttachmentWidth,
+                    child: _buildFileAttachmentWidget(
+                      document,
+                      scale,
+                      messageForeground,
+                    ),
+                  ),
+                ],
+                for (final audio in audioItems) ...[
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: mixedAttachmentWidth,
+                    child: _MusicMessageBubblePlayer(
+                      key: ValueKey('music-${audio['file_id']}'),
+                      payload: audio,
+                      scale: scale,
+                      foreground: messageForeground,
+                    ),
+                  ),
+                ],
                 if (decryptedText.trim().isNotEmpty &&
                     !decryptedText.trim().startsWith('{')) ...[
                   const SizedBox(height: 8),
@@ -9967,6 +10786,33 @@ class _MessengerScreenState extends State<MessengerScreen> {
                     ),
                   ),
                 ],
+              ] else if (documentItems.isNotEmpty || audioItems.isNotEmpty) ...[
+                for (final document in documentItems) ...[
+                  _buildFileAttachmentWidget(
+                    document,
+                    scale,
+                    messageForeground,
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                for (final audio in audioItems) ...[
+                  _MusicMessageBubblePlayer(
+                    key: ValueKey('music-${audio['file_id']}'),
+                    payload: audio,
+                    scale: scale,
+                    foreground: messageForeground,
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                if (decryptedText.trim().isNotEmpty &&
+                    !decryptedText.trim().startsWith('{'))
+                  _buildFormattedText(
+                    decryptedText,
+                    TextStyle(
+                      color: messageForeground,
+                      fontSize: appearance.chatFontSize * scale,
+                    ),
+                  ),
               ] else if (customPayload != null &&
                   customPayload['type'] == 'voice')
                 _VoiceMessageBubblePlayer(
@@ -10140,6 +10986,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
                       child: timestampWidget,
                     );
                   },
+                ),
+              if (commentFooter != null)
+                IconTheme(
+                  data: IconThemeData(color: messageForeground),
+                  child: commentFooter,
                 ),
             ],
           ),
@@ -10369,6 +11220,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
               fullUrl,
               width: size,
               height: size,
+              cacheWidth: (size * MediaQuery.devicePixelRatioOf(context))
+                  .ceil(),
+              cacheHeight: (size * MediaQuery.devicePixelRatioOf(context))
+                  .ceil(),
               fit: BoxFit.cover,
               errorBuilder: (_, __, ___) => _buildInitialsAvatar(
                 initials,
@@ -10695,27 +11550,32 @@ class _MessengerScreenState extends State<MessengerScreen> {
           ),
         ),
         const PopupMenuDivider(),
-        PopupMenuItem<String>(
-          value: 'reply',
-          onTap: () => setState(() => _replyingToMessage = msg),
-          child: Row(
-            children: [
-              FaIcon(
-                FontAwesomeIcons.reply,
-                size: 14 * scale,
-                color: isDark ? Colors.white70 : Colors.black87,
-              ),
-              SizedBox(width: 10 * scale),
-              Text(
-                l10n.reply,
-                style: TextStyle(
-                  fontSize: 14 * scale,
-                  color: isDark ? Colors.white : Colors.black87,
+        if (_commentChannelId == null)
+          PopupMenuItem<String>(
+            value: 'reply',
+            onTap: () => setState(() => _replyingToMessage = msg),
+            child: Row(
+              children: [
+                FaIcon(
+                  FontAwesomeIcons.reply,
+                  size: 14 * scale,
+                  color:
+                      context.xnxColor("text-secondary") ??
+                      (isDark ? Colors.white70 : Colors.black87),
                 ),
-              ),
-            ],
+                SizedBox(width: 10 * scale),
+                Text(
+                  l10n.reply,
+                  style: TextStyle(
+                    fontSize: 14 * scale,
+                    color:
+                        context.xnxColor("text") ??
+                        (isDark ? Colors.white : Colors.black87),
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
         PopupMenuItem<String>(
           value: 'forward',
           onTap: () => Future<void>.delayed(
@@ -10727,14 +11587,18 @@ class _MessengerScreenState extends State<MessengerScreen> {
               FaIcon(
                 FontAwesomeIcons.share,
                 size: 14 * scale,
-                color: isDark ? Colors.white70 : Colors.black87,
+                color:
+                    context.xnxColor("text-secondary") ??
+                    (isDark ? Colors.white70 : Colors.black87),
               ),
               SizedBox(width: 10 * scale),
               Text(
                 l10n.forward,
                 style: TextStyle(
                   fontSize: 14 * scale,
-                  color: isDark ? Colors.white : Colors.black87,
+                  color:
+                      context.xnxColor("text") ??
+                      (isDark ? Colors.white : Colors.black87),
                 ),
               ),
             ],
@@ -10810,6 +11674,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
         sourceChat?['other_user'] is Map
             ? Map<String, dynamic>.from(sourceChat!['other_user'] as Map)
             : null,
+        message: Map<String, dynamic>.from(source),
       );
     }
 
@@ -10846,7 +11711,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
         );
       }
       if (targetChatId.startsWith('personal_')) {
-        final peerKey = await _getPeerPublicKey(null, chatId: targetChatId);
+        final peerKey = await _getPeerPublicKey(
+          null,
+          chatId: targetChatId,
+          refresh: true,
+        );
         if (peerKey == null) throw StateError('missing_target_key');
         if (peerKey == 'bot') {
           final chatKey = await _getGroupChatKey(targetChatId);
@@ -11262,7 +12131,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
                           style: TextStyle(
                             fontSize: 17 * scale,
                             fontWeight: FontWeight.bold,
-                            color: isDark ? Colors.white : Colors.black87,
+                            color:
+                                context.xnxColor("text") ??
+                                (isDark ? Colors.white : Colors.black87),
                           ),
                         ),
                         IconButton(
@@ -11270,7 +12141,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
                           icon: FaIcon(
                             FontAwesomeIcons.xmark,
                             size: 16 * scale,
-                            color: isDark ? Colors.white54 : Colors.black54,
+                            color:
+                                context.xnxColor("text-muted") ??
+                                (isDark ? Colors.white54 : Colors.black54),
                           ),
                         ),
                       ],
@@ -11284,18 +12157,24 @@ class _MessengerScreenState extends State<MessengerScreen> {
                       },
                       style: TextStyle(
                         fontSize: 14 * scale,
-                        color: isDark ? Colors.white : Colors.black87,
+                        color:
+                            context.xnxColor("text") ??
+                            (isDark ? Colors.white : Colors.black87),
                       ),
                       decoration: InputDecoration(
                         hintText: 'Поиск эмодзи...',
                         hintStyle: TextStyle(
-                          color: isDark ? Colors.white38 : Colors.black38,
+                          color:
+                              context.xnxColor("text-muted") ??
+                              (isDark ? Colors.white38 : Colors.black38),
                           fontSize: 14 * scale,
                         ),
                         prefixIcon: Icon(
                           Icons.search,
                           size: 18 * scale,
-                          color: isDark ? Colors.white54 : Colors.black54,
+                          color:
+                              context.xnxColor("text-muted") ??
+                              (isDark ? Colors.white54 : Colors.black54),
                         ),
                         filled: true,
                         fillColor: isDark
@@ -11338,9 +12217,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                   style: TextStyle(
                                     fontSize: 12 * scale,
                                     fontWeight: FontWeight.bold,
-                                    color: isDark
-                                        ? Colors.white54
-                                        : Colors.black54,
+                                    color:
+                                        context.xnxColor("text-muted") ??
+                                        (isDark
+                                            ? Colors.white54
+                                            : Colors.black54),
                                   ),
                                 ),
                               ),
@@ -11675,7 +12556,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                         style: TextStyle(
                           fontSize: 14 * scale,
                           fontWeight: FontWeight.w600,
-                          fontFamily: 'Inter',
+                          fontFamily: null,
                           color: fgColor,
                         ),
                       ),
@@ -11772,7 +12653,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
                 Text(
                   textPreview,
                   style: TextStyle(
-                    color: isDark ? Colors.white70 : Colors.black54,
+                    color:
+                        context.xnxColor("text-secondary") ??
+                        (isDark ? Colors.white70 : Colors.black54),
                     fontSize: 12 * scale,
                   ),
                   maxLines: 1,
@@ -11911,10 +12794,20 @@ class _MessengerScreenState extends State<MessengerScreen> {
     final showRecordTooltip =
         _isHoveringRecordButton && !_showSendButton && !_isRecording;
 
-    Widget? previewWidget;
-    if (_attachedFile != null) {
-      final fileName = _attachedFile!['file_name'] as String;
-      final fileSize = _attachedFile!['file_size'] as int;
+    final previewWidgets = <Widget>[];
+    final selectedChatId = (_selectedChat?['chat_id'] ?? _selectedChat?['id'])
+        ?.toString();
+    final previewFiles = <Map<String, dynamic>>[
+      ..._attachedFiles.where((file) => file['chat_id'] == selectedChatId),
+      ..._uploadingFiles.where((file) => file['chat_id'] == selectedChatId),
+    ]..sort((a, b) => (a['order'] as int).compareTo(b['order'] as int));
+    for (final previewFile in previewFiles) {
+      final fileName = previewFile['file_name'] as String;
+      final fileSize = previewFile['file_size'] as int;
+      final isUploading = previewFile['status'] == 'uploading';
+      final isPreparing = previewFile['status'] == 'preparing';
+      final hasUploadError = previewFile['status'] == 'error';
+      final progress = (previewFile['progress'] as int?) ?? 0;
 
       String formatBytes(int bytes, int decimals) {
         if (bytes <= 0) return '0 B';
@@ -11931,69 +12824,137 @@ class _MessengerScreenState extends State<MessengerScreen> {
             suffixes[i];
       }
 
-      previewWidget = Container(
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: isDark
-              ? Colors.white.withOpacity(0.06)
-              : Colors.black.withOpacity(0.03),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
+      previewWidgets.add(
+        Container(
+          margin: const EdgeInsets.only(bottom: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
             color: isDark
-                ? Colors.white.withOpacity(0.12)
-                : Colors.black.withOpacity(0.08),
-            width: 1.2,
+                ? Colors.white.withOpacity(0.06)
+                : Colors.black.withOpacity(0.03),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isDark
+                  ? Colors.white.withOpacity(0.12)
+                  : Colors.black.withOpacity(0.08),
+              width: 1.2,
+            ),
           ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            FaIcon(
-              FontAwesomeIcons.fileLines,
-              color: isDark ? Colors.white70 : Colors.black54,
-              size: 16 * scale,
-            ),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                fileName,
-                style: TextStyle(
-                  color: isDark
-                      ? Colors.white.withOpacity(0.9)
-                      : Colors.black87,
-                  fontSize: 12.5 * scale,
-                  fontWeight: FontWeight.w500,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  FaIcon(
+                    FontAwesomeIcons.fileLines,
+                    color:
+                        context.xnxColor("text-secondary") ??
+                        (isDark ? Colors.white70 : Colors.black54),
+                    size: 16 * scale,
+                  ),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      fileName,
+                      style: TextStyle(
+                        color: isDark
+                            ? Colors.white.withOpacity(0.9)
+                            : Colors.black87,
+                        fontSize: 12.5 * scale,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    '(${formatBytes(fileSize, 1)})',
+                    style: TextStyle(
+                      color: isDark ? Colors.white38 : Colors.black45,
+                      fontSize: 11 * scale,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _uploadingFiles.remove(previewFile);
+                        _attachedFiles.remove(previewFile);
+                        _showSendButton =
+                            _attachedFiles.any(
+                              (file) => file['chat_id'] == selectedChatId,
+                            ) ||
+                            _uploadingFiles.any(
+                              (file) => file['chat_id'] == selectedChatId,
+                            ) ||
+                            _messageController.text.trim().isNotEmpty;
+                      });
+                    },
+                    child: FaIcon(
+                      FontAwesomeIcons.xmark,
+                      color:
+                          context.xnxColor("text-muted") ??
+                          (isDark ? Colors.white54 : Colors.black54),
+                      size: 14 * scale,
+                    ),
+                  ),
+                ],
+              ),
+              if (isPreparing || isUploading || hasUploadError) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    if ((isPreparing || isUploading) && progress < 100)
+                      SizedBox(
+                        width: 14 * scale,
+                        height: 14 * scale,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                      ),
+                    if (hasUploadError)
+                      const Icon(
+                        Icons.error_outline,
+                        size: 16,
+                        color: Colors.redAccent,
+                      ),
+                    const SizedBox(width: 7),
+                    Text(
+                      hasUploadError
+                          ? 'Ошибка загрузки'
+                          : isPreparing
+                          ? 'Подготовка файла…'
+                          : progress >= 100
+                          ? 'Обработка на сервере…'
+                          : 'Загрузка: $progress%',
+                      style: TextStyle(
+                        fontSize: 11 * scale,
+                        color: hasUploadError
+                            ? Colors.redAccent
+                            : (context.xnxColor('text-secondary') ??
+                                  (isDark ? Colors.white70 : Colors.black54)),
+                      ),
+                    ),
+                  ],
                 ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            const SizedBox(width: 6),
-            Text(
-              '(${formatBytes(fileSize, 1)})',
-              style: TextStyle(
-                color: isDark ? Colors.white38 : Colors.black45,
-                fontSize: 11 * scale,
-              ),
-            ),
-            const SizedBox(width: 8),
-            GestureDetector(
-              onTap: () {
-                setState(() {
-                  _attachedFile = null;
-                  if (_messageController.text.trim().isEmpty) {
-                    _showSendButton = false;
-                  }
-                });
-              },
-              child: FaIcon(
-                FontAwesomeIcons.xmark,
-                color: isDark ? Colors.white54 : Colors.black54,
-                size: 14 * scale,
-              ),
-            ),
-          ],
+                if (isUploading) ...[
+                  const SizedBox(height: 5),
+                  LinearProgressIndicator(
+                    value: progress / 100,
+                    minHeight: 3,
+                    borderRadius: BorderRadius.circular(3),
+                    color: Theme.of(context).colorScheme.primary,
+                    backgroundColor: (isDark ? Colors.white : Colors.black)
+                        .withOpacity(0.12),
+                  ),
+                ],
+              ],
+            ],
+          ),
         ),
       );
     }
@@ -12009,7 +12970,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
           children: [
             if (_replyingToMessage != null)
               _buildReplyPreviewWidget(isDark, scale),
-            if (previewWidget != null) previewWidget,
+            if (previewWidgets.isNotEmpty)
+              ConstrainedBox(
+                constraints: BoxConstraints(maxHeight: 220 * scale),
+                child: ListView(shrinkWrap: true, children: previewWidgets),
+              ),
             Stack(
               clipBehavior: Clip.none,
               alignment: Alignment.center,
@@ -12055,7 +13020,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                         'Запись голосового...')
                                   : (l10n?.recordingVideo ?? 'Запись видео...'),
                               style: TextStyle(
-                                color: isDark ? Colors.white70 : Colors.black87,
+                                color:
+                                    context.xnxColor("text-secondary") ??
+                                    (isDark ? Colors.white70 : Colors.black87),
                                 fontSize: 13.5 * scale,
                                 fontWeight: FontWeight.w500,
                               ),
@@ -12084,7 +13051,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
                               key: _emojiButtonKey,
                               icon: FaIcon(
                                 FontAwesomeIcons.faceSmile,
-                                color: isDark ? Colors.white70 : Colors.black54,
+                                color:
+                                    context.xnxColor("text-secondary") ??
+                                    (isDark ? Colors.white70 : Colors.black54),
                                 size: 20,
                               ),
                               tooltip: l10n?.emoji ?? 'Эмодзи',
@@ -12291,7 +13260,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                                             color: textColor,
                                                             fontSize:
                                                                 13 * scale,
-                                                            fontFamily: 'Inter',
+                                                            fontFamily: null,
                                                           ),
                                                         ),
                                                       ),
@@ -12624,7 +13593,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                   : (l10n?.videoRecordTitle ??
                                         'Запись видео (ВC)'),
                               style: TextStyle(
-                                color: isDark ? Colors.white : Colors.black87,
+                                color:
+                                    context.xnxColor("text") ??
+                                    (isDark ? Colors.white : Colors.black87),
                                 fontSize: 11.5 * scale,
                                 fontWeight: FontWeight.bold,
                               ),
@@ -12691,7 +13662,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
                       style: TextStyle(
                         fontSize: 20 * scale,
                         fontWeight: FontWeight.bold,
-                        color: isDark ? Colors.white : Colors.black87,
+                        color:
+                            context.xnxColor("text") ??
+                            (isDark ? Colors.white : Colors.black87),
                       ),
                     ),
                     IconButton(
@@ -12720,7 +13693,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
                         )?.imyaPolzovatelyaMin5Simvolov_1232 ??
                         'Fallback'),
                     hintStyle: TextStyle(
-                      color: isDark ? Colors.white38 : Colors.black38,
+                      color:
+                          context.xnxColor("text-muted") ??
+                          (isDark ? Colors.white38 : Colors.black38),
                     ),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
@@ -12754,7 +13729,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                       )?.polzovateliNeNaydeny_c01a ??
                                       'Fallback'),
                             style: TextStyle(
-                              color: isDark ? Colors.white38 : Colors.black38,
+                              color:
+                                  context.xnxColor("text-muted") ??
+                                  (isDark ? Colors.white38 : Colors.black38),
                             ),
                           ),
                         )
@@ -13052,7 +14029,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
               color: foreground,
               fontSize: 15.5 * scale,
               fontWeight: FontWeight.w600,
-              fontFamily: 'Inter',
+              fontFamily: null,
             ),
           ),
           SizedBox(height: 2),
@@ -13063,7 +14040,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
             style: TextStyle(
               color: foreground.withValues(alpha: 0.55),
               fontSize: 10.5 * scale,
-              fontFamily: 'Inter',
+              fontFamily: null,
             ),
           ),
           const SizedBox(height: 12),
@@ -13168,7 +14145,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                   fontWeight: isSelected
                                       ? FontWeight.w500
                                       : FontWeight.w400,
-                                  fontFamily: 'Inter',
+                                  fontFamily: null,
                                 ),
                                 child: Text(optionText),
                               ),
@@ -13181,7 +14158,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                 color: foreground.withValues(alpha: 0.72),
                                 fontSize: 12 * scale,
                                 fontWeight: FontWeight.w500,
-                                fontFamily: 'Inter',
+                                fontFamily: null,
                               ),
                               child: Text(percentText),
                             ),
@@ -13202,7 +14179,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
             style: TextStyle(
               color: foreground.withValues(alpha: 0.55),
               fontSize: 11 * scale,
-              fontFamily: 'Inter',
+              fontFamily: null,
             ),
           ),
         ],
@@ -13305,7 +14282,8 @@ class _MessengerScreenState extends State<MessengerScreen> {
     Map<String, dynamic> msg,
     Map<String, dynamic>? customPayload,
   ) {
-    // Voice messages, circular video messages, and audio tracks are handled by dedicated player widgets
+    // Voice messages and circular video messages use dedicated widgets.
+    // Audio can share a message with photos, so scan the images list.
     final type = customPayload?['type']?.toString().toLowerCase() ?? '';
     final msgType =
         msg['message_type']?.toString().toLowerCase() ??
@@ -13315,15 +14293,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
     if (type == 'voice' ||
         type == 'voice_message' ||
         type == 'video_message' ||
-        type == 'audio' ||
         msgType == 'voice' ||
         msgType == 'voice_message' ||
-        msgType == 'video_message' ||
-        msgType == 'audio') {
-      return [];
-    }
-
-    if (customPayload != null && _isAudioFile(customPayload)) {
+        msgType == 'video_message') {
       return [];
     }
 
@@ -14126,6 +15098,16 @@ class _MessengerScreenState extends State<MessengerScreen> {
                 Image.network(
                   url,
                   headers: _getAuthHeader(url),
+                  cacheWidth:
+                      (((width ?? maxCollageWidth) *
+                                  MediaQuery.devicePixelRatioOf(context))
+                              .ceil())
+                          .clamp(1, 1024),
+                  cacheHeight:
+                      (((height ?? 220 * scale) *
+                                  MediaQuery.devicePixelRatioOf(context))
+                              .ceil())
+                          .clamp(1, 1024),
                   fit: BoxFit.cover,
                   frameBuilder: (_, child, frame, wasSynchronouslyLoaded) {
                     if (wasSynchronouslyLoaded || frame != null) return child;
@@ -14138,7 +15120,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
                     child: Center(
                       child: Icon(
                         Icons.image_rounded,
-                        color: isDark ? Colors.white38 : Colors.black38,
+                        color:
+                            context.xnxColor("text-muted") ??
+                            (isDark ? Colors.white38 : Colors.black38),
                         size: 28 * scale,
                       ),
                     ),
@@ -14152,7 +15136,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
                   child: Center(
                     child: Icon(
                       isVideo ? Icons.movie_rounded : Icons.image_rounded,
-                      color: isDark ? Colors.white38 : Colors.black38,
+                      color:
+                          context.xnxColor("text-muted") ??
+                          (isDark ? Colors.white38 : Colors.black38),
                       size: 28 * scale,
                     ),
                   ),
@@ -14285,6 +15271,14 @@ class _MessengerScreenState extends State<MessengerScreen> {
                   headers: _getAuthHeader(url),
                   width: previewWidth,
                   height: previewHeight,
+                  cacheWidth:
+                      (previewWidth * MediaQuery.devicePixelRatioOf(context))
+                          .ceil()
+                          .clamp(1, 1024),
+                  cacheHeight:
+                      (previewHeight * MediaQuery.devicePixelRatioOf(context))
+                          .ceil()
+                          .clamp(1, 1024),
                   fit: BoxFit.cover,
                   frameBuilder: (_, child, frame, wasSynchronouslyLoaded) {
                     if (wasSynchronouslyLoaded || frame != null) return child;
@@ -14304,7 +15298,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
                       child: Center(
                         child: Icon(
                           Icons.image_rounded,
-                          color: isDark ? Colors.white38 : Colors.black38,
+                          color:
+                              context.xnxColor("text-muted") ??
+                              (isDark ? Colors.white38 : Colors.black38),
                           size: 32 * scale,
                         ),
                       ),
@@ -14322,7 +15318,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
                     child: Center(
                       child: Icon(
                         isVideo ? Icons.movie_rounded : Icons.image_rounded,
-                        color: isDark ? Colors.white38 : Colors.black38,
+                        color:
+                            context.xnxColor("text-muted") ??
+                            (isDark ? Colors.white38 : Colors.black38),
                         size: 32 * scale,
                       ),
                     ),
@@ -14634,115 +15632,166 @@ class _MessengerScreenState extends State<MessengerScreen> {
   }
 
   Future<void> _pickAndStageFile() async {
-    if (_selectedChat == null) return;
+    final chatId = (_selectedChat?['chat_id'] ?? _selectedChat?['id'])
+        ?.toString();
+    if (chatId == null) return;
 
     try {
-      final result = await FilePicker.pickFiles(allowMultiple: false);
-      if (result == null || result.files.single.path == null) return;
+      final result = await FilePicker.pickFiles(allowMultiple: true);
+      if (!mounted || result == null) return;
 
-      var path = result.files.single.path!;
-      var file = File(path);
-      var fileName = result.files.single.name;
-      var fileSize = result.files.single.size;
+      final pickedFiles = result.files
+          .where((file) => file.path != null)
+          .toList();
+      if (pickedFiles.isEmpty) return;
 
-      // Determine file type based on extension
-      String fileType = 'document';
-      final lowerName = fileName.toLowerCase();
-      final isAnimatedGif = lowerName.endsWith('.gif');
-      if (lowerName.endsWith('.jpg') ||
-          lowerName.endsWith('.jpeg') ||
-          lowerName.endsWith('.png') ||
-          lowerName.endsWith('.gif') ||
-          lowerName.endsWith('.webp') ||
-          lowerName.endsWith('.bmp')) {
-        fileType = 'image';
-      } else if (lowerName.endsWith('.mp4') ||
-          lowerName.endsWith('.mov') ||
-          lowerName.endsWith('.avi') ||
-          lowerName.endsWith('.mkv') ||
-          lowerName.endsWith('.webm')) {
-        fileType = 'video';
-      } else if (lowerName.endsWith('.mp3') ||
-          lowerName.endsWith('.wav') ||
-          lowerName.endsWith('.ogg') ||
-          lowerName.endsWith('.m4a') ||
-          lowerName.endsWith('.flac')) {
-        fileType = 'audio';
+      final pendingFiles = pickedFiles
+          .map(
+            (file) => <String, dynamic>{
+              'chat_id': chatId,
+              'order': _nextAttachmentOrder++,
+              'path': file.path,
+              'file_name': file.name,
+              'file_size': file.size,
+              'progress': 0,
+              'status': 'preparing',
+            },
+          )
+          .toList();
+      setState(() {
+        _uploadingFiles.addAll(pendingFiles);
+        _showSendButton = true;
+      });
+
+      final needsPhotoChoice = pickedFiles.any((file) {
+        final name = file.name.toLowerCase();
+        return (name.endsWith('.jpg') ||
+                name.endsWith('.jpeg') ||
+                name.endsWith('.png') ||
+                name.endsWith('.webp') ||
+                name.endsWith('.bmp')) &&
+            !name.endsWith('.gif');
+      });
+      bool sendImagesAsPhotos = true;
+      if (needsPhotoChoice) {
+        final choice = await _showCompressImageDialog();
+        if (!mounted) return;
+        if (choice == null) {
+          setState(() {
+            _uploadingFiles.removeWhere(pendingFiles.contains);
+            _showSendButton =
+                _attachedFiles.any((file) => file['chat_id'] == chatId) ||
+                _uploadingFiles.any((file) => file['chat_id'] == chatId) ||
+                _messageController.text.trim().isNotEmpty;
+          });
+          return;
+        }
+        sendImagesAsPhotos = choice;
       }
 
-      bool sendAsImage = false;
-      if (fileType == 'image' && !isAnimatedGif) {
-        final shouldDisplayAsPhoto = await _showCompressImageDialog();
-        if (shouldDisplayAsPhoto == null) return;
-        sendAsImage = shouldDisplayAsPhoto;
-        if (!sendAsImage) fileType = 'document';
-      } else if (isAnimatedGif) {
-        sendAsImage = true;
-      }
-
+      await Future.wait(
+        pendingFiles.map(
+          (pending) => _uploadStagedFile(pending, chatId, sendImagesAsPhotos),
+        ),
+      );
+    } catch (error) {
+      Logger.error('MessengerScreen', 'Ошибка выбора файлов', error);
       if (mounted) {
         CustomToast.show(
           context,
-          'Загрузка файла "$fileName"...',
-          type: ToastType.info,
+          'Ошибка выбора файлов: $error',
+          type: ToastType.error,
         );
       }
+    }
+  }
 
-      final chatId = _selectedChat!['id'].toString();
-      final uploadRes = await _apiService.uploadFile(file, fileType, chatId);
+  Future<void> _uploadStagedFile(
+    Map<String, dynamic> pending,
+    String chatId,
+    bool sendImagesAsPhotos,
+  ) async {
+    if (!mounted || !_uploadingFiles.contains(pending)) return;
 
-      if (uploadRes.success && uploadRes.data != null) {
-        final fileId =
-            uploadRes.data!['file_id']?.toString() ??
-            uploadRes.data!['id']?.toString();
-        if (fileId == null)
-          throw Exception(
-            (AppLocalizations.of(context)?.nePoluchenIdFaylaOt_86c8 ??
-                'Fallback'),
-          );
+    final fileName = pending['file_name'] as String;
+    final lowerName = fileName.toLowerCase();
+    final isAnimatedGif = lowerName.endsWith('.gif');
+    String fileType = 'document';
+    if (lowerName.endsWith('.jpg') ||
+        lowerName.endsWith('.jpeg') ||
+        lowerName.endsWith('.png') ||
+        isAnimatedGif ||
+        lowerName.endsWith('.webp') ||
+        lowerName.endsWith('.bmp')) {
+      fileType = 'image';
+    } else if (lowerName.endsWith('.mp4') ||
+        lowerName.endsWith('.mov') ||
+        lowerName.endsWith('.avi') ||
+        lowerName.endsWith('.mkv') ||
+        lowerName.endsWith('.webm')) {
+      fileType = 'video';
+    } else if (lowerName.endsWith('.mp3') ||
+        lowerName.endsWith('.wav') ||
+        lowerName.endsWith('.ogg') ||
+        lowerName.endsWith('.m4a') ||
+        lowerName.endsWith('.flac')) {
+      fileType = 'audio';
+    }
 
-        setState(() {
-          _attachedFile = {
+    final sendAsImage =
+        isAnimatedGif || (fileType == 'image' && sendImagesAsPhotos);
+    if (fileType == 'image' && !sendAsImage) fileType = 'document';
+
+    setState(() => pending['status'] = 'uploading');
+    try {
+      final uploadRes = await _apiService.uploadFile(
+        File(pending['path'] as String),
+        fileType,
+        chatId,
+        onSendProgress: (sent, total) {
+          if (!mounted || !_uploadingFiles.contains(pending) || total <= 0) {
+            return;
+          }
+          final percent = (sent * 100 / total).round().clamp(0, 100);
+          if (pending['progress'] != percent) {
+            setState(() => pending['progress'] = percent);
+          }
+        },
+      );
+      if (!mounted || !_uploadingFiles.contains(pending)) return;
+      if (!uploadRes.success || uploadRes.data == null) {
+        throw StateError(uploadRes.error ?? 'Ошибка загрузки файла');
+      }
+      final fileId = (uploadRes.data!['file_id'] ?? uploadRes.data!['id'])
+          ?.toString();
+      if (fileId == null || fileId.isEmpty) {
+        throw StateError('Сервер не вернул ID файла');
+      }
+
+      setState(() {
+        _uploadingFiles.remove(pending);
+        if ((_selectedChat?['chat_id'] ?? _selectedChat?['id'])?.toString() ==
+            chatId) {
+          _attachedFiles.add({
+            'chat_id': chatId,
+            'order': pending['order'],
             'file_id': fileId,
             'file_name': fileName,
-            'file_size': uploadRes.data!['file_size'] ?? fileSize,
+            'file_size': uploadRes.data!['file_size'] ?? pending['file_size'],
             'file_type': uploadRes.data!['file_type'] ?? fileType,
             'mime_type': uploadRes.data!['mime_type'],
             'blur_hash': uploadRes.data!['blur_hash'],
             'width': uploadRes.data!['width'],
             'height': uploadRes.data!['height'],
             if (sendAsImage) 'send_as_image': true,
-          };
+          });
           _showSendButton = true;
-        });
-
-        if (mounted) {
-          CustomToast.show(
-            context,
-            (AppLocalizations.of(context)?.faylZagruzhenIPrikreplen_dc24 ??
-                'Fallback'),
-            type: ToastType.success,
-          );
         }
-      } else {
-        throw Exception(
-          uploadRes.error ??
-              (AppLocalizations.of(context)?.neizvestnayaOshibkaZagruzki_68cb ??
-                  'Fallback'),
-        );
-      }
-    } catch (e) {
-      Logger.error(
-        'MessengerScreen',
-        (AppLocalizations.of(context)?.oshibkaZagruzkiFayla_86e5 ?? 'Fallback'),
-        e,
-      );
-      if (mounted) {
-        CustomToast.show(
-          context,
-          'Ошибка загрузки файла: $e',
-          type: ToastType.error,
-        );
+      });
+    } catch (error) {
+      Logger.error('MessengerScreen', 'Ошибка загрузки файла', error);
+      if (mounted && _uploadingFiles.contains(pending)) {
+        setState(() => pending['status'] = 'error');
       }
     }
   }
@@ -14856,7 +15905,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
           myUserId,
         );
       } else if (chatId.startsWith('personal_')) {
-        final peerPubKey = await _getPeerPublicKey(otherUser, chatId: chatId);
+        final peerPubKey = await _getPeerPublicKey(
+          otherUser,
+          chatId: chatId,
+          refresh: true,
+        );
         if (peerPubKey == null) return;
         if (peerPubKey == 'bot') {
           final chatKeyHex = await _getGroupChatKey(chatId);
@@ -14901,7 +15954,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
             myUserId,
           );
         } else if (chatId.startsWith('personal_')) {
-          final peerPubKey = await _getPeerPublicKey(otherUser, chatId: chatId);
+          final peerPubKey = await _getPeerPublicKey(
+            otherUser,
+            chatId: chatId,
+            refresh: true,
+          );
           if (peerPubKey == null) return "";
           if (peerPubKey == 'bot') {
             final chatKeyHex = await _getGroupChatKey(chatId);
@@ -15616,10 +16673,12 @@ class _MessengerScreenState extends State<MessengerScreen> {
         return StatefulBuilder(
           builder: (context, setModalState) {
             final screenSize = MediaQuery.of(context).size;
-            final bgColor = isDark ? const Color(0xFF0C0C0C) : Colors.white;
-            final borderColor = isDark
-                ? const Color(0xFF1E1E1E)
-                : const Color(0xFFEBEBEB);
+            final bgColor =
+                context.xnxColor("surface") ??
+                (isDark ? const Color(0xFF0C0C0C) : Colors.white);
+            final borderColor =
+                context.xnxColor("border") ??
+                (isDark ? const Color(0xFF1E1E1E) : const Color(0xFFEBEBEB));
 
             return Material(
               type: MaterialType.transparency,
@@ -15663,8 +16722,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                 fontSize: 10 * scale,
                                 fontWeight: FontWeight.w600,
                                 letterSpacing: 1.5 * scale,
-                                color: isDark ? Colors.white38 : Colors.black38,
-                                fontFamily: 'Inter',
+                                color:
+                                    context.xnxColor("text-muted") ??
+                                    (isDark ? Colors.white38 : Colors.black38),
+                                fontFamily: null,
                               ),
                             ),
                             GestureDetector(
@@ -15720,9 +16781,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                 style: TextStyle(
                                   fontSize: 12 * scale,
                                   fontWeight: FontWeight.w600,
-                                  color: isDark
-                                      ? Colors.white54
-                                      : Colors.black54,
+                                  color:
+                                      context.xnxColor("text-muted") ??
+                                      (isDark
+                                          ? Colors.white54
+                                          : Colors.black54),
                                 ),
                               ),
                               const SizedBox(height: 8),
@@ -15827,9 +16890,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
                             TextButton(
                               onPressed: () => Navigator.pop(context),
                               style: TextButton.styleFrom(
-                                foregroundColor: isDark
-                                    ? Colors.white70
-                                    : Colors.black87,
+                                foregroundColor:
+                                    context.xnxColor("text-secondary") ??
+                                    (isDark ? Colors.white70 : Colors.black87),
                                 padding: EdgeInsets.symmetric(
                                   horizontal: 16 * scale,
                                   vertical: 12 * scale,
@@ -15938,10 +17001,12 @@ class _MessengerScreenState extends State<MessengerScreen> {
         return StatefulBuilder(
           builder: (context, setModalState) {
             final screenSize = MediaQuery.of(context).size;
-            final bgColor = isDark ? const Color(0xFF0C0C0C) : Colors.white;
-            final borderColor = isDark
-                ? const Color(0xFF1E1E1E)
-                : const Color(0xFFEBEBEB);
+            final bgColor =
+                context.xnxColor("surface") ??
+                (isDark ? const Color(0xFF0C0C0C) : Colors.white);
+            final borderColor =
+                context.xnxColor("border") ??
+                (isDark ? const Color(0xFF1E1E1E) : const Color(0xFFEBEBEB));
 
             return Material(
               type: MaterialType.transparency,
@@ -15985,8 +17050,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                 fontSize: 10 * scale,
                                 fontWeight: FontWeight.w600,
                                 letterSpacing: 1.5 * scale,
-                                color: isDark ? Colors.white38 : Colors.black38,
-                                fontFamily: 'Inter',
+                                color:
+                                    context.xnxColor("text-muted") ??
+                                    (isDark ? Colors.white38 : Colors.black38),
+                                fontFamily: null,
                               ),
                             ),
                             GestureDetector(
@@ -16041,9 +17108,11 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                 style: TextStyle(
                                   fontSize: 12 * scale,
                                   fontWeight: FontWeight.w600,
-                                  color: isDark
-                                      ? Colors.white54
-                                      : Colors.black54,
+                                  color:
+                                      context.xnxColor("text-muted") ??
+                                      (isDark
+                                          ? Colors.white54
+                                          : Colors.black54),
                                 ),
                               ),
                               const SizedBox(height: 8),
@@ -16132,10 +17201,12 @@ class _MessengerScreenState extends State<MessengerScreen> {
                               ),
                               SizedBox(height: 12),
                               Theme(
-                                data: ThemeData(
-                                  unselectedWidgetColor: isDark
-                                      ? Colors.white54
-                                      : Colors.black54,
+                                data: Theme.of(context).copyWith(
+                                  unselectedWidgetColor:
+                                      context.xnxColor("text-muted") ??
+                                      (isDark
+                                          ? Colors.white54
+                                          : Colors.black54),
                                 ),
                                 child: CheckboxListTile(
                                   title: Text(
@@ -16173,9 +17244,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
                             TextButton(
                               onPressed: () => Navigator.pop(context),
                               style: TextButton.styleFrom(
-                                foregroundColor: isDark
-                                    ? Colors.white70
-                                    : Colors.black87,
+                                foregroundColor:
+                                    context.xnxColor("text-secondary") ??
+                                    (isDark ? Colors.white70 : Colors.black87),
                                 padding: EdgeInsets.symmetric(
                                   horizontal: 16 * scale,
                                   vertical: 12 * scale,
@@ -16279,7 +17350,7 @@ class _InitialsPainter extends CustomPainter {
           color: color,
           fontSize: fontSize,
           fontWeight: FontWeight.bold,
-          fontFamily: 'Inter',
+          fontFamily: null,
         ),
       ),
       textDirection: TextDirection.ltr,
@@ -16749,7 +17820,7 @@ class _MusicMessageBubblePlayerState extends State<_MusicMessageBubblePlayer> {
                         color: foreground,
                         fontSize: 13.5 * scale,
                         fontWeight: FontWeight.w600,
-                        fontFamily: 'Inter',
+                        fontFamily: null,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -16761,7 +17832,7 @@ class _MusicMessageBubblePlayerState extends State<_MusicMessageBubblePlayer> {
                         style: TextStyle(
                           color: muted,
                           fontSize: 11 * scale,
-                          fontFamily: 'Inter',
+                          fontFamily: null,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -16845,7 +17916,7 @@ class _MusicMessageBubblePlayerState extends State<_MusicMessageBubblePlayer> {
                             style: TextStyle(
                               color: muted,
                               fontSize: 10 * scale,
-                              fontFamily: 'Inter',
+                              fontFamily: null,
                               fontWeight: FontWeight.w400,
                             ),
                           ),
@@ -17220,7 +18291,9 @@ class _TopAudioPlaybackBarState extends State<_TopAudioPlaybackBar> {
                             : const Color(0xFFE4E4E7),
                         child: Icon(
                           Icons.music_note_rounded,
-                          color: isDark ? Colors.white70 : Colors.black54,
+                          color:
+                              context.xnxColor("text-secondary") ??
+                              (isDark ? Colors.white70 : Colors.black54),
                           size: 18 * scale,
                         ),
                       ),
@@ -17233,8 +18306,10 @@ class _TopAudioPlaybackBarState extends State<_TopAudioPlaybackBar> {
                   icon: FaIcon(
                     FontAwesomeIcons.backwardStep,
                     color: playback.hasPrevious
-                        ? (isDark ? Colors.white : Colors.black87)
-                        : (isDark ? Colors.white24 : Colors.black26),
+                        ? (context.xnxColor("text") ??
+                              (isDark ? Colors.white : Colors.black87))
+                        : (context.xnxColor("border") ??
+                              (isDark ? Colors.white24 : Colors.black26)),
                     size: 12 * scale,
                   ),
                   onPressed: playback.hasPrevious
@@ -17289,8 +18364,10 @@ class _TopAudioPlaybackBarState extends State<_TopAudioPlaybackBar> {
                   icon: FaIcon(
                     FontAwesomeIcons.forwardStep,
                     color: playback.hasNext
-                        ? (isDark ? Colors.white : Colors.black87)
-                        : (isDark ? Colors.white24 : Colors.black26),
+                        ? (context.xnxColor("text") ??
+                              (isDark ? Colors.white : Colors.black87))
+                        : (context.xnxColor("border") ??
+                              (isDark ? Colors.white24 : Colors.black26)),
                     size: 12 * scale,
                   ),
                   onPressed: playback.hasNext
@@ -17316,10 +18393,12 @@ class _TopAudioPlaybackBarState extends State<_TopAudioPlaybackBar> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            color: isDark ? Colors.white : Colors.black87,
+                            color:
+                                context.xnxColor("text") ??
+                                (isDark ? Colors.white : Colors.black87),
                             fontSize: 13 * scale,
                             fontWeight: FontWeight.w600,
-                            fontFamily: 'Inter',
+                            fontFamily: null,
                           ),
                         ),
                         if (subtitle.isNotEmpty) ...[
@@ -17329,9 +18408,11 @@ class _TopAudioPlaybackBarState extends State<_TopAudioPlaybackBar> {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              color: isDark ? Colors.white54 : Colors.black54,
+                              color:
+                                  context.xnxColor("text-muted") ??
+                                  (isDark ? Colors.white54 : Colors.black54),
                               fontSize: 11 * scale,
-                              fontFamily: 'Inter',
+                              fontFamily: null,
                             ),
                           ),
                         ],
@@ -17345,10 +18426,12 @@ class _TopAudioPlaybackBarState extends State<_TopAudioPlaybackBar> {
                       ? '${_formatDuration(displayPos)} / ${_formatDuration(duration)}'
                       : _formatDuration(displayPos),
                   style: TextStyle(
-                    color: isDark ? Colors.white70 : Colors.black87,
+                    color:
+                        context.xnxColor("text-secondary") ??
+                        (isDark ? Colors.white70 : Colors.black87),
                     fontSize: 11 * scale,
                     fontWeight: FontWeight.w500,
-                    fontFamily: 'Inter',
+                    fontFamily: null,
                   ),
                 ),
                 SizedBox(width: 4 * scale),
@@ -18267,7 +19350,7 @@ class _XaneoVideoControlsState extends State<_XaneoVideoControls> {
                                             '${_formatDuration(_duration)}',
                                             style: const TextStyle(
                                               color: Colors.white70,
-                                              fontFamily: 'Inter',
+                                              fontFamily: null,
                                               fontSize: 11,
                                               fontFeatures: [
                                                 FontFeature.tabularFigures(),
@@ -18989,7 +20072,7 @@ class _VideoMessageMockBubbleState extends State<_VideoMessageMockBubble> {
               style: TextStyle(
                 color: Colors.white.withOpacity(0.7),
                 fontSize: 11,
-                fontFamily: 'Inter',
+                fontFamily: null,
               ),
             ),
           ),

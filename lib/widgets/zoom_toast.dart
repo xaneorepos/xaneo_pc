@@ -229,7 +229,7 @@ class _ZoomToastWidgetState extends State<_ZoomToastWidget>
                             style: const TextStyle(
                               color: Colors.white,
                               fontSize: 14,
-                              fontFamily: 'Inter',
+                              fontFamily: null,
                               fontWeight: FontWeight.w600,
                             ),
                           ),

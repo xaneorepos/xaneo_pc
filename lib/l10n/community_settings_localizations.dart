@@ -40,6 +40,7 @@ class CommunitySettingsLocalizations {
     'messenger.editChat.groupCallsDesc':
         'Участники могут создавать групповые звонки',
     'messenger.editChat.discussionGroup': 'Группа для комментариев',
+    'messenger.comments.title': 'Комментарии',
     'messenger.editChat.notLinked': 'Не привязана',
     'messenger.editChat.nameRequired': 'Название не может быть пустым',
     'messenger.editChat.publicNicknameRequired':
@@ -94,6 +95,7 @@ class CommunitySettingsLocalizations {
     'messenger.editChat.groupCalls': 'Group calls',
     'messenger.editChat.groupCallsDesc': 'Members can start group calls',
     'messenger.editChat.discussionGroup': 'Discussion group',
+    'messenger.comments.title': 'Comments',
     'messenger.editChat.notLinked': 'Not linked',
     'messenger.editChat.nameRequired': 'Name cannot be empty',
     'messenger.editChat.publicNicknameRequired':
@@ -152,6 +154,7 @@ class CommunitySettingsLocalizations {
     'messenger.editChat.groupCallsDesc':
         'Les membres peuvent lancer des appels de groupe',
     'messenger.editChat.discussionGroup': 'Groupe de discussion',
+    'messenger.comments.title': 'Commentaires',
     'messenger.editChat.notLinked': 'Non associé',
     'messenger.editChat.nameRequired': 'Le nom ne peut pas être vide',
     'messenger.editChat.publicNicknameRequired':
@@ -209,6 +212,7 @@ class CommunitySettingsLocalizations {
     'messenger.editChat.groupCallsDesc':
         'Los miembros pueden iniciar llamadas grupales',
     'messenger.editChat.discussionGroup': 'Grupo de debate',
+    'messenger.comments.title': 'Comentarios',
     'messenger.editChat.notLinked': 'Sin vincular',
     'messenger.editChat.nameRequired': 'El nombre no puede estar vacío',
     'messenger.editChat.publicNicknameRequired':
@@ -263,6 +267,7 @@ class CommunitySettingsLocalizations {
     'messenger.editChat.groupCalls': '群组通话',
     'messenger.editChat.groupCallsDesc': '成员可以发起群组通话',
     'messenger.editChat.discussionGroup': '评论群组',
+    'messenger.comments.title': '评论',
     'messenger.editChat.notLinked': '未关联',
     'messenger.editChat.nameRequired': '名称不能为空',
     'messenger.editChat.publicNicknameRequired': '公开聊天需要设置用户名',
@@ -315,6 +320,7 @@ class CommunitySettingsLocalizations {
     'messenger.editChat.groupCalls': 'グループ通話',
     'messenger.editChat.groupCallsDesc': 'メンバーはグループ通話を開始できます',
     'messenger.editChat.discussionGroup': 'ディスカッショングループ',
+    'messenger.comments.title': 'コメント',
     'messenger.editChat.notLinked': '未連携',
     'messenger.editChat.nameRequired': '名前を空にすることはできません',
     'messenger.editChat.publicNicknameRequired': '公開チャットにはユーザー名が必要です',
@@ -368,6 +374,7 @@ class CommunitySettingsLocalizations {
     'messenger.editChat.groupCalls': '그룹 통화',
     'messenger.editChat.groupCallsDesc': '멤버가 그룹 통화를 시작할 수 있습니다',
     'messenger.editChat.discussionGroup': '토론 그룹',
+    'messenger.comments.title': '댓글',
     'messenger.editChat.notLinked': '연결되지 않음',
     'messenger.editChat.nameRequired': '이름은 비워 둘 수 없습니다',
     'messenger.editChat.publicNicknameRequired': '공개 채팅에는 사용자 이름이 필요합니다',
@@ -421,6 +428,7 @@ class CommunitySettingsLocalizations {
     'messenger.editChat.groupCalls': 'مكالمات جماعية',
     'messenger.editChat.groupCallsDesc': 'يمكن للأعضاء بدء مكالمات جماعية',
     'messenger.editChat.discussionGroup': 'مجموعة النقاش',
+    'messenger.comments.title': 'التعليقات',
     'messenger.editChat.notLinked': 'غير مرتبطة',
     'messenger.editChat.nameRequired': 'لا يمكن أن يكون الاسم فارغًا',
     'messenger.editChat.publicNicknameRequired':

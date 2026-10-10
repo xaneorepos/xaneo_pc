@@ -32,7 +32,7 @@ class PlaybackItem {
 
 /// Глобальный провайдер воспроизведения голосовых и музыкальных сообщений.
 class PlaybackProvider extends ChangeNotifier {
-  final AudioPlayer _player = AudioPlayer();
+  AudioPlayer? _player;
   final AudioTrackCache _trackCache = AudioTrackCache.instance;
   StreamSubscription? _playerStateSub;
   StreamSubscription? _positionSub;
@@ -142,8 +142,16 @@ class PlaybackProvider extends ChangeNotifier {
   PlaybackProvider() {
     DesktopMediaSessionService.instance.setPlaybackProvider(this);
     DesktopMediaSessionService.instance.init();
+  }
 
-    _playerStateSub = _player.playerStateStream.listen((state) {
+  AudioPlayer _ensurePlayer() {
+    final existing = _player;
+    if (existing != null) return existing;
+
+    final player = AudioPlayer();
+    _player = player;
+
+    _playerStateSub = player.playerStateStream.listen((state) {
       _isPlaying = state.playing;
       if (state.playing && _playerControlsDismissed) {
         _playerControlsDismissed = false;
@@ -162,19 +170,21 @@ class PlaybackProvider extends ChangeNotifier {
       notifyListeners();
     });
 
-    _positionSub = _player.positionStream.listen((pos) {
+    _positionSub = player.positionStream.listen((pos) {
       // Во время драга слайдера position ведём из seekPreview, не из плеера.
       if (_isSeeking) return;
       _position = pos;
       notifyListeners();
     });
 
-    _durationSub = _player.durationStream.listen((dur) {
+    _durationSub = player.durationStream.listen((dur) {
       if (dur != null && dur > Duration.zero && dur != _duration) {
         _duration = dur;
         notifyListeners();
       }
     });
+
+    return player;
   }
 
   void _startSimulatedTimer() {
@@ -345,13 +355,14 @@ class PlaybackProvider extends ChangeNotifier {
         payload: payload,
       );
       final localFilePath = await _ensureLocalFile(item);
+      final player = _ensurePlayer();
 
-      await _player.setAudioSource(AudioSource.file(localFilePath));
+      await player.setAudioSource(AudioSource.file(localFilePath));
 
       _isInitialized = true;
       _isLoading = false;
 
-      final playerDuration = _player.duration;
+      final playerDuration = player.duration;
       if (playerDuration != null && playerDuration > Duration.zero) {
         _duration = playerDuration;
       } else if (duration != null) {
@@ -359,7 +370,7 @@ class PlaybackProvider extends ChangeNotifier {
       }
 
       if (!_playerControlsDismissed) {
-        await _player.play();
+        await player.play();
       }
       notifyListeners();
     } catch (e) {
@@ -396,12 +407,12 @@ class PlaybackProvider extends ChangeNotifier {
     if (!_isInitialized || _isSeeking) return;
 
     if (_isPlaying) {
-      _player.pause();
+      _player?.pause();
     } else {
       if (_position >= _duration && _duration > Duration.zero) {
         _restartFrom(Duration.zero);
       } else {
-        _player.play();
+        _player?.play();
       }
     }
   }
@@ -422,7 +433,7 @@ class PlaybackProvider extends ChangeNotifier {
       return;
     }
     if (_isPlaying) {
-      _player.pause();
+      _player?.pause();
     }
   }
 
@@ -449,7 +460,7 @@ class PlaybackProvider extends ChangeNotifier {
       if (_position >= _duration && _duration > Duration.zero) {
         _restartFrom(Duration.zero);
       } else {
-        _player.play();
+        _player?.play();
       }
     }
   }
@@ -487,7 +498,7 @@ class PlaybackProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      await _player.seek(pos);
+      await _player?.seek(pos);
     } catch (e) {
       debugPrint('❌ seek error: $e');
     } finally {
@@ -497,8 +508,10 @@ class PlaybackProvider extends ChangeNotifier {
 
   Future<void> _restartFrom(Duration pos) async {
     try {
-      await _player.seek(pos);
-      await _player.play();
+      final player = _player;
+      if (player == null) return;
+      await player.seek(pos);
+      await player.play();
     } catch (e) {
       debugPrint('❌ _restartFrom error: $e');
     }
@@ -602,7 +615,7 @@ class PlaybackProvider extends ChangeNotifier {
   Future<void> stop() async {
     _simulatedTimer?.cancel();
     _isSimulated = false;
-    await _player.stop();
+    await _player?.stop();
 
     _isVideo = false;
     _playerControlsDismissed = false;
@@ -634,7 +647,7 @@ class PlaybackProvider extends ChangeNotifier {
     _isLoading = false;
     _isSeeking = false;
     notifyListeners();
-    await _player.pause();
+    await _player?.pause();
     _updateMediaSession();
   }
 
@@ -676,7 +689,8 @@ class PlaybackProvider extends ChangeNotifier {
     _playerStateSub?.cancel();
     _positionSub?.cancel();
     _durationSub?.cancel();
-    _player.dispose();
+    _player?.dispose();
+    _player = null;
     super.dispose();
   }
 }

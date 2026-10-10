@@ -1080,7 +1080,7 @@ class _LoginScreenState extends State<LoginScreen>
                       ),
                       child: Icon(
                         Icons.arrow_back_rounded,
-                        color: isDark ? Colors.white : Colors.black,
+                        color: context.xnxColor("text") ?? (isDark ? Colors.white : Colors.black),
                         size: 22,
                       ),
                     ),
@@ -1123,7 +1123,7 @@ class _LoginScreenState extends State<LoginScreen>
             'assets/logo.png',
             width: 44,
             height: 44,
-            color: isDark ? Colors.white : Colors.black,
+            color: context.xnxColor("text") ?? (isDark ? Colors.white : Colors.black),
             fit: BoxFit.contain,
           ),
           const SizedBox(height: 32),
@@ -1155,8 +1155,8 @@ class _LoginScreenState extends State<LoginScreen>
           style: TextStyle(
             fontSize: 28,
             fontWeight: FontWeight.w700,
-            color: isDark ? Colors.white : Colors.black,
-            fontFamily: 'Inter',
+            color: context.xnxColor("text") ?? (isDark ? Colors.white : Colors.black),
+            fontFamily: null,
           ),
         ),
         const SizedBox(height: 8),
@@ -1166,7 +1166,7 @@ class _LoginScreenState extends State<LoginScreen>
             fontSize: 14,
             color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
             height: 1.5,
-            fontFamily: 'Inter',
+            fontFamily: null,
           ),
         ),
         const SizedBox(height: 24),
@@ -1193,7 +1193,7 @@ class _LoginScreenState extends State<LoginScreen>
                   fontWeight: FontWeight.w700,
                   letterSpacing: 1.2,
                   color: isDark ? Colors.grey.shade500 : Colors.grey.shade600,
-                  fontFamily: 'Inter',
+                  fontFamily: null,
                 ),
               ),
               const SizedBox(height: 12),
@@ -1235,18 +1235,18 @@ class _LoginScreenState extends State<LoginScreen>
             },
             icon: Icon(
               Icons.password,
-              color: isDark ? Colors.black : Colors.white,
+              color: context.xnxColor("btn-primary-text") ?? (isDark ? Colors.black : Colors.white),
             ),
             label: Text(
               l10n.qrCodeLoginBtn,
               style: TextStyle(
-                color: isDark ? Colors.black : Colors.white,
+                color: context.xnxColor("btn-primary-text") ?? (isDark ? Colors.black : Colors.white),
                 fontWeight: FontWeight.w600,
-                fontFamily: 'Inter',
+                fontFamily: null,
               ),
             ),
             style: ElevatedButton.styleFrom(
-              backgroundColor: isDark ? Colors.white : Colors.black,
+              backgroundColor: context.xnxColor('btn-primary-bg') ?? (isDark ? Colors.white : Colors.black),
               padding: const EdgeInsets.symmetric(vertical: 16),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
@@ -1265,7 +1265,7 @@ class _LoginScreenState extends State<LoginScreen>
         fontSize: 14,
         color: isDark ? Colors.grey.shade300 : Colors.grey.shade800,
         height: 1.5,
-        fontFamily: 'Inter',
+        fontFamily: null,
       ),
     );
   }
@@ -1288,8 +1288,8 @@ class _LoginScreenState extends State<LoginScreen>
           style: TextStyle(
             fontSize: 28,
             fontWeight: FontWeight.w700,
-            color: isDark ? Colors.white : Colors.black,
-            fontFamily: 'Inter',
+            color: context.xnxColor("text") ?? (isDark ? Colors.white : Colors.black),
+            fontFamily: null,
           ),
         ),
         const SizedBox(height: 8),
@@ -1298,7 +1298,7 @@ class _LoginScreenState extends State<LoginScreen>
           style: TextStyle(
             fontSize: 14,
             color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
-            fontFamily: 'Inter',
+            fontFamily: null,
           ),
         ),
         const SizedBox(height: 24),
@@ -1392,7 +1392,7 @@ class _LoginScreenState extends State<LoginScreen>
                   fontWeight: FontWeight.w700,
                   letterSpacing: 1.2,
                   color: isDark ? Colors.grey.shade500 : Colors.grey.shade600,
-                  fontFamily: 'Inter',
+                  fontFamily: null,
                 ),
               ),
               const SizedBox(height: 8),
@@ -1406,7 +1406,7 @@ class _LoginScreenState extends State<LoginScreen>
                   fontSize: 14,
                   color: isDark ? Colors.grey.shade300 : Colors.grey.shade800,
                   height: 1.5,
-                  fontFamily: 'Inter',
+                  fontFamily: null,
                 ),
               ),
             ],
@@ -1424,7 +1424,7 @@ class _LoginScreenState extends State<LoginScreen>
                           ? Colors.grey.shade500
                           : Colors.grey.shade600,
                       fontSize: 13,
-                      fontFamily: 'Inter',
+                      fontFamily: null,
                     ),
                   )
                 : MouseRegion(
@@ -1445,7 +1445,7 @@ class _LoginScreenState extends State<LoginScreen>
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
                           decoration: TextDecoration.underline,
-                          fontFamily: 'Inter',
+                          fontFamily: null,
                         ),
                       ),
                     ),
@@ -1483,7 +1483,7 @@ class _LoginScreenState extends State<LoginScreen>
                               ? _verifyCodePasswordLogin
                               : _verifyCodeLogin)),
               style: ElevatedButton.styleFrom(
-                backgroundColor: isDark ? Colors.white : Colors.black,
+                backgroundColor: context.xnxColor('btn-primary-bg') ?? (isDark ? Colors.white : Colors.black),
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -1495,7 +1495,7 @@ class _LoginScreenState extends State<LoginScreen>
                       height: 20,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        color: isDark ? Colors.black : Colors.white,
+                        color: context.xnxColor("btn-primary-text") ?? (isDark ? Colors.black : Colors.white),
                       ),
                     )
                   : Text(
@@ -1505,9 +1505,9 @@ class _LoginScreenState extends State<LoginScreen>
                                 ? l10n.submitCodeBtn
                                 : l10n.continueBtn),
                       style: TextStyle(
-                        color: isDark ? Colors.black : Colors.white,
+                        color: context.xnxColor("btn-primary-text") ?? (isDark ? Colors.black : Colors.white),
                         fontWeight: FontWeight.w600,
-                        fontFamily: 'Inter',
+                        fontFamily: null,
                       ),
                     ),
             ),
@@ -1528,14 +1528,14 @@ class _LoginScreenState extends State<LoginScreen>
             },
             icon: Icon(
               _codeStep > 0 ? Icons.arrow_back : Icons.qr_code,
-              color: isDark ? Colors.white : Colors.black,
+              color: context.xnxColor("text") ?? (isDark ? Colors.white : Colors.black),
             ),
             label: Text(
               _codeStep > 0 ? l10n.backBtn : l10n.backToQrBtn,
               style: TextStyle(
-                color: isDark ? Colors.white : Colors.black,
+                color: context.xnxColor("text") ?? (isDark ? Colors.white : Colors.black),
                 fontWeight: FontWeight.w600,
-                fontFamily: 'Inter',
+                fontFamily: null,
               ),
             ),
             style: OutlinedButton.styleFrom(
@@ -1572,7 +1572,7 @@ class _LoginScreenState extends State<LoginScreen>
                           : Colors.grey.shade600,
                       fontSize: 13,
                       decoration: TextDecoration.underline,
-                      fontFamily: 'Inter',
+                      fontFamily: null,
                     ),
                   ),
                 ),
@@ -1674,7 +1674,7 @@ class _LoginScreenState extends State<LoginScreen>
                         fontSize: size >= 260 ? 18 : 15,
                         fontWeight: FontWeight.w700,
                         height: 1.2,
-                        fontFamily: 'Inter',
+                        fontFamily: null,
                       ),
                     ),
                     const SizedBox(height: 8),
@@ -1685,7 +1685,7 @@ class _LoginScreenState extends State<LoginScreen>
                         color: const Color(0xFF71717A),
                         fontSize: size >= 260 ? 13 : 11.5,
                         height: 1.4,
-                        fontFamily: 'Inter',
+                        fontFamily: null,
                       ),
                     ),
                   ],

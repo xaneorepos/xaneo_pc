@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import '../providers/theme_provider.dart';
 import '../services/api_service.dart';
 import '../services/runtime_translations.dart';
 import 'avatar_cropper.dart';
@@ -76,7 +77,6 @@ class CreateChannelModalState extends BaseCustomModalState<CreateChannelModal> {
     super.dispose();
   }
 
-  @override
   String getModalTag(BuildContext context) {
     final lang = Localizations.localeOf(context).languageCode.toLowerCase();
     if (isEditing) {
@@ -195,11 +195,13 @@ class CreateChannelModalState extends BaseCustomModalState<CreateChannelModal> {
   Widget buildContent(BuildContext context, ScrollController scrollController, bool isDark, double scale) {
     final lang = Localizations.localeOf(context).languageCode.toLowerCase();
 
-    final cardBg = isDark ? const Color(0xFF141416) : const Color(0xFFF4F4F5);
-    final borderColor = isDark ? const Color(0xFF242428) : const Color(0xFFE4E4E7);
-    final inputBg = isDark ? const Color(0xFF18181B) : const Color(0xFFFFFFFF);
-    final textPrimary = isDark ? Colors.white : Colors.black;
-    final textSecondary = isDark ? Colors.white54 : Colors.black54;
+    final cardBg = context.xnxColor('bg-secondary') ?? (isDark ? const Color(0xFF141416) : const Color(0xFFF4F4F5));
+    final borderColor = context.xnxColor('border') ?? (isDark ? const Color(0xFF242428) : const Color(0xFFE4E4E7));
+    final inputBg = context.xnxColor('bg-secondary') ?? (isDark ? const Color(0xFF18181B) : const Color(0xFFFFFFFF));
+    final textPrimary = context.xnxColor('text') ?? (isDark ? Colors.white : Colors.black);
+    final textSecondary = context.xnxColor('text-secondary') ?? (isDark ? Colors.white54 : Colors.black54);
+    final btnBg = context.xnxColor('btn-primary-bg') ?? context.xnxColor('accent') ?? (isDark ? Colors.white : Colors.black);
+    final btnText = context.xnxColor('btn-primary-text') ?? (isDark ? Colors.black : Colors.white);
 
     final headerTitle = isEditing
         ? (isGroup ? _ChannelModalL10n.get('title_edit_group', lang) : _ChannelModalL10n.get('title_edit_channel', lang))
@@ -217,7 +219,7 @@ class CreateChannelModalState extends BaseCustomModalState<CreateChannelModal> {
               fontSize: 18 * scale,
               fontWeight: FontWeight.w700,
               color: textPrimary,
-              fontFamily: 'Inter',
+              fontFamily: null,
             ),
           ),
           SizedBox(height: 18 * scale),
@@ -241,7 +243,7 @@ class CreateChannelModalState extends BaseCustomModalState<CreateChannelModal> {
                       style: TextStyle(
                         fontSize: 12 * scale,
                         color: Colors.redAccent,
-                        fontFamily: 'Inter',
+                        fontFamily: null,
                       ),
                     ),
                   ),
@@ -293,13 +295,13 @@ class CreateChannelModalState extends BaseCustomModalState<CreateChannelModal> {
                           padding: EdgeInsets.all(5 * scale),
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            color: isDark ? const Color(0xFF27272A) : const Color(0xFFE4E4E7),
-                            border: Border.all(color: isDark ? const Color(0xFF0C0C0C) : Colors.white, width: 2),
+                            color: btnBg,
+                            border: Border.all(color: context.xnxColor('surface') ?? (isDark ? const Color(0xFF0C0C0C) : Colors.white), width: 2),
                           ),
                           child: Icon(
                             Icons.camera_alt_rounded,
                             size: 13 * scale,
-                            color: textPrimary,
+                            color: btnText,
                           ),
                         ),
                       ),
@@ -322,13 +324,13 @@ class CreateChannelModalState extends BaseCustomModalState<CreateChannelModal> {
                         fontSize: 12 * scale,
                         fontWeight: FontWeight.w600,
                         color: textSecondary,
-                        fontFamily: 'Inter',
+                        fontFamily: null,
                       ),
                     ),
                     SizedBox(height: 6 * scale),
                     TextField(
                       controller: nameController,
-                      style: TextStyle(fontSize: 14 * scale, color: textPrimary, fontFamily: 'Inter'),
+                      style: TextStyle(fontSize: 14 * scale, color: textPrimary, fontFamily: null),
                       decoration: InputDecoration(
                         hintText: isGroup
                             ? _ChannelModalL10n.get('hint_group_name', lang)
@@ -362,7 +364,7 @@ class CreateChannelModalState extends BaseCustomModalState<CreateChannelModal> {
               fontSize: 12 * scale,
               fontWeight: FontWeight.w600,
               color: textSecondary,
-              fontFamily: 'Inter',
+              fontFamily: null,
             ),
           ),
           SizedBox(height: 8 * scale),
@@ -406,13 +408,13 @@ class CreateChannelModalState extends BaseCustomModalState<CreateChannelModal> {
                 fontSize: 12 * scale,
                 fontWeight: FontWeight.w600,
                 color: textSecondary,
-                fontFamily: 'Inter',
+                fontFamily: null,
               ),
             ),
             SizedBox(height: 6 * scale),
             TextField(
               controller: usernameController,
-              style: TextStyle(fontSize: 14 * scale, color: textPrimary, fontFamily: 'Inter'),
+              style: TextStyle(fontSize: 14 * scale, color: textPrimary, fontFamily: null),
               decoration: InputDecoration(
                 prefixText: '@',
                 prefixStyle: TextStyle(fontSize: 14 * scale, fontWeight: FontWeight.bold, color: textPrimary),
@@ -441,14 +443,14 @@ class CreateChannelModalState extends BaseCustomModalState<CreateChannelModal> {
               fontSize: 12 * scale,
               fontWeight: FontWeight.w600,
               color: textSecondary,
-              fontFamily: 'Inter',
+              fontFamily: null,
             ),
           ),
           SizedBox(height: 6 * scale),
           TextField(
             controller: descriptionController,
             maxLines: 3,
-            style: TextStyle(fontSize: 14 * scale, color: textPrimary, fontFamily: 'Inter'),
+            style: TextStyle(fontSize: 14 * scale, color: textPrimary, fontFamily: null),
             decoration: InputDecoration(
               hintText: isGroup ? _ChannelModalL10n.get('hint_group_description', lang) : _ChannelModalL10n.get('hint_channel_description', lang),
               hintStyle: TextStyle(fontSize: 13 * scale, color: textSecondary.withValues(alpha: 0.6)),
@@ -485,7 +487,7 @@ class CreateChannelModalState extends BaseCustomModalState<CreateChannelModal> {
                     fontSize: 13 * scale,
                     color: textSecondary,
                     fontWeight: FontWeight.w500,
-                    fontFamily: 'Inter',
+                    fontFamily: null,
                   ),
                 ),
               ),
@@ -495,8 +497,8 @@ class CreateChannelModalState extends BaseCustomModalState<CreateChannelModal> {
               ElevatedButton(
                 onPressed: isLoading ? null : handleSave,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: isDark ? Colors.white : Colors.black,
-                  foregroundColor: isDark ? Colors.black : Colors.white,
+                  backgroundColor: btnBg,
+                  foregroundColor: btnText,
                   padding: EdgeInsets.symmetric(horizontal: 22 * scale, vertical: 12 * scale),
                   elevation: 0,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8 * scale)),
@@ -507,7 +509,7 @@ class CreateChannelModalState extends BaseCustomModalState<CreateChannelModal> {
                         height: 16 * scale,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          color: isDark ? Colors.black : Colors.white,
+                          color: btnText,
                         ),
                       )
                     : Text(
@@ -519,7 +521,7 @@ class CreateChannelModalState extends BaseCustomModalState<CreateChannelModal> {
                         style: TextStyle(
                           fontSize: 13 * scale,
                           fontWeight: FontWeight.w600,
-                          fontFamily: 'Inter',
+                          fontFamily: null,
                         ),
                       ),
               ),
@@ -541,11 +543,16 @@ class CreateChannelModalState extends BaseCustomModalState<CreateChannelModal> {
     required IconData icon,
     required VoidCallback onTap,
   }) {
-    final activeBg = isDark ? const Color(0xFF27272A) : const Color(0xFFE4E4E7);
-    final inactiveBg = isDark ? const Color(0xFF141416) : const Color(0xFFF4F4F5);
+    final activeBg = context.xnxColor('surface-hover') ?? context.xnxColor('bg-secondary') ?? (isDark ? const Color(0xFF27272A) : const Color(0xFFE4E4E7));
+    final inactiveBg = context.xnxColor('bg-secondary') ?? (isDark ? const Color(0xFF141416) : const Color(0xFFF4F4F5));
     final borderColor = selected
-        ? (isDark ? Colors.white : Colors.black)
-        : (isDark ? const Color(0xFF242428) : const Color(0xFFE4E4E7));
+        ? (context.xnxColor('accent') ?? context.xnxColor('text') ?? (isDark ? Colors.white : Colors.black))
+        : (context.xnxColor('border') ?? (isDark ? const Color(0xFF242428) : const Color(0xFFE4E4E7)));
+    final iconColor = selected
+        ? (context.xnxColor('accent') ?? context.xnxColor('text') ?? (isDark ? Colors.white : Colors.black))
+        : (context.xnxColor('text-muted') ?? (isDark ? Colors.white38 : Colors.black38));
+    final titleColor = context.xnxColor('text') ?? (isDark ? Colors.white : Colors.black);
+    final subtitleColor = context.xnxColor('text-secondary') ?? (isDark ? Colors.white54 : Colors.black54);
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -564,9 +571,7 @@ class CreateChannelModalState extends BaseCustomModalState<CreateChannelModal> {
               Icon(
                 icon,
                 size: 18 * scale,
-                color: selected
-                    ? (isDark ? Colors.white : Colors.black)
-                    : (isDark ? Colors.white38 : Colors.black38),
+                color: iconColor,
               ),
               SizedBox(width: 10 * scale),
               Expanded(
@@ -578,16 +583,16 @@ class CreateChannelModalState extends BaseCustomModalState<CreateChannelModal> {
                       style: TextStyle(
                         fontSize: 13 * scale,
                         fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                        color: isDark ? Colors.white : Colors.black,
-                        fontFamily: 'Inter',
+                        color: titleColor,
+                        fontFamily: null,
                       ),
                     ),
                     Text(
                       subtitle,
                       style: TextStyle(
                         fontSize: 11 * scale,
-                        color: isDark ? Colors.white54 : Colors.black54,
-                        fontFamily: 'Inter',
+                        color: subtitleColor,
+                        fontFamily: null,
                       ),
                     ),
                   ],

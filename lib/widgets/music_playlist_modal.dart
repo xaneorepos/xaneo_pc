@@ -419,7 +419,7 @@ class _MusicPlaylistModalState
                           style: TextStyle(
                             color: isDark ? Colors.white38 : Colors.black38,
                             fontSize: 14 * scale,
-                            fontFamily: 'Inter',
+                            fontFamily: null,
                           ),
                         ),
                       ),
@@ -498,7 +498,7 @@ class _MusicPlaylistModalState
                                     ? FontWeight.bold
                                     : FontWeight.w500,
                                 fontSize: 13.5 * scale,
-                                fontFamily: 'Inter',
+                                fontFamily: null,
                               ),
                             ),
                             subtitle: Text(
@@ -508,7 +508,7 @@ class _MusicPlaylistModalState
                               style: TextStyle(
                                 color: isDark ? Colors.white54 : Colors.black54,
                                 fontSize: 11.5 * scale,
-                                fontFamily: 'Inter',
+                                fontFamily: null,
                               ),
                             ),
                             onTap: () {
@@ -589,7 +589,7 @@ class _MusicPlaylistModalState
                                   color: isDark ? Colors.white : Colors.black87,
                                   fontWeight: FontWeight.w600,
                                   fontSize: 13 * scale,
-                                  fontFamily: 'Inter',
+                                  fontFamily: null,
                                 ),
                               ),
                               if (playback.subtitle.isNotEmpty) ...[
@@ -603,7 +603,7 @@ class _MusicPlaylistModalState
                                         ? Colors.white54
                                         : Colors.black54,
                                     fontSize: 11 * scale,
-                                    fontFamily: 'Inter',
+                                    fontFamily: null,
                                   ),
                                 ),
                               ],
@@ -620,7 +620,7 @@ class _MusicPlaylistModalState
                           style: TextStyle(
                             color: isDark ? Colors.white54 : Colors.black54,
                             fontSize: 10.5 * scale,
-                            fontFamily: 'Inter',
+                            fontFamily: null,
                           ),
                         ),
                         Expanded(
@@ -673,7 +673,7 @@ class _MusicPlaylistModalState
                           style: TextStyle(
                             color: isDark ? Colors.white54 : Colors.black54,
                             fontSize: 10.5 * scale,
-                            fontFamily: 'Inter',
+                            fontFamily: null,
                           ),
                         ),
                       ],

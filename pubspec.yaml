@@ -113,3 +113,10 @@ flutter:
           weight: 500
         - asset: assets/fonts/Inter-Bold.ttf
           weight: 700
+
+    - family: Onest
+      fonts:
+        - asset: assets/fonts/Onest.ttf
+    - family: Geist
+      fonts:
+        - asset: assets/fonts/Geist.ttf

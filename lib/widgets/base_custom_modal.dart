@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/scale_provider.dart';
+import '../providers/theme_provider.dart';
 
 /// Кастомное базовое модальное окно Xaneo PC.
 /// Построено ровно по тому же принципу, анимации (Fade+Scale) и дизайну,
@@ -86,10 +87,11 @@ abstract class BaseCustomModalState<T extends BaseCustomModal>
     final scale = scaleProvider.scale * customScale;
     final screenSize = MediaQuery.of(context).size;
 
-    final bgColor = isDark ? const Color(0xFF0C0C0C) : Colors.white;
-    final borderColor = isDark
-        ? const Color(0xFF1E1E1E)
-        : const Color(0xFFEBEBEB);
+    final hasXnx = context.read<ThemeProvider>().xnxTheme != null;
+    final bgColor = hasXnx ? Theme.of(context).cardColor
+        : (isDark ? const Color(0xFF0C0C0C) : Colors.white);
+    final borderColor = hasXnx ? Theme.of(context).colorScheme.outline
+        : (isDark ? const Color(0xFF1E1E1E) : const Color(0xFFEBEBEB));
 
     return Material(
       type: MaterialType.transparency,
@@ -136,7 +138,7 @@ abstract class BaseCustomModalState<T extends BaseCustomModal>
                           child: Icon(
                             Icons.close_rounded,
                             size: 18 * scale,
-                            color: isDark ? Colors.white54 : Colors.black54,
+                            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.54),
                           ),
                         ),
                       ),

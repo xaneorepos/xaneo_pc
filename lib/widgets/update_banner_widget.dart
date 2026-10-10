@@ -134,7 +134,7 @@ class _UpdateBannerWidgetState extends State<UpdateBannerWidget>
                               fontSize: 12.5 * scale,
                               fontWeight: FontWeight.w600,
                               color: isDark ? Colors.white : Colors.black87,
-                              fontFamily: 'Inter',
+                              fontFamily: null,
                             ),
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -144,7 +144,7 @@ class _UpdateBannerWidgetState extends State<UpdateBannerWidget>
                             style: TextStyle(
                               fontSize: 10.5 * scale,
                               color: isDark ? Colors.white54 : Colors.black54,
-                              fontFamily: 'Inter',
+                              fontFamily: null,
                             ),
                             overflow: TextOverflow.ellipsis,
                           ),

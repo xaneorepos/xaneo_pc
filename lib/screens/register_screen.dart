@@ -27,7 +27,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               style: TextStyle(
                 color: isDark ? Colors.white : Colors.black,
                 fontSize: 18,
-                fontFamily: 'Inter',
+                fontFamily: null,
               ),
             ),
             const SizedBox(height: 24),

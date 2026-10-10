@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
 import '../l10n/community_settings_localizations.dart';
+import '../providers/theme_provider.dart';
 import '../services/api_service.dart';
 import 'avatar_cropper.dart';
 import 'base_custom_modal.dart';
@@ -33,8 +34,9 @@ class EditChannelModal extends CreateChannelModal {
       chatId: chatId,
       isGroup: false,
     );
-    if (!context.mounted || !response.success || response.data == null)
+    if (!context.mounted || !response.success || response.data == null) {
       return null;
+    }
     return BaseCustomModal.show<Map<String, dynamic>>(
       context: context,
       modal: EditChannelModal(
@@ -87,8 +89,9 @@ class EditGroupModal extends CreateGroupModal {
       chatId: chatId,
       isGroup: true,
     );
-    if (!context.mounted || !response.success || response.data == null)
+    if (!context.mounted || !response.success || response.data == null) {
       return null;
+    }
     return BaseCustomModal.show<Map<String, dynamic>>(
       context: context,
       modal: EditGroupModal(chatId: chatId, data: response.data!),
@@ -310,10 +313,59 @@ class _CommunitySettingsFormState extends State<_CommunitySettingsForm> {
     Navigator.of(context).pop(response.data);
   }
 
+  Color get _textPrimary =>
+      context.xnxColor('text') ?? (widget.isDark ? Colors.white : Colors.black);
+
+  Color get _textSecondary =>
+      context.xnxColor('text-secondary') ??
+      (widget.isDark ? Colors.white54 : Colors.black54);
+
+  Color get _textMuted =>
+      context.xnxColor('text-muted') ??
+      (widget.isDark ? Colors.white30 : Colors.black38);
+
+  Color get _inputBg =>
+      context.xnxColor('bg-secondary') ??
+      (widget.isDark ? const Color(0xFF18181B) : Colors.white);
+
+  Color get _cardBg =>
+      context.xnxColor('bg-secondary') ??
+      (widget.isDark ? const Color(0xFF141416) : const Color(0xFFF4F4F5));
+
+  Color get _cardSelectedBg =>
+      context.xnxColor('surface-hover') ??
+      context.xnxColor('bg-secondary') ??
+      (widget.isDark ? const Color(0xFF27272A) : const Color(0xFFE4E4E7));
+
+  Color get _borderColor =>
+      context.xnxColor('border') ??
+      (widget.isDark ? const Color(0xFF242428) : const Color(0xFFE4E4E7));
+
+  Color get _borderSelectedColor =>
+      context.xnxColor('accent') ??
+      context.xnxColor('text') ??
+      (widget.isDark ? Colors.white : Colors.black);
+
+  Color get _accentColor =>
+      context.xnxColor('accent') ??
+      (widget.isDark ? Colors.white : Colors.black);
+
+  Color get _avatarBg =>
+      context.xnxColor('bg-secondary') ??
+      (widget.isDark ? const Color(0xFF242428) : const Color(0xFFE4E4E7));
+
+  Color get _cameraBg =>
+      context.xnxColor('btn-primary-bg') ??
+      context.xnxColor('accent') ??
+      (widget.isDark ? Colors.white : Colors.black);
+
+  Color get _cameraIconColor =>
+      context.xnxColor('btn-primary-text') ??
+      (widget.isDark ? Colors.black : Colors.white);
+
   @override
   Widget build(BuildContext context) {
     final s = widget.scale;
-    final primary = widget.isDark ? Colors.white : Colors.black;
     return ListView(
       controller: widget.scrollController,
       children: [
@@ -326,7 +378,7 @@ class _CommunitySettingsFormState extends State<_CommunitySettingsForm> {
           style: TextStyle(
             fontSize: 18 * s,
             fontWeight: FontWeight.w700,
-            color: primary,
+            color: _textPrimary,
           ),
         ),
         SizedBox(height: 18 * s),
@@ -385,16 +437,27 @@ class _CommunitySettingsFormState extends State<_CommunitySettingsForm> {
                 widget.availableGroups.any((g) => _groupId(g) == discussionId)
                 ? discussionId
                 : null,
+            dropdownColor: context.xnxColor('surface') ?? (widget.isDark ? const Color(0xFF1E1E22) : Colors.white),
+            style: TextStyle(
+              fontSize: 14 * s,
+              color: _textPrimary,
+            ),
             decoration: _decoration(l10n.text('messenger.editChat.notLinked')),
             items: [
               DropdownMenuItem<String>(
                 value: null,
-                child: Text(l10n.text('messenger.editChat.notLinked')),
+                child: Text(
+                  l10n.text('messenger.editChat.notLinked'),
+                  style: TextStyle(color: _textPrimary),
+                ),
               ),
               ...widget.availableGroups.map(
                 (g) => DropdownMenuItem<String>(
                   value: _groupId(g),
-                  child: Text(_groupName(g)),
+                  child: Text(
+                    _groupName(g),
+                    style: TextStyle(color: _textPrimary),
+                  ),
                 ),
               ),
             ],
@@ -410,16 +473,29 @@ class _CommunitySettingsFormState extends State<_CommunitySettingsForm> {
           children: [
             TextButton(
               onPressed: saving ? null : () => Navigator.pop(context),
+              style: TextButton.styleFrom(foregroundColor: _textSecondary),
               child: Text(l10n.text('common.cancel')),
             ),
             SizedBox(width: 8 * s),
             FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: context.xnxColor('btn-primary-bg') ??
+                    (widget.isDark ? Colors.white : Colors.black),
+                foregroundColor: context.xnxColor('btn-primary-text') ??
+                    (widget.isDark ? Colors.black : Colors.white),
+              ),
               onPressed: saving ? null : save,
               child: saving
                   ? SizedBox(
                       width: 16 * s,
                       height: 16 * s,
-                      child: const CircularProgressIndicator(strokeWidth: 2),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          context.xnxColor('btn-primary-text') ??
+                              (widget.isDark ? Colors.black : Colors.white),
+                        ),
+                      ),
                     )
                   : Text(l10n.text('common.save')),
             ),
@@ -452,9 +528,7 @@ class _CommunitySettingsFormState extends State<_CommunitySettingsForm> {
               children: [
                 CircleAvatar(
                   radius: 34 * widget.scale,
-                  backgroundColor: widget.isDark
-                      ? const Color(0xFF242428)
-                      : const Color(0xFFE4E4E7),
+                  backgroundColor: _avatarBg,
                   backgroundImage: avatarFile != null
                       ? FileImage(avatarFile!)
                       : (avatar != null && avatar.isNotEmpty
@@ -467,9 +541,7 @@ class _CommunitySettingsFormState extends State<_CommunitySettingsForm> {
                           widget.isGroup
                               ? FontAwesomeIcons.users
                               : FontAwesomeIcons.bullhorn,
-                          color: widget.isDark
-                              ? Colors.white54
-                              : Colors.black54,
+                          color: _textSecondary,
                         )
                       : null,
                 ),
@@ -478,13 +550,11 @@ class _CommunitySettingsFormState extends State<_CommunitySettingsForm> {
                   bottom: 0,
                   child: CircleAvatar(
                     radius: 10 * widget.scale,
-                    backgroundColor: widget.isDark
-                        ? Colors.white
-                        : Colors.black,
+                    backgroundColor: _cameraBg,
                     child: Icon(
                       Icons.camera_alt_rounded,
                       size: 11 * widget.scale,
-                      color: widget.isDark ? Colors.black : Colors.white,
+                      color: _cameraIconColor,
                     ),
                   ),
                 ),
@@ -506,8 +576,8 @@ class _CommunitySettingsFormState extends State<_CommunitySettingsForm> {
                 style: TextStyle(
                   fontSize: 12 * widget.scale,
                   fontWeight: FontWeight.w600,
-                  color: widget.isDark ? Colors.white54 : Colors.black54,
-                  fontFamily: 'Inter',
+                  color: _textSecondary,
+                  fontFamily: null,
                 ),
               ),
               SizedBox(height: 6 * widget.scale),
@@ -517,8 +587,8 @@ class _CommunitySettingsFormState extends State<_CommunitySettingsForm> {
                 onChanged: (_) => setState(() {}),
                 style: TextStyle(
                   fontSize: 14 * widget.scale,
-                  color: widget.isDark ? Colors.white : Colors.black,
-                  fontFamily: 'Inter',
+                  color: _textPrimary,
+                  fontFamily: null,
                 ),
                 decoration:
                     _decoration(
@@ -542,22 +612,20 @@ class _CommunitySettingsFormState extends State<_CommunitySettingsForm> {
     hintText: label,
     hintStyle: TextStyle(
       fontSize: 13 * widget.scale,
-      color: widget.isDark ? Colors.white30 : Colors.black38,
+      color: _textMuted,
     ),
     filled: true,
-    fillColor: widget.isDark ? const Color(0xFF18181B) : Colors.white,
+    fillColor: _inputBg,
     enabledBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(8 * widget.scale),
       borderSide: BorderSide(
-        color: widget.isDark
-            ? const Color(0xFF242428)
-            : const Color(0xFFE4E4E7),
+        color: _borderColor,
       ),
     ),
     focusedBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(8 * widget.scale),
       borderSide: BorderSide(
-        color: widget.isDark ? Colors.white54 : Colors.black54,
+        color: _borderSelectedColor,
       ),
     ),
   );
@@ -577,8 +645,8 @@ class _CommunitySettingsFormState extends State<_CommunitySettingsForm> {
           style: TextStyle(
             fontSize: 12 * widget.scale,
             fontWeight: FontWeight.w600,
-            color: widget.isDark ? Colors.white54 : Colors.black54,
-            fontFamily: 'Inter',
+            color: _textSecondary,
+            fontFamily: null,
           ),
         ),
         SizedBox(height: 6 * widget.scale),
@@ -589,14 +657,22 @@ class _CommunitySettingsFormState extends State<_CommunitySettingsForm> {
           onChanged: (_) => setState(() {}),
           style: TextStyle(
             fontSize: 14 * widget.scale,
-            color: widget.isDark ? Colors.white : Colors.black,
-            fontFamily: 'Inter',
+            color: _textPrimary,
+            fontFamily: null,
           ),
           decoration: _decoration(label).copyWith(
             prefixText: prefix,
+            prefixStyle: TextStyle(
+              fontSize: 14 * widget.scale,
+              color: _textSecondary,
+            ),
             counterText: maxLength == null
                 ? null
                 : '${controller.text.length}/$maxLength',
+            counterStyle: TextStyle(
+              fontSize: 11 * widget.scale,
+              color: _textMuted,
+            ),
             contentPadding: EdgeInsets.all(14 * widget.scale),
           ),
         ),
@@ -644,20 +720,10 @@ class _CommunitySettingsFormState extends State<_CommunitySettingsForm> {
         duration: const Duration(milliseconds: 150),
         padding: EdgeInsets.all(12 * widget.scale),
         decoration: BoxDecoration(
-          color: selected
-              ? (widget.isDark
-                    ? const Color(0xFF27272A)
-                    : const Color(0xFFE4E4E7))
-              : (widget.isDark
-                    ? const Color(0xFF141416)
-                    : const Color(0xFFF4F4F5)),
+          color: selected ? _cardSelectedBg : _cardBg,
           borderRadius: BorderRadius.circular(8 * widget.scale),
           border: Border.all(
-            color: selected
-                ? (widget.isDark ? Colors.white : Colors.black)
-                : (widget.isDark
-                      ? const Color(0xFF242428)
-                      : const Color(0xFFE4E4E7)),
+            color: selected ? _borderSelectedColor : _borderColor,
             width: selected ? 1.5 : 1,
           ),
         ),
@@ -666,9 +732,7 @@ class _CommunitySettingsFormState extends State<_CommunitySettingsForm> {
             Icon(
               icon,
               size: 18 * widget.scale,
-              color: selected
-                  ? (widget.isDark ? Colors.white : Colors.black)
-                  : (widget.isDark ? Colors.white38 : Colors.black38),
+              color: selected ? _textPrimary : _textSecondary,
             ),
             SizedBox(width: 10 * widget.scale),
             Expanded(
@@ -680,15 +744,16 @@ class _CommunitySettingsFormState extends State<_CommunitySettingsForm> {
                     style: TextStyle(
                       fontSize: 13 * widget.scale,
                       fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                      fontFamily: 'Inter',
+                      color: _textPrimary,
+                      fontFamily: null,
                     ),
                   ),
                   Text(
                     subtitle,
                     style: TextStyle(
                       fontSize: 10.5 * widget.scale,
-                      color: widget.isDark ? Colors.white54 : Colors.black54,
-                      fontFamily: 'Inter',
+                      color: _textSecondary,
+                      fontFamily: null,
                     ),
                   ),
                 ],
@@ -706,6 +771,7 @@ class _CommunitySettingsFormState extends State<_CommunitySettingsForm> {
       style: TextStyle(
         fontSize: 13 * widget.scale,
         fontWeight: FontWeight.w700,
+        color: _textPrimary,
       ),
     ),
   );
@@ -721,12 +787,10 @@ class _CommunitySettingsFormState extends State<_CommunitySettingsForm> {
       vertical: 8 * widget.scale,
     ),
     decoration: BoxDecoration(
-      color: widget.isDark ? const Color(0xFF141416) : const Color(0xFFF4F4F5),
+      color: _cardBg,
       borderRadius: BorderRadius.circular(8 * widget.scale),
       border: Border.all(
-        color: widget.isDark
-            ? const Color(0xFF242428)
-            : const Color(0xFFE4E4E7),
+        color: _borderColor,
       ),
     ),
     child: Row(
@@ -734,7 +798,7 @@ class _CommunitySettingsFormState extends State<_CommunitySettingsForm> {
         Icon(
           icon,
           size: 18 * widget.scale,
-          color: widget.isDark ? Colors.white54 : Colors.black54,
+          color: _textSecondary,
         ),
         SizedBox(width: 10 * widget.scale),
         Expanded(
@@ -746,28 +810,34 @@ class _CommunitySettingsFormState extends State<_CommunitySettingsForm> {
                 style: TextStyle(
                   fontSize: 13 * widget.scale,
                   fontWeight: FontWeight.w600,
-                  fontFamily: 'Inter',
+                  color: _textPrimary,
+                  fontFamily: null,
                 ),
               ),
               Text(
                 subtitle,
                 style: TextStyle(
                   fontSize: 11 * widget.scale,
-                  color: widget.isDark ? Colors.white54 : Colors.black54,
-                  fontFamily: 'Inter',
+                  color: _textSecondary,
+                  fontFamily: null,
                 ),
               ),
             ],
           ),
         ),
-        Switch(value: value, onChanged: onChanged),
+        Switch(
+          value: value,
+          onChanged: onChanged,
+          activeThumbColor: _accentColor,
+          activeTrackColor: _accentColor.withValues(alpha: 0.5),
+        ),
       ],
     ),
   );
   Widget _readonly(String label, String value) => ListTile(
     contentPadding: EdgeInsets.zero,
-    title: Text(label),
-    subtitle: SelectableText(value),
+    title: Text(label, style: TextStyle(color: _textSecondary)),
+    subtitle: SelectableText(value, style: TextStyle(color: _textPrimary)),
   );
 
   Widget _adminPermissions() => Column(
@@ -780,7 +850,9 @@ class _CommunitySettingsFormState extends State<_CommunitySettingsForm> {
             (e) => CheckboxListTile(
               contentPadding: EdgeInsets.zero,
               dense: true,
-              title: Text(l10n.text(e.value)),
+              activeColor: _accentColor,
+              checkColor: context.xnxColor('btn-primary-text') ?? (widget.isDark ? Colors.black : Colors.white),
+              title: Text(l10n.text(e.value), style: TextStyle(color: _textPrimary)),
               value: permissions[e.key],
               onChanged: isCreator
                   ? (v) => setState(() => permissions[e.key] = v ?? false)
@@ -812,6 +884,9 @@ class _CommunitySettingsFormState extends State<_CommunitySettingsForm> {
           children: reactionChoices
               .map(
                 (emoji) => FilterChip(
+                  backgroundColor: _cardBg,
+                  selectedColor: _cardSelectedBg,
+                  side: BorderSide(color: _borderColor),
                   label: Text(
                     emoji,
                     style: TextStyle(fontSize: 19 * widget.scale),
@@ -851,7 +926,15 @@ class _CommunitySettingsFormState extends State<_CommunitySettingsForm> {
             children: presets
                 .map(
                   (e) => ChoiceChip(
-                    label: Text(l10n.duration(e)),
+                    backgroundColor: _cardBg,
+                    selectedColor: _cardSelectedBg,
+                    side: BorderSide(color: _borderColor),
+                    label: Text(
+                      l10n.duration(e),
+                      style: TextStyle(
+                        color: slowSeconds == e ? _textPrimary : _textSecondary,
+                      ),
+                    ),
                     selected: slowSeconds == e,
                     onSelected: (_) => setState(() => slowSeconds = e),
                   ),
@@ -860,13 +943,17 @@ class _CommunitySettingsFormState extends State<_CommunitySettingsForm> {
           ),
           CheckboxListTile(
             contentPadding: EdgeInsets.zero,
-            title: Text(l10n.text('messenger.slowMode.admins')),
+            activeColor: _accentColor,
+            checkColor: context.xnxColor('btn-primary-text') ?? (widget.isDark ? Colors.black : Colors.white),
+            title: Text(l10n.text('messenger.slowMode.admins'), style: TextStyle(color: _textPrimary)),
             value: adminsException,
             onChanged: (v) => setState(() => adminsException = v ?? false),
           ),
           CheckboxListTile(
             contentPadding: EdgeInsets.zero,
-            title: Text(l10n.text('messenger.slowMode.verified')),
+            activeColor: _accentColor,
+            checkColor: context.xnxColor('btn-primary-text') ?? (widget.isDark ? Colors.black : Colors.white),
+            title: Text(l10n.text('messenger.slowMode.verified'), style: TextStyle(color: _textPrimary)),
             value: verifiedException,
             onChanged: (v) => setState(() => verifiedException = v ?? false),
           ),

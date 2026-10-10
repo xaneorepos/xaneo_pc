@@ -119,7 +119,7 @@ class _CustomTextFormFieldState extends State<CustomTextFormField> {
       style: TextStyle(
         fontSize: 14 * scale,
         color: isDark ? Colors.white : Colors.black,
-        fontFamily: 'Inter',
+        fontFamily: null,
       ),
       spellCheckConfiguration: null,
       decoration: InputDecoration(
@@ -174,7 +174,7 @@ class _CustomTextFormFieldState extends State<CustomTextFormField> {
         labelStyle: TextStyle(
           color: isDark ? Colors.grey.shade500 : Colors.grey.shade500,
           fontSize: 13 * scale,
-          fontFamily: 'Inter',
+          fontFamily: null,
         ),
         contentPadding: EdgeInsets.symmetric(vertical: 16 * scale),
       ),

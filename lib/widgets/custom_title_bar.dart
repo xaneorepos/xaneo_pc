@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
 import '../providers/theme_provider.dart';
+import '../services/api_service.dart';
 
 class CustomTitleBar extends StatefulWidget {
   const CustomTitleBar({super.key});
@@ -89,7 +90,7 @@ class _CustomTitleBarState extends State<CustomTitleBar> with WindowListener {
                       ),
                       const SizedBox(width: 10),
                       Text(
-                        'Xaneo',
+                        ApiService.appDisplayName,
                         style: TextStyle(
                           color: isDark
                               ? Colors.white.withOpacity(0.7)
@@ -97,7 +98,7 @@ class _CustomTitleBarState extends State<CustomTitleBar> with WindowListener {
                           fontSize: 14,
                           fontWeight: FontWeight.w500,
                           letterSpacing: 0.5,
-                          fontFamily: 'Inter',
+                          fontFamily: null,
                         ),
                       ),
                     ],

@@ -263,7 +263,7 @@ class _ToastWidgetState extends State<_ToastWidget>
                                     style: TextStyle(
                                       color: Colors.white,
                                       fontSize: 14 * scale,
-                                      fontFamily: 'Inter',
+                                      fontFamily: null,
                                       fontWeight: FontWeight.w400,
                                     ),
                                   ),

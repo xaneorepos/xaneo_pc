@@ -3294,20 +3294,22 @@ class _MessengerScreenState extends State<MessengerScreen> {
       }
     }
 
-    if (targetUserIdStr == null || targetUserIdStr == myIdStr) {
+    // Capture the resolved ID before the async closure so its type remains stable.
+    final peerUserId = targetUserIdStr;
+    if (peerUserId == null || peerUserId == myIdStr) {
       return null;
     }
 
     final myPubKeyHex = _cryptoService.x25519PublicKeyHex;
 
     // Check cached peer keys, but invalidate if cached key erroneously matches my own public key!
-    if (!refresh && _peerPublicKeys.containsKey(targetUserIdStr)) {
-      final cachedKey = _peerPublicKeys[targetUserIdStr];
+    if (!refresh && _peerPublicKeys.containsKey(peerUserId)) {
+      final cachedKey = _peerPublicKeys[peerUserId];
       if (cachedKey != null &&
           cachedKey != 'bot' &&
           myPubKeyHex != null &&
           cachedKey == myPubKeyHex) {
-        _peerPublicKeys.remove(targetUserIdStr);
+        _peerPublicKeys.remove(peerUserId);
       } else {
         return cachedKey;
       }
@@ -3315,37 +3317,37 @@ class _MessengerScreenState extends State<MessengerScreen> {
 
     // Match the web and mobile clients: resolve the peer by the immutable user
     // ID from the chat, since the username in cached chat metadata can change.
-    final inFlight = _peerPublicKeyFetches[targetUserIdStr];
+    final inFlight = _peerPublicKeyFetches[peerUserId];
     if (inFlight != null) return inFlight;
-    final lastRefresh = _peerPublicKeyRefreshTimes[targetUserIdStr];
+    final lastRefresh = _peerPublicKeyRefreshTimes[peerUserId];
     if (refresh &&
         lastRefresh != null &&
         DateTime.now().difference(lastRefresh) < const Duration(seconds: 30)) {
-      return _peerPublicKeys[targetUserIdStr];
+      return _peerPublicKeys[peerUserId];
     }
     final future = () async {
-      final res = await _apiService.getUserPublicKey(targetUserIdStr!);
+      final res = await _apiService.getUserPublicKey(peerUserId);
       if (res.success && res.data != null) {
         if (res.data!['is_bot'] == true) {
-          _peerPublicKeys[targetUserIdStr] = 'bot';
+          _peerPublicKeys[peerUserId] = 'bot';
           await _savePeerPublicKeys();
           return 'bot';
         }
         final key = res.data!['x25519_public_key'] as String?;
         if (key != null && key.isNotEmpty && key != myPubKeyHex) {
-          _peerPublicKeys[targetUserIdStr] = key;
+          _peerPublicKeys[peerUserId] = key;
           await _savePeerPublicKeys();
           return key;
         }
       }
-      return _peerPublicKeys[targetUserIdStr];
+      return _peerPublicKeys[peerUserId];
     }();
-    _peerPublicKeyFetches[targetUserIdStr] = future;
+    _peerPublicKeyFetches[peerUserId] = future;
     try {
       return await future;
     } finally {
-      _peerPublicKeyFetches.remove(targetUserIdStr);
-      if (refresh) _peerPublicKeyRefreshTimes[targetUserIdStr] = DateTime.now();
+      _peerPublicKeyFetches.remove(peerUserId);
+      if (refresh) _peerPublicKeyRefreshTimes[peerUserId] = DateTime.now();
     }
   }
 

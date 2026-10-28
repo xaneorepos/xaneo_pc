@@ -23,6 +23,12 @@ import '../providers/theme_provider.dart';
 import '../providers/scale_provider.dart';
 import '../providers/playback_provider.dart';
 import '../utils/audio_metadata.dart';
+import '../utils/message_links.dart';
+import '../services/scheduled_messages.dart';
+import '../widgets/scheduled_messages_dialog.dart';
+import '../widgets/linked_message_text.dart';
+import '../controllers/draft_link_preview_controller.dart';
+import '../widgets/draft_link_preview_composer.dart';
 import '../l10n/app_localizations.dart';
 import '../l10n/community_settings_localizations.dart';
 import '../widgets/advanced_background.dart';
@@ -150,6 +156,10 @@ class _MessengerScreenState extends State<MessengerScreen> {
   // Message input controller
   final FormattedTextEditingController _messageController =
       FormattedTextEditingController();
+  late final DraftLinkPreviewController _draftLinkPreview =
+      DraftLinkPreviewController(fetch: _apiService.fetchLinkPreview);
+  String get _draftPreviewScope =>
+      '$_myId:${_selectedChat?['chat_id'] ?? _selectedChat?['id']}:$_commentChannelId:$_commentPostId';
   final ScrollController _scrollController = ScrollController();
   final GlobalKey _messageListKey = GlobalKey();
   String? _floatingDateText;
@@ -199,6 +209,12 @@ class _MessengerScreenState extends State<MessengerScreen> {
   late final FocusNode _messageFocusNode = FocusNode(
     onKeyEvent: (node, event) {
       if (event is KeyDownEvent) {
+        if (event.logicalKey == LogicalKeyboardKey.contextMenu ||
+            (event.logicalKey == LogicalKeyboardKey.f10 && HardwareKeyboard.instance.isShiftPressed)) {
+          final box = _messageFocusNode.context?.findRenderObject();
+          if (box is RenderBox) _showScheduledMenu(box.localToGlobal(Offset(box.size.width, 0)));
+          return KeyEventResult.handled;
+        }
         if (event.logicalKey == LogicalKeyboardKey.enter ||
             event.logicalKey == LogicalKeyboardKey.numpadEnter) {
           final isShiftPressed = HardwareKeyboard.instance.isShiftPressed;
@@ -326,6 +342,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
     try {
       context.read<CallManager>().removeListener(_handleCallStateChanged);
     } catch (_) {}
+    _draftLinkPreview.dispose();
     _messageController.removeListener(_onMessageTextChanged);
     _webSocketService?.dispose();
     _sessionEventsService?.dispose();
@@ -3875,6 +3892,194 @@ class _MessengerScreenState extends State<MessengerScreen> {
     );
   }
 
+  ScheduledMessagesApi _scheduledApi() => ScheduledMessagesApi(
+    request: _apiService.scheduledMessageRequest,
+    baseUrl: Uri.parse(ApiService.baseUrl),
+  );
+
+  Future<Map<String, dynamic>> _sealScheduled(
+    String text,
+    String chatId,
+    Map<String, dynamic>? peer,
+  ) async {
+    String encrypted;
+    int? epoch;
+    var bot = false;
+    if (chatId == 'favorites' || chatId.startsWith('favorites_')) {
+      final user = _myId?.toString();
+      if (user == null) throw StateError('No user');
+      encrypted = await _cryptoService.encryptFavoritesMessage(text, user);
+    } else if (chatId.startsWith('personal_')) {
+      final key = await _getPeerPublicKey(peer, chatId: chatId, refresh: true);
+      if (key == null)
+        throw ScheduleException(scheduleText(context, 'keyRequired'));
+      bot = key == 'bot';
+      encrypted = bot
+          ? text
+          : await _cryptoService.encryptPersonalMessage(text, key, chatId);
+    } else {
+      final response = await _apiService.getGroupEpochCurrent(chatId);
+      if (!response.success || response.data == null)
+        throw ScheduleException(scheduleText(context, 'keyRequired'));
+      final key = await _cryptoService.deriveEpochKeyFromData(response.data!);
+      if (key == null)
+        throw ScheduleException(scheduleText(context, 'keyRequired'));
+      epoch = int.tryParse(response.data!['epoch_id']?.toString() ?? '');
+      encrypted = await _cryptoService.encryptGroupMessage(text, key);
+    }
+    return {
+      'encrypted_text': encrypted,
+      'signature': bot ? '' : await _cryptoService.signMessage(encrypted),
+      if (epoch != null) 'epoch_id': epoch,
+    };
+  }
+
+  Future<String> _decryptScheduled(
+    Map<String, dynamic> payload,
+    String chatId,
+    Map<String, dynamic>? peer,
+  ) async {
+    final encrypted = payload['encrypted_text']?.toString() ?? '';
+    String text;
+    if (chatId.startsWith('favorites_') || chatId == 'favorites') {
+      final user = _myId?.toString();
+      if (user == null)
+        throw ScheduleException(scheduleText(context, 'keyRequired'));
+      text = await _cryptoService.decryptFavoritesMessage(encrypted, user);
+    } else if (chatId.startsWith('personal_')) {
+      final key = await _getPeerPublicKey(peer, chatId: chatId);
+      if (key == null)
+        throw ScheduleException(scheduleText(context, 'keyRequired'));
+      text = key == 'bot'
+          ? encrypted
+          : await _cryptoService.decryptPersonalMessage(encrypted, key, chatId);
+    } else {
+      final epoch = int.tryParse(payload['epoch_id']?.toString() ?? '');
+      final response = epoch == null
+          ? await _apiService.getGroupEpochCurrent(chatId)
+          : await _apiService.getGroupEpochHistorical(chatId, epoch);
+      final key = response.success && response.data != null
+          ? await _cryptoService.deriveEpochKeyFromData(response.data!)
+          : null;
+      if (key == null)
+        throw ScheduleException(scheduleText(context, 'keyRequired'));
+      text = await _cryptoService.decryptGroupMessage(encrypted, key);
+    }
+    if (text == '[Ошибка дешифрования]')
+      throw ScheduleException(scheduleText(context, 'keyRequired'));
+    return text;
+  }
+
+  void _showScheduledMenu(Offset position) {
+    if (_selectedChat == null || _isRecording) return;
+    CustomContextMenu.show(
+      context: context,
+      position: position,
+      items: [
+        if (_showSendButton)
+          CustomContextMenuItem(
+            icon: const Icon(Icons.schedule_rounded),
+            label: scheduleText(context, 'title'),
+            onTap: _scheduleDraft,
+          ),
+        CustomContextMenuItem(
+          icon: const Icon(Icons.event_note_rounded),
+          label: scheduleText(context, 'list'),
+          onTap: _openScheduledList,
+        ),
+      ],
+    );
+  }
+
+  Future<void> _openScheduledList() async {
+    final chatId = (_selectedChat?['chat_id'] ?? _selectedChat?['id'])
+        ?.toString();
+    if (chatId == null) return;
+    final rawPeer = _selectedChat?['other_user'];
+    final peer = rawPeer is Map ? Map<String, dynamic>.from(rawPeer) : null;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    await showScheduledMessages(
+      context,
+      api: _scheduledApi(),
+      chatId: chatId,
+      seal: (text) => _sealScheduled(text, chatId, peer),
+      decrypt: (payload) => _decryptScheduled(payload, chatId, peer),
+      foreground:
+          context.xnxColor('text') ?? (dark ? Colors.white : Colors.black87),
+      background:
+          context.xnxColor('surface') ??
+          (dark ? const Color(0xFF141416) : Colors.white),
+    );
+  }
+
+  Future<void> _scheduleDraft() async {
+    final chatId = (_selectedChat?['chat_id'] ?? _selectedChat?['id'])
+        ?.toString();
+    if (chatId == null) return;
+    final original = _messageController.text;
+    final text = original.trim();
+    final files = _attachedFiles
+        .where((file) => file['chat_id'] == chatId)
+        .toList();
+    try {
+      if (_uploadingFiles.any((file) => file['chat_id'] == chatId))
+        throw ScheduleException(scheduleText(context, 'uploadRequired'));
+      if ((text.isEmpty && files.isEmpty) ||
+          text.length > 4096 ||
+          files.length > 10)
+        throw ScheduleException(scheduleText(context, 'draftRequired'));
+      final reply = _replyingToMessage;
+      final replyId =
+          _commentMirrorId ?? int.tryParse(reply?['id']?.toString() ?? '');
+      if (reply != null && replyId == null)
+        throw ScheduleException(scheduleText(context, 'unsupportedReply'));
+      final comment = _commentChannelId != null;
+      final rawPeer = _selectedChat?['other_user'];
+      final peer = rawPeer is Map ? Map<String, dynamic>.from(rawPeer) : null;
+      final api = _scheduledApi();
+      final submission = ScheduledSubmission(
+        api: api,
+        prepare: () async => {
+          ...await _sealScheduled(text, chatId, peer),
+          'chat_id': chatId,
+          'images': files.map((file) => {'file_id': file['file_id']}).toList(),
+          if (replyId != null) 'reply_to_id': replyId,
+          'is_channel_comment': comment,
+        },
+      );
+      final dark = Theme.of(context).brightness == Brightness.dark;
+      final saved = await showScheduleCreate(
+        context,
+        submission: submission,
+        preview: text.isEmpty ? scheduleText(context, 'attachments') : text,
+        foreground:
+            context.xnxColor('text') ?? (dark ? Colors.white : Colors.black87),
+        background:
+            context.xnxColor('surface') ??
+            (dark ? const Color(0xFF141416) : Colors.white),
+      );
+      if (!saved || !mounted) return;
+      if ((_selectedChat?['chat_id'] ?? _selectedChat?['id'])?.toString() ==
+              chatId &&
+          _messageController.text == original) {
+        _messageController.clear();
+        setState(() {
+          _attachedFiles.removeWhere(files.contains);
+          if (identical(reply, _replyingToMessage)) _replyingToMessage = null;
+        });
+        _sendTypingStatus(false, 'typing');
+      }
+      CustomToast.show(
+        context,
+        scheduleText(context, 'saved'),
+        type: ToastType.success,
+      );
+    } catch (error) {
+      if (mounted)
+        CustomToast.show(context, error.toString(), type: ToastType.error);
+    }
+  }
+
   Future<void> _sendMessage() async {
     if (_commentChannelId != null) {
       await _sendCommentMessage();
@@ -3910,6 +4115,8 @@ class _MessengerScreenState extends State<MessengerScreen> {
     final myUserId = _myId?.toString();
     final otherUser = _selectedChat!['other_user'] as Map<String, dynamic>?;
 
+    final linkPreviewFuture = _draftLinkPreview.snapshotForSend(
+      text, scope: _draftPreviewScope);
     _messageController.clear();
 
     String plaintextToEncrypt = text;
@@ -4015,6 +4222,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
       return;
     }
 
+    final linkPreview = await linkPreviewFuture;
     _sentPlaintexts[encryptedText] = plaintextToEncrypt;
 
     final replySnapshot = _replyingToMessage == null
@@ -4036,10 +4244,12 @@ class _MessengerScreenState extends State<MessengerScreen> {
     }
 
     bool sentViaWs = false;
-    if (_webSocketService != null && _webSocketService!.isConnected) {
+    if (_webSocketService != null && _webSocketService!.isConnected &&
+        (_selectedChat?['chat_id'] ?? _selectedChat?['id'])?.toString() == chatId) {
       sentViaWs = _webSocketService!.sendMessage({
         'type': 'encrypted_message',
         'encrypted_text': encryptedText,
+        if (linkPreview != null) 'link_preview': linkPreview,
         // Все вложения несут полный descriptor в images, как mobile/web.
         // Для обычного файла дополнительно сохраняем file_id, чтобы бэк связал
         // сообщение с SecureFileUpload через attached_file.
@@ -4069,6 +4279,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
             _myUsername ??
             (AppLocalizations.of(context)?.vy_0101 ?? 'Fallback'),
         'encrypted_text': encryptedText,
+        if (linkPreview != null) 'link_preview': linkPreview,
         'created_at': DateTime.now().toIso8601String(),
         'reply_to_id': replyToId,
         'reply_text': replyPreviewText,
@@ -4120,11 +4331,15 @@ class _MessengerScreenState extends State<MessengerScreen> {
         return;
       }
       final res = await _apiService.sendMessage(chatId, encryptedText);
+      if (res.success && res.data != null && linkPreview != null) {
+        res.data!['link_preview'] = linkPreview;
+      }
       if (res.success && res.data != null) {
         final newMsg = res.data!;
         final dynamic rawId = newMsg['id'];
         final id = rawId is int ? rawId : (int.tryParse(rawId.toString()) ?? 0);
         _decryptedMessages[id] = text;
+        if ((_selectedChat?['chat_id'] ?? _selectedChat?['id'])?.toString() != chatId) return;
 
         if (mounted) {
           setState(() {
@@ -4167,6 +4382,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
         .toList();
     if (text.isEmpty && files.isEmpty) return;
     if (_uploadingFiles.any((file) => file['chat_id'] == chatId)) return;
+    final linkPreviewFuture = _draftLinkPreview.snapshotForSend(text, scope: _draftPreviewScope);
     try {
       final key = await _getGroupChatKey(chatId);
       if (key == null) throw StateError('No group key');
@@ -4182,11 +4398,13 @@ class _MessengerScreenState extends State<MessengerScreen> {
             },
           )
           .toList();
+      final linkPreview = await linkPreviewFuture;
       final sent =
           _webSocketService?.isConnected == true &&
           _webSocketService!.sendMessage({
             'type': 'encrypted_message',
             'encrypted_text': cipher,
+            if (linkPreview != null) 'link_preview': linkPreview,
             'reply_to_id': mirrorId,
             'is_channel_comment': true,
             'images': descriptors,
@@ -4204,7 +4422,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
         if (!result.success) throw StateError(result.error ?? 'Send failed');
       }
       if (!mounted) return;
-      _messageController.clear();
+      if (_messageController.text.trim() == text) _messageController.clear();
       setState(() => _attachedFiles.removeWhere(files.contains));
       if (!sent) await _loadCommentDiscussion();
     } catch (_) {
@@ -4295,9 +4513,15 @@ class _MessengerScreenState extends State<MessengerScreen> {
     );
   }
 
+  Map<String, dynamic>? _messageLinkPreview(Map<String, dynamic> message) {
+    final metadata = message['message_data'];
+    final raw = message['link_preview'] ?? (metadata is Map ? metadata['link_preview'] : null);
+    return matchingMessageLinkPreview(raw, _decryptedMessages[message['id']]?.toString() ?? '');
+  }
+
   Widget _buildFormattedText(String text, TextStyle baseStyle) {
-    final spans = _parseFormattedSpans(text, baseStyle);
-    return SelectableText.rich(TextSpan(children: spans), style: baseStyle);
+    return LinkedMessageText(content: text, baseStyle: baseStyle,
+      selectable: true, format: _parseFormattedSpans);
   }
 
   List<InlineSpan> _parseFormattedSpans(String text, TextStyle baseStyle) {
@@ -6552,7 +6776,6 @@ class _MessengerScreenState extends State<MessengerScreen> {
     final voiceList = <Map<String, dynamic>>[];
     final linksList = <Map<String, dynamic>>[];
 
-    final urlRegExp = RegExp(r'https?://[^\s]+', caseSensitive: false);
 
     for (final msg in _messages) {
       final customPayload = _getCustomPayload(msg);
@@ -6713,9 +6936,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
       }
 
       if (text.isNotEmpty) {
-        final matches = urlRegExp.allMatches(text);
+        final matches = findMessageLinks(text);
         for (final match in matches) {
-          linksList.add({'url': match.group(0)!, 'msg': msg});
+          linksList.add({'url': match.uri.toString(), 'msg': msg});
         }
       }
     }
@@ -10952,6 +11175,9 @@ class _MessengerScreenState extends State<MessengerScreen> {
                   ),
                 ),
 
+              MessageLinkPreview(
+                data: _messageLinkPreview(msg), foreground: messageForeground),
+
               if (!isOnlyMedia ||
                   (msg['reactions'] != null &&
                       (msg['reactions'] as List).isNotEmpty))
@@ -12792,6 +13018,17 @@ class _MessengerScreenState extends State<MessengerScreen> {
   }
 
   Widget _buildMessageInput(bool isDark, double scale) {
+    return DraftLinkPreviewComposer(
+      preview: _draftLinkPreview, textController: _messageController, scope: _draftPreviewScope,
+      foreground: context.xnxColor('text') ?? (isDark ? Colors.white : Colors.black87),
+      background: context.xnxColor('surface') ?? (isDark ? const Color(0xFF191D21) : Colors.white),
+      maxPreviewWidth: 600 * scale,
+      previewHorizontalPadding: 16,
+      child: _buildMessageInputBody(isDark, scale),
+    );
+  }
+
+  Widget _buildMessageInputBody(bool isDark, double scale) {
     final l10n = AppLocalizations.of(context);
     final showRecordTooltip =
         _isHoveringRecordButton && !_showSendButton && !_isRecording;
@@ -13446,6 +13683,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                               });
                             },
                             child: GestureDetector(
+                              onSecondaryTapDown: (details) => _showScheduledMenu(details.globalPosition),
                               onTap: () {
                                 if (_isSlowModeActive) {
                                   _showSlowModeBlockedToast();
@@ -13465,7 +13703,7 @@ class _MessengerScreenState extends State<MessengerScreen> {
                                 }
                               },
                               onLongPressStart: _showSendButton
-                                  ? null
+                                  ? (details) => _showScheduledMenu(details.globalPosition)
                                   : _isSlowModeActive
                                   ? null
                                   : (_) => _startRecording(),

@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import '../services/linux_package_updater.dart';
+
 /// Модель информации об обновлении приложения
 class AppVersionInfo {
   final String version;
@@ -38,18 +40,26 @@ class AppVersionInfo {
 
       if (urls.isNotEmpty) {
         if (Platform.isLinux) {
-          download = urls.firstWhere((u) => u.toLowerCase().endsWith('.appimage'),
-              orElse: () => urls.firstWhere((u) => u.toLowerCase().endsWith('.deb'),
-                  orElse: () => urls.firstWhere((u) => u.toLowerCase().endsWith('.rpm'),
-                      orElse: () => urls.first)));
+          download = LinuxPackageUpdater.selectDownload(
+            urls,
+            LinuxPackageUpdater.readOsRelease(),
+          );
         } else if (Platform.isWindows) {
-          download = urls.firstWhere((u) => u.toLowerCase().endsWith('.exe'),
-              orElse: () => urls.firstWhere((u) => u.toLowerCase().endsWith('.zip'),
-                  orElse: () => urls.first));
+          download = urls.firstWhere(
+            (u) => u.toLowerCase().endsWith('.exe'),
+            orElse: () => urls.firstWhere(
+              (u) => u.toLowerCase().endsWith('.zip'),
+              orElse: () => urls.first,
+            ),
+          );
         } else if (Platform.isMacOS) {
-          download = urls.firstWhere((u) => u.toLowerCase().endsWith('.dmg'),
-              orElse: () => urls.firstWhere((u) => u.toLowerCase().endsWith('.zip'),
-                  orElse: () => urls.first));
+          download = urls.firstWhere(
+            (u) => u.toLowerCase().endsWith('.dmg'),
+            orElse: () => urls.firstWhere(
+              (u) => u.toLowerCase().endsWith('.zip'),
+              orElse: () => urls.first,
+            ),
+          );
         } else {
           download = urls.first;
         }
@@ -65,7 +75,9 @@ class AppVersionInfo {
     return AppVersionInfo(
       version: versionClean.isEmpty ? '1.0.14' : versionClean,
       releaseNotes: json['body'] as String? ?? '',
-      htmlUrl: json['html_url'] as String? ?? 'https://github.com/xaneorepos/xaneo_pc/releases/latest',
+      htmlUrl:
+          json['html_url'] as String? ??
+          'https://github.com/xaneorepos/xaneo_pc/releases/latest',
       publishedAt: pubDate,
       downloadUrl: download,
     );

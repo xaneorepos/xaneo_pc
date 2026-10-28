@@ -1333,6 +1333,32 @@ class ApiService {
     }
   }
 
+  Future<Response<dynamic>> scheduledMessageRequest(
+    String method,
+    String path,
+    dynamic data,
+    Map<String, dynamic>? query,
+  ) async {
+    final auth = await _getAuthOptions();
+    return _dio.request(
+      '$_baseUrl$path',
+      data: data,
+      queryParameters: query,
+      options: auth.copyWith(
+        method: method,
+        contentType: data is FormData
+            ? 'multipart/form-data'
+            : Headers.jsonContentType,
+      ),
+    );
+  }
+
+  Future<dynamic> fetchLinkPreview(Uri url) async {
+    final response = await _dio.post('$_baseUrl/link-preview/',
+      options: await _getAuthOptions(), data: {'url': url.toString()});
+    return response.data;
+  }
+
   /// Отправить зашифрованное сообщение
   Future<ApiResponse> sendMessage(String chatId, String encryptedText) async {
     try {

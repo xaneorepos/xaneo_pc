@@ -88,9 +88,11 @@ abstract class BaseCustomModalState<T extends BaseCustomModal>
     final screenSize = MediaQuery.of(context).size;
 
     final hasXnx = context.read<ThemeProvider>().xnxTheme != null;
-    final bgColor = hasXnx ? Theme.of(context).cardColor
+    final bgColor = hasXnx
+        ? Theme.of(context).cardColor
         : (isDark ? const Color(0xFF0C0C0C) : Colors.white);
-    final borderColor = hasXnx ? Theme.of(context).colorScheme.outline
+    final borderColor = hasXnx
+        ? Theme.of(context).colorScheme.outline
         : (isDark ? const Color(0xFF1E1E1E) : const Color(0xFFEBEBEB));
 
     return Material(
@@ -132,13 +134,20 @@ abstract class BaseCustomModalState<T extends BaseCustomModal>
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       GestureDetector(
-                        onTap: () => Navigator.of(context).pop(),
-                        child: MouseRegion(
-                          cursor: SystemMouseCursors.click,
-                          child: Icon(
-                            Icons.close_rounded,
-                            size: 18 * scale,
-                            color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.54),
+                        onTap: () => Navigator.of(context).maybePop(),
+                        child: Tooltip(
+                          message: MaterialLocalizations.of(
+                            context,
+                          ).closeButtonTooltip,
+                          child: MouseRegion(
+                            cursor: SystemMouseCursors.click,
+                            child: Icon(
+                              Icons.close_rounded,
+                              size: 18 * scale,
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurface.withValues(alpha: 0.54),
+                            ),
                           ),
                         ),
                       ),

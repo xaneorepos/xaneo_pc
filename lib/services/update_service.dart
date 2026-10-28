@@ -7,6 +7,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/app_version_info.dart';
+import 'linux_package_updater.dart';
 
 class UpdateService {
   static final UpdateService _instance = UpdateService._internal();
@@ -111,7 +112,9 @@ class UpdateService {
     String? downloadingLabel,
     String? launchingInstallerLabel,
   }) async {
-    final tempDir = await getTemporaryDirectory();
+    final tempDir = await (await getTemporaryDirectory()).createTemp(
+      'xaneo-update-',
+    );
     final uri = Uri.parse(url);
     final filename = uri.pathSegments.isNotEmpty
         ? uri.pathSegments.last
@@ -147,120 +150,43 @@ class UpdateService {
     onProgress(1.0, launchingInstallerLabel ?? 'Запуск установки...');
 
     if (Platform.isLinux) {
-      final lowerPath = savePath.toLowerCase();
-      final chmodRes = await Process.run('chmod', ['+x', savePath]);
-      debugPrint(
-        '[UPDATE_SERVICE] chmod +x exitCode: ${chmodRes.exitCode}, stderr: ${chmodRes.stderr}',
-      );
-
-      if (lowerPath.contains('.deb')) {
-        debugPrint('[UPDATE_SERVICE] Launching DEB package with xdg-open...');
-        try {
-          final p = await Process.start('xdg-open', [
-            savePath,
-          ], mode: ProcessStartMode.detached);
-          debugPrint('[UPDATE_SERVICE] xdg-open launched, PID: ${p.pid}');
-        } catch (e) {
-          debugPrint('[UPDATE_SERVICE] xdg-open failed: $e, trying gdebi...');
-          final p = await Process.start('gdebi', [
-            savePath,
-          ], mode: ProcessStartMode.detached);
-          debugPrint('[UPDATE_SERVICE] gdebi launched, PID: ${p.pid}');
-        }
-      } else if (lowerPath.contains('.appimage')) {
-        bool hasFuse = false;
-        String ldconfigCmd = 'ldconfig';
-        for (final p in ['/sbin/ldconfig', '/usr/sbin/ldconfig', 'ldconfig']) {
-          if (File(p).existsSync()) {
-            ldconfigCmd = p;
-            break;
-          }
-        }
-
-        try {
-          final res = await Process.run(ldconfigCmd, ['-p']);
-          if (res.stdout.toString().contains('libfuse.so.2')) {
-            hasFuse = true;
-          }
-        } catch (e) {
-          debugPrint('[UPDATE_SERVICE] Error checking ldconfig libfuse: $e');
-        }
-
-        if (!hasFuse) {
-          if (File('/lib/x86_64-linux-gnu/libfuse.so.2').existsSync() ||
-              File('/usr/lib/x86_64-linux-gnu/libfuse.so.2').existsSync() ||
-              File('/lib64/libfuse.so.2').existsSync() ||
-              File('/usr/lib64/libfuse.so.2').existsSync()) {
-            hasFuse = true;
-          }
-        }
-
-        final args = hasFuse
-            ? <String>[]
-            : <String>['--appimage-extract-and-run'];
-        final runWorkDir =
-            '${tempDir.path}/appimage_run_${DateTime.now().millisecondsSinceEpoch}';
-        try {
-          await Directory(runWorkDir).create(recursive: true);
-        } catch (_) {}
-
-        final cleanEnv = Map<String, String>.from(Platform.environment)
-          ..['GDK_PIXBUF_MODULE_FILE'] = '/dev/null'
-          ..['GIO_MODULE_DIR'] = '/dev/null';
-
-        try {
-          final p = await Process.start(
-            savePath,
-            args,
-            workingDirectory: runWorkDir,
-            environment: cleanEnv,
-            mode: ProcessStartMode.detached,
-          );
-          debugPrint(
-            '[UPDATE_SERVICE] AppImage process started, PID: ${p.pid}',
-          );
-        } catch (e) {
-          debugPrint(
-            '[UPDATE_SERVICE] Primary AppImage start failed: $e. Retrying with --appimage-extract-and-run...',
-          );
-          try {
-            final p = await Process.start(
-              savePath,
-              ['--appimage-extract-and-run'],
-              workingDirectory: runWorkDir,
-              environment: cleanEnv,
-              mode: ProcessStartMode.detached,
-            );
-            debugPrint(
-              '[UPDATE_SERVICE] Fallback AppImage extract-and-run started, PID: ${p.pid}',
-            );
-          } catch (e2) {
-            debugPrint(
-              '[UPDATE_SERVICE] Fallback failed: $e2. Opening via xdg-open...',
-            );
-            await Process.start('xdg-open', [
-              savePath,
-            ], mode: ProcessStartMode.detached);
-          }
-        }
-      } else {
-        debugPrint('[UPDATE_SERVICE] Launching downloaded binary...');
-        try {
-          final p = await Process.start(
-            savePath,
-            [],
-            mode: ProcessStartMode.detached,
-          );
-          debugPrint('[UPDATE_SERVICE] Binary launched PID: ${p.pid}');
-        } catch (e) {
-          debugPrint(
-            '[UPDATE_SERVICE] Binary launch failed: $e. Fallback to xdg-open...',
-          );
-          await Process.start('xdg-open', [
-            savePath,
-          ], mode: ProcessStartMode.detached);
-        }
+      await LinuxPackageUpdater.install(savePath);
+      // The old process may have inherited paths from a mounted AppImage.
+      // Restart through the installed launcher using a clean environment.
+      final environment = Map<String, String>.from(Platform.environment);
+      for (final key in [
+        'APPIMAGE',
+        'APPDIR',
+        'ARGV0',
+        'OWD',
+        'LD_LIBRARY_PATH',
+        'LD_PRELOAD',
+        'GDK_PIXBUF_MODULE_FILE',
+        'GDK_PIXBUF_MODULEDIR',
+        'GIO_MODULE_DIR',
+        'GTK_PATH',
+        'GTK_EXE_PREFIX',
+        'GTK_DATA_PREFIX',
+      ]) {
+        environment.remove(key);
       }
+      // main.dart holds a single-instance socket until this process exits.
+      // A direct launch here would only focus the old instance and terminate.
+      await Process.start(
+        '/bin/sh',
+        [
+          '-c',
+          r'while kill -0 "$1" 2>/dev/null; do sleep 0.2; done; '
+              r'shift; exec "$@"',
+          'xaneo-update-restart',
+          '$pid',
+          '/usr/bin/xaneo',
+        ],
+        workingDirectory: Platform.environment['HOME'] ?? '/',
+        environment: environment,
+        includeParentEnvironment: false,
+        mode: ProcessStartMode.detached,
+      );
     } else if (Platform.isWindows) {
       debugPrint('[UPDATE_SERVICE] Launching Windows installer...');
       final p = await Process.start(savePath, [
